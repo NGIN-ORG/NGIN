@@ -29,12 +29,12 @@ async function entries(directory: string): Promise<Dirent[]> {
 export async function enumerateProjectFiles(
   projectDirectory: string,
   projectManifest: string,
-  graph: CompositionGraph,
+  graph?: CompositionGraph,
   limit = 5000
 ): Promise<ProjectFileEntry[]> {
   const selected = new Map<string, { kind: string; generated: boolean; relative: string }>();
   const external: ProjectFileEntry[] = [];
-  for (const item of graph.buildItems.filter(item => fileKinds.has(item.kind))) {
+  for (const item of (graph?.buildItems ?? []).filter(item => fileKinds.has(item.kind))) {
     const absolute = path.isAbsolute(item.path) ? path.normalize(item.path) : path.resolve(projectDirectory, item.path);
     const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
     if (relative.startsWith('../') || path.isAbsolute(relative)) {

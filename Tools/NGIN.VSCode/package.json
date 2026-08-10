@@ -327,28 +327,148 @@
       "view/item/context": [
         {
           "command": "ngin.build",
-          "when": "view == ngin.projects && viewItem == nginProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "inline@1"
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem == nginProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "inline@2"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem == nginProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "inline@3"
         },
         {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_lifecycle@1"
+        },
+        {
+          "command": "ngin.run",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_lifecycle@2"
+        },
+        {
+          "command": "ngin.debug",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_lifecycle@3"
+        },
+        {
+          "command": "ngin.test",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.test(\\.|$)/",
+          "group": "1_lifecycle@4"
+        },
+        {
+          "command": "ngin.configure",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_lifecycle@5"
+        },
+        {
+          "command": "ngin.stage",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_lifecycle@6"
+        },
+        {
+          "command": "ngin.analyze",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.analyze(\\.|$)/",
+          "group": "2_tooling@1"
+        },
+        {
+          "command": "ngin.formatSources",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.format(\\.|$)/",
+          "group": "2_tooling@2"
+        },
+        {
+          "command": "ngin.enableProjectTooling",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "2_tooling@3"
+        },
+        {
           "command": "ngin.switchBuildTarget",
-          "when": "view == ngin.projects && viewItem == nginProject",
-          "group": "ngin.project@1"
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "3_project@1"
         },
         {
           "command": "ngin.openManifest",
-          "when": "view == ngin.projects && viewItem == nginProject",
-          "group": "ngin.project@2"
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "3_project@2"
+        },
+        {
+          "command": "ngin.newFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProjectDirectory.unselected)",
+          "group": "3_project@3"
+        },
+        {
+          "command": "ngin.newFolder",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProjectDirectory.unselected)",
+          "group": "3_project@4"
+        },
+        {
+          "command": "ngin.restore",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "4_dependencies@1"
+        },
+        {
+          "command": "ngin.lock",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "4_dependencies@2"
+        },
+        {
+          "command": "ngin.clean",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "5_advanced@1"
+        },
+        {
+          "command": "ngin.showGraph",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "5_advanced@2"
+        },
+        {
+          "command": "ngin.inspect",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "5_advanced@3"
+        },
+        {
+          "command": "ngin.includeFile",
+          "when": "view == ngin.projects && viewItem == nginProjectFile.unselected",
+          "group": "1_membership@1"
+        },
+        {
+          "command": "ngin.excludeFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.missing)",
+          "group": "1_membership@2"
+        },
+        {
+          "command": "ngin.analyzeFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.unselected) && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
+          "group": "1_tooling@1"
+        },
+        {
+          "command": "ngin.formatFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.unselected) && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
+          "group": "1_tooling@2"
+        },
+        {
+          "command": "ngin.renameFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.unselected || viewItem == nginProjectDirectory.unselected)",
+          "group": "2_file@1"
+        },
+        {
+          "command": "ngin.duplicateFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.unselected)",
+          "group": "2_file@2"
+        },
+        {
+          "command": "ngin.deleteFile",
+          "when": "view == ngin.projects && (viewItem == nginProjectFile.selected || viewItem == nginProjectFile.unselected || viewItem == nginProjectDirectory.unselected)",
+          "group": "2_file@3"
+        },
+        {
+          "command": "ngin.revealFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectFile\\.(authored|selected|unselected|generated|external)$/ || viewItem =~ /^nginProjectDirectory\\.(unselected|external|boundary)$/)",
+          "group": "3_navigation@1"
         }
       ],
       "editor/title": [

@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Added one compact Projects view with project-specific Build, Run, Debug,
-  Test, Analyze, advanced operations, and optional Composition Details.
+- Added one compact Projects view with a project-scoped file browser, inline
+  Build, Run, and Debug buttons, project context actions, and optional
+  Composition Details.
 - Added source ownership inference without mutating the pinned Build target,
   plus a searchable Build-target switcher and remembered ambiguous ownership.
 - Added automatic open/save analysis through the CLI's structured Action
@@ -14,9 +15,9 @@
 - Added one-time verified tooling consent, automatic dependency-lock reuse,
   explicit enable/lock commands, and one-click stale-lock refresh without
   weakening workspace trust policy.
-- Made the native Explorer the primary file browser and added NGIN membership
-  decorations plus include, exclude, analyze, format, and owning-project
-  context commands.
+- Added NGIN membership decorations and include, exclude, analyze, format, and
+  owning-project context commands to the native Explorer while retaining the
+  project-scoped file browser.
 - Added incremental configure-state reuse. Build, stage, debug, and analysis
   configure implicitly when needed; explicit Configure remains available.
 - Added F5 source-project resolution, staged native debugging, remembered

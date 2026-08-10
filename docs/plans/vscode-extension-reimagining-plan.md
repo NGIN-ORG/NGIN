@@ -48,9 +48,10 @@ source context and presents results; it does not duplicate NGIN resolution.
 ### Project and file context
 
 - One Projects view replaces duplicated Solution and Active Project views.
-- The normal Explorer remains the primary filesystem interface.
-- Project tree expansion is navigation/inspection; it does not select a global
-  context.
+- Project tree expansion shows the project's file hierarchy for focused
+  navigation; it does not select a global context.
+- The normal Explorer remains available for workspace-wide filesystem
+  navigation.
 - The pinned Build/Run target is independent from the project owning the
   active source file.
 - File commands and F5 use source ownership first and the pinned target as a
@@ -64,8 +65,11 @@ source context and presents results; it does not duplicate NGIN resolution.
   project files.
 - Explorer/editor menus expose include, exclude, analyze, format, and reveal
   owning project.
-- Project rows expose only Build, Run, and Debug inline; Test and Analyze are
-  visible when applicable, while advanced commands are under More.
+- Project rows expose only Build, Run, and Debug inline. Lifecycle, Test,
+  Analyze, tooling, dependency, and advanced operations are project context
+  actions rather than child rows.
+- Project expansion exposes physical files together with selected, generated,
+  missing, external, and nested-project composition state.
 - Graph internals are under collapsed Composition Details and explicit
   inspect/explain commands.
 - The status bar shows only the pinned project and Configuration.

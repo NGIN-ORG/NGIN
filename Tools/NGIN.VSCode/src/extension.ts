@@ -67,6 +67,8 @@ function projectArgument(value: unknown): ProjectCandidate | undefined {
 
 function resourceArgument(value: unknown): vscode.Uri | undefined {
   if (value instanceof vscode.Uri) return value;
+  const entry = projectFileArgument(value);
+  if (entry && !entry.directory) return vscode.Uri.file(entry.path);
   return vscode.window.activeTextEditor?.document.uri;
 }
 
@@ -490,7 +492,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const uri = argument instanceof vscode.Uri ? argument : undefined;
     if (entry?.directory || (!entry && !uri)) return;
     const target = entry?.path ?? uri!.fsPath;
-    const project = entry ? controller.activeProject : await sourceAnalysis.projectForFile(target);
+    const project = projectArgument(argument) ?? await sourceAnalysis.projectForFile(target);
     if (!project) return void vscode.window.showWarningMessage(`${path.basename(target)} is not owned by an NGIN project.`);
     const current = sourceAnalysis.contextForProject(project);
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
@@ -512,14 +514,15 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.excludeFile', (argument: unknown) => changeMembership(argument, false));
 
   register(extensionContext, 'ngin.newFile', async (argument?: unknown) => {
-    const current = controller.requireContext();
+    const project = projectArgument(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const entry = projectFileArgument(argument);
     const projectDirectory = path.dirname(current.projectManifest);
     const base = entry?.directory ? entry.path : entry ? path.dirname(entry.path) : projectDirectory;
     const name = await vscode.window.showInputBox({ title: 'New Project File', prompt: 'File name or relative path' });
     if (!name) return;
     const target = path.resolve(base, name);
-    if (!isWithin(projectDirectory, target)) throw new Error('The new file must remain inside the active project.');
+    if (!isWithin(projectDirectory, target)) throw new Error('The new file must remain inside its project.');
     const uri = vscode.Uri.file(target);
     if (await exists(uri)) throw new Error(`A file already exists at ${target}.`);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target)));
@@ -534,26 +537,28 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
   });
   register(extensionContext, 'ngin.newFolder', async (argument?: unknown) => {
-    const current = controller.requireContext();
+    const project = projectArgument(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const entry = projectFileArgument(argument);
     const projectDirectory = path.dirname(current.projectManifest);
     const base = entry?.directory ? entry.path : entry ? path.dirname(entry.path) : projectDirectory;
     const name = await vscode.window.showInputBox({ title: 'New Project Folder', prompt: 'Folder name or relative path' });
     if (!name) return;
     const target = path.resolve(base, name);
-    if (!isWithin(projectDirectory, target)) throw new Error('The new folder must remain inside the active project.');
+    if (!isWithin(projectDirectory, target)) throw new Error('The new folder must remain inside its project.');
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(target));
     controller.refreshPresentation();
   });
   register(extensionContext, 'ngin.renameFile', async (argument: unknown) => {
     const entry = projectFileArgument(argument);
     if (!entry) return;
-    const current = controller.requireContext();
+    const project = projectArgument(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const projectDirectory = path.dirname(current.projectManifest);
     const name = await vscode.window.showInputBox({ title: 'Rename Project Item', value: entry.name });
     if (!name || name === entry.name) return;
     const target = path.resolve(path.dirname(entry.path), name);
-    if (!isWithin(projectDirectory, target)) throw new Error('The renamed item must remain inside the active project.');
+    if (!isWithin(projectDirectory, target)) throw new Error('The renamed item must remain inside its project.');
     const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
     const before = relativeManifestPath(projectDirectory, entry.path);
     const after = relativeManifestPath(projectDirectory, target);
@@ -571,9 +576,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const name = await vscode.window.showInputBox({ title: 'Duplicate Project File', value: `${stem}.copy${extension}` });
     if (!name) return;
     const target = path.resolve(path.dirname(entry.path), name);
-    const current = controller.requireContext();
+    const project = projectArgument(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const projectDirectory = path.dirname(current.projectManifest);
-    if (!isWithin(projectDirectory, target)) throw new Error('The duplicate must remain inside the active project.');
+    if (!isWithin(projectDirectory, target)) throw new Error('The duplicate must remain inside its project.');
     const targetUri = vscode.Uri.file(target);
     if (await exists(targetUri)) throw new Error(`A file already exists at ${target}.`);
     const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(entry.path));
@@ -594,9 +600,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (!entry) return;
     const answer = await vscode.window.showWarningMessage(`Move ${entry.relativePath} to the trash?`, { modal: true }, 'Delete');
     if (answer !== 'Delete') return;
-    const current = controller.requireContext();
+    const project = projectArgument(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const projectDirectory = path.dirname(current.projectManifest);
-    if (!isWithin(projectDirectory, entry.path)) throw new Error('Only items inside the active project can be deleted.');
+    if (!isWithin(projectDirectory, entry.path)) throw new Error('Only items inside their project can be deleted.');
     const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
     const relative = relativeManifestPath(projectDirectory, entry.path);
     const edits = removeExactBuildItemIncludes(manifest.getText(), relative);

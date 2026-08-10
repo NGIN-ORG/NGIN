@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
+import { enumerateProjectFiles, type ProjectFileEntry } from '../core/projectFiles';
 import type { CompositionGraph, GraphNamedNode, ProjectCandidate } from '../model';
 import type { SourceAnalysisProvider } from '../providers/sourceAnalysis';
 
@@ -13,15 +14,6 @@ export class NginTreeNode extends vscode.TreeItem {
   constructor(label: string, collapsibleState = vscode.TreeItemCollapsibleState.None, readonly children?: ChildFactory) {
     super(label, collapsibleState);
   }
-}
-
-function commandNode(label: string, command: string, icon: string, project: ProjectCandidate): NginTreeNode {
-  const node = new NginTreeNode(label);
-  node.iconPath = new vscode.ThemeIcon(icon);
-  node.command = { command, title: label, arguments: [{ project }] };
-  node.contextValue = 'nginProjectCommand';
-  node.project = project;
-  return node;
 }
 
 function group(label: string, icon: string, children: ChildFactory, description?: string): NginTreeNode {
@@ -55,36 +47,53 @@ function compositionDetails(graph: CompositionGraph): NginTreeNode {
   ]);
 }
 
-function projectChildren(
+function fileNode(entry: ProjectFileEntry, project: ProjectCandidate): NginTreeNode {
+  const children = entry.children?.map(child => fileNode(child, project));
+  const node = new NginTreeNode(
+    entry.name,
+    entry.directory && children?.length
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None,
+    children ? () => children : undefined
+  );
+  node.project = project;
+  node.resourceUri = vscode.Uri.file(entry.path);
+  node.contextValue = `${entry.directory ? 'nginProjectDirectory' : 'nginProjectFile'}.${entry.state}`;
+  (node as NginTreeNode & { projectFile: ProjectFileEntry }).projectFile = entry;
+  node.description = entry.state === 'authored' ? 'manifest'
+    : entry.state === 'selected' ? entry.kind
+      : entry.state === 'generated' ? `${entry.kind ?? 'file'} · generated`
+        : entry.state === 'missing' ? `${entry.kind ?? 'file'} · missing`
+          : entry.state === 'boundary' ? 'nested project'
+            : entry.state === 'external' && !entry.directory ? entry.relativePath : undefined;
+  node.tooltip = `${entry.relativePath || entry.path}${entry.kind ? `\n${entry.kind}` : ''}`;
+  node.iconPath = new vscode.ThemeIcon(
+    entry.state === 'missing' ? 'warning'
+      : entry.state === 'authored' ? 'file-code'
+        : entry.state === 'generated' ? 'sparkle'
+          : entry.state === 'external' ? (entry.directory ? 'references' : 'link-external')
+            : entry.state === 'boundary' ? 'root-folder'
+              : entry.directory ? 'folder'
+                : entry.state === 'selected' ? 'file-code' : 'file'
+  );
+  if (!entry.directory && entry.state !== 'missing') {
+    node.command = { command: 'vscode.open', title: 'Open File', arguments: [node.resourceUri] };
+  }
+  return node;
+}
+
+async function projectChildren(
   controller: NginController,
   analysis: SourceAnalysisProvider,
   project: ProjectCandidate
-): NginTreeNode[] {
-  const result = [
-    commandNode('Build', 'ngin.build', 'tools', project),
-    commandNode('Run', 'ngin.run', 'play', project),
-    commandNode('Debug', 'ngin.debug', 'debug-alt', project)
-  ];
-  if (project.hasTesting) result.push(commandNode('Test', 'ngin.test', 'beaker', project));
-  const activeGraph = controller.activeProject?.manifest === project.manifest ? controller.snapshot.graph : undefined;
-  if (project.hasAnalyze || activeGraph?.actions.some(action => action.kind === 'Analyze')) {
-    result.push(commandNode('Analyze Project', 'ngin.analyze', 'search-fuzzy', project));
-  }
-  const more = group('More', 'ellipsis', () => [
-    commandNode('Set as Build Target', 'ngin.switchBuildTarget', 'pin', project),
-    commandNode('Open Manifest', 'ngin.openManifest', 'file-code', project),
-    commandNode('Configure', 'ngin.configure', 'gear', project),
-    commandNode('Restore Packages', 'ngin.restore', 'cloud-download', project),
-    commandNode('Lock Dependencies', 'ngin.lock', 'lock', project),
-    commandNode('Enable Project Tooling', 'ngin.enableProjectTooling', 'verified-filled', project),
-    commandNode('Clean', 'ngin.clean', 'trash', project),
-    commandNode('Show Composition Graph', 'ngin.showGraph', 'json', project),
-    commandNode('Inspect Composition', 'ngin.inspect', 'inspect', project)
-  ]);
-  result.push(more);
-  if (controller.activeProject?.manifest === project.manifest && controller.snapshot.graph) {
-    result.push(compositionDetails(controller.snapshot.graph));
-  }
+): Promise<NginTreeNode[]> {
+  const context = analysis.contextForProject(project);
+  const graph = controller.activeProject?.manifest === project.manifest && controller.snapshot.graph
+    ? controller.snapshot.graph
+    : await controller.graphForContext(context, false);
+  const entries = await enumerateProjectFiles(project.directory, project.manifest, graph);
+  const result = entries.map(entry => fileNode(entry, project));
+  if (graph) result.push(compositionDetails(graph));
   const summary = analysis.summary(project.manifest);
   if (summary.state === 'failed' && summary.message) {
     const problem = new NginTreeNode('Tooling problem');
@@ -101,7 +110,12 @@ function projectNode(controller: NginController, analysis: SourceAnalysisProvide
     () => projectChildren(controller, analysis, project));
   node.project = project;
   node.resourceUri = vscode.Uri.file(project.manifest);
-  node.contextValue = 'nginProject';
+  node.contextValue = [
+    'nginProjectRoot',
+    project.hasTesting ? 'test' : undefined,
+    project.hasAnalyze ? 'analyze' : undefined,
+    project.hasFormat ? 'format' : undefined
+  ].filter(Boolean).join('.');
   node.iconPath = new vscode.ThemeIcon(project.type === 'Library' ? 'library' : 'project');
   const active = controller.activeProject?.manifest === project.manifest;
   const summary = analysis.summary(project.manifest);

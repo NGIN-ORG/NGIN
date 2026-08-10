@@ -246,6 +246,12 @@ test('project files distinguish graph membership and physical boundaries', async
     assert.equal(all.find(item => item.name === 'generated.hpp')?.state, 'generated');
     assert.equal(all.find(item => item.name === 'missing.hpp')?.state, 'missing');
     assert.equal(all.find(item => item.name === 'Nested')?.state, 'boundary');
+
+    const physicalOnly = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'));
+    const physicalAll = flatten(physicalOnly);
+    assert.equal(physicalAll.find(item => item.name === 'App.nginproj')?.state, 'authored');
+    assert.equal(physicalAll.find(item => item.name === 'main.cpp')?.state, 'unselected');
+    assert.equal(physicalAll.some(item => item.name === 'missing.hpp'), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

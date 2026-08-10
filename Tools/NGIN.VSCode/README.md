@@ -11,12 +11,16 @@ staging, and launch intent.
 ## Developer experience
 
 The NGIN activity bar contains one compact **Projects** view. It lists every
-discovered project with Build, Run, Debug, optional Test and Analyze commands.
-Advanced operations and graph details are collapsed under each project.
+discovered project with Build, Run, and Debug buttons on the project row.
+Expanding a project opens its project-scoped file browser, including authored,
+selected, generated, missing, external, and nested-project state. Lifecycle,
+tooling, dependency, and inspection operations live in the project's context
+menu instead of appearing as children in the navigation tree.
 
-The normal VS Code Explorer remains the file browser. NGIN decorates files as
-included, excluded, generated, or project-owned and contributes context menu
-commands to include, exclude, analyze, format, and reveal the owning project.
+The normal VS Code Explorer remains available as the workspace-wide browser.
+NGIN decorates files there as included, excluded, generated, or project-owned
+and contributes context menu commands to include, exclude, analyze, format,
+and reveal the owning project.
 
 The status bar shows only the pinned fallback Build/Run target and its
 Configuration. Clicking it opens the searchable **NGIN: Switch Build Target**
@@ -80,8 +84,8 @@ configuration.
 The optional Project Overview shows only developer-facing state: product,
 Configuration, readiness, last analyzer result, launches, packages, and build
 inputs. Build, Run, Debug, and Test are primary actions. Composition graph
-internals remain available through the collapsed **Composition Details** node,
-graph JSON, Inspect, Explain, and Diff commands.
+internals remain available after the project files through the collapsed
+**Composition Details** node, graph JSON, Inspect, Explain, and Diff commands.
 
 ## XML authoring
 
