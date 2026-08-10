@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from ManifestSpec. Do not edit. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           xmlns:ngin="urn:ngin:integration:cmake"
+           xmlns:cmake="urn:ngin:integration:cmake"
+           targetNamespace="urn:ngin:integration:cmake" vc:minVersion="1.1" elementFormDefault="qualified" attributeFormDefault="unqualified">
+  <xs:simpleType name="nonEmptyString">
+    <xs:restriction base="xs:string"><xs:minLength value="1" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="identifier">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Za-z0-9][A-Za-z0-9._-]*" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="boolean">
+    <xs:restriction base="xs:string"><xs:enumeration value="true" /><xs:enumeration value="false" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="semanticVersion">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="versionCompatibility">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?(\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_cmake_add_subdirectory">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="cmake:Cache" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:MapOption" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Select" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Source" type="ngin:nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_manual">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="cmake:Cache" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:MapOption" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Select" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Source" type="ngin:nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_find_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="cmake:Target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Select" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="ngin:nonEmptyString" use="required" />
+    <xs:attribute name="Config" type="ngin:boolean" />
+    <xs:attribute name="Required" type="ngin:boolean" />
+    <xs:attribute name="Version" type="ngin:semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_isolated">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="cmake:Cache" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:MapOption" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Install" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:FindPackage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Select" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Source" type="ngin:nonEmptyString" use="required" />
+    <xs:assert test="count(cmake:Install) le 1" />
+    <xs:assert test="count(cmake:FindPackage) ge 1" />
+    <xs:assert test="count(cmake:FindPackage) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_cache">
+    <xs:attribute name="Name" type="ngin:nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="ngin:nonEmptyString" use="required" />
+    <xs:attribute name="Type">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="BOOL" />
+        <xs:enumeration value="STRING" />
+        <xs:enumeration value="PATH" />
+        <xs:enumeration value="FILEPATH" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Artifact" type="ngin:boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_map_option">
+    <xs:attribute name="Option" type="ngin:identifier" use="required" />
+    <xs:attribute name="Cache" type="ngin:nonEmptyString" use="required" />
+    <xs:attribute name="True" type="ngin:nonEmptyString" />
+    <xs:attribute name="False" type="ngin:nonEmptyString" />
+    <xs:attribute name="Value" type="ngin:nonEmptyString" />
+    <xs:attribute name="Artifact" type="ngin:boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_target">
+    <xs:attribute name="Export" type="ngin:identifier" use="required" />
+    <xs:attribute name="Name" type="ngin:nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_install">
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Configuration" type="ngin:t_cmake_select_configuration" form="unqualified" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Target" type="ngin:t_cmake_select_target" form="unqualified" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="ngin:t_cmake_select_toolchain" form="unqualified" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="ngin:t_cmake_select_option" form="unqualified" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Cache" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:MapOption" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Target" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Configuration) le 1" />
+    <xs:assert test="count(Target) le 1" />
+    <xs:assert test="count(Toolchain) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_configuration">
+    <xs:attribute name="Name" type="ngin:nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_target">
+    <xs:attribute name="Name" type="ngin:nonEmptyString" />
+    <xs:attribute name="OS" type="ngin:nonEmptyString" />
+    <xs:attribute name="Architecture" type="ngin:nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_toolchain">
+    <xs:attribute name="Name" type="ngin:nonEmptyString" />
+    <xs:attribute name="Compiler" type="ngin:nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_option">
+    <xs:attribute name="Name" type="ngin:nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="ngin:nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:element name="AddSubdirectory" type="ngin:t_cmake_add_subdirectory" />
+  <xs:element name="Isolated" type="ngin:t_cmake_isolated" />
+  <xs:element name="FindPackage" type="ngin:t_cmake_find_package" />
+  <xs:element name="Manual" type="ngin:t_cmake_manual" />
+  <xs:element name="Cache" type="ngin:t_cmake_cache" />
+  <xs:element name="MapOption" type="ngin:t_cmake_map_option" />
+  <xs:element name="Target" type="ngin:t_cmake_target" />
+  <xs:element name="Install" type="ngin:t_cmake_install" />
+  <xs:element name="Select" type="ngin:t_cmake_select" />
+</xs:schema>

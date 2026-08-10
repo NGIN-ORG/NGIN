@@ -22,12 +22,21 @@ _ngin_cli_apply_defaults(ngin_cli_model)
 target_link_libraries(ngin_cli_model PUBLIC NGIN::Base::Serialization)
 
 add_library(ngin_cli_authoring STATIC
+  src/AuthoredManifest.cpp
   src/Authoring.cpp
+  src/ManifestArtifacts.cpp
+  src/ManifestSpec.cpp
   src/Overlay.cpp
   src/Platform.cpp
 )
 target_link_libraries(ngin_cli_authoring PUBLIC ngin_cli_model)
 _ngin_cli_apply_defaults(ngin_cli_authoring)
+
+add_executable(ngin_manifest_schema_generator
+  src/ManifestSchemaGenerator.cpp
+)
+target_link_libraries(ngin_manifest_schema_generator PRIVATE ngin_cli_authoring)
+_ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 
 add_library(ngin_cli_resolution STATIC
   src/Resolution.cpp

@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from ManifestSpec. Do not edit. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           xmlns:cmake="urn:ngin:integration:cmake"
+           vc:minVersion="1.1" elementFormDefault="unqualified" attributeFormDefault="unqualified">
+  <xs:import namespace="urn:ngin:integration:cmake" schemaLocation="cmake-integration.xsd" />
+  <xs:simpleType name="nonEmptyString">
+    <xs:restriction base="xs:string"><xs:minLength value="1" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="identifier">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Za-z0-9][A-Za-z0-9._-]*" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="boolean">
+    <xs:restriction base="xs:string"><xs:enumeration value="true" /><xs:enumeration value="false" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="semanticVersion">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="versionCompatibility">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?(\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_package_metadata">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Description" type="t_package_metadata_description" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="License" type="t_package_metadata_license" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Homepage" type="t_package_metadata_homepage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Vendor" type="t_package_metadata_vendor" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Repository" type="t_package_metadata_repository" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Description) le 1" />
+    <xs:assert test="count(License) le 1" />
+    <xs:assert test="count(Homepage) le 1" />
+    <xs:assert test="count(Vendor) le 1" />
+    <xs:assert test="count(Repository) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_metadata_description" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_metadata_license" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_metadata_homepage" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_metadata_vendor" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_metadata_repository" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_options">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Boolean" type="t_package_options_boolean" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Enum" type="t_package_options_enum" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="String" type="t_package_options_string" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Integer" type="t_package_options_integer" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Path" type="t_package_options_path" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_options_boolean">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_enum">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Value" type="t_package_options_enum_value" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+    <xs:assert test="count(Value) ge 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_enum_value">
+    <xs:attribute name="Name" type="identifier" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_string">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Value" type="t_package_options_string_value" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_string_value">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_integer">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="xs:long" use="required" />
+    <xs:attribute name="Min" type="xs:long" />
+    <xs:attribute name="Max" type="xs:long" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_options_path">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_version_range">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_use">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_package_requires_version_range" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Use" type="t_package_requires_use" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_package_requires_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_package_requires_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Project" type="t_package_requires_project" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Capability" type="t_package_requires_capability" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_package_requires_option_predicate" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Export" type="t_package_requires_export" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="When" type="t_package_requires_when" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_project">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Path" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_capability">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_package_requires_capability_version" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_capability_version">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_option_predicate">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_export">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_package_requires_when">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_package_requires_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Project" type="t_package_requires_project" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Capability" type="t_package_requires_capability" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Option" type="identifier" />
+    <xs:attribute name="Equals" type="nonEmptyString" />
+    <xs:attribute name="TargetOS" type="nonEmptyString" />
+    <xs:attribute name="Architecture" type="nonEmptyString" />
+    <xs:attribute name="Compiler" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_package_contributions">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Notices" type="t_package_contributions_notices" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="RuntimeFiles" type="t_package_contributions_runtime_files" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Notices) le 1" />
+    <xs:assert test="count(RuntimeFiles) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_contributions_notices">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Notice" type="t_package_notice" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_contributions_runtime_files">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="File" type="t_package_runtime_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_package_runtime_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_notice">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_runtime_file">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_runtime_directory">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_exports">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Library" type="t_package_export_library" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Tool" type="t_package_export_tool" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Plugin" type="t_package_export_plugin" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Action" type="t_package_export_action" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Asset" type="t_package_export_asset" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_export_library">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Requires" type="t_package_requires" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Provides" type="t_package_provides" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="RuntimeFiles" type="t_package_export_runtime_files" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Notices" type="t_package_export_notices" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" />
+    <xs:assert test="count(Requires) le 1" />
+    <xs:assert test="count(Provides) le 1" />
+    <xs:assert test="count(RuntimeFiles) le 1" />
+    <xs:assert test="count(Notices) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_export_tool">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Requires" type="t_package_requires" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Provides" type="t_package_provides" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="RuntimeFiles" type="t_package_export_runtime_files" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Notices" type="t_package_export_notices" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" />
+    <xs:assert test="count(Requires) le 1" />
+    <xs:assert test="count(Provides) le 1" />
+    <xs:assert test="count(RuntimeFiles) le 1" />
+    <xs:assert test="count(Notices) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_export_plugin">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Requires" type="t_package_requires" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Provides" type="t_package_provides" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="RuntimeFiles" type="t_package_export_runtime_files" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Notices" type="t_package_export_notices" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" />
+    <xs:assert test="count(Requires) le 1" />
+    <xs:assert test="count(Provides) le 1" />
+    <xs:assert test="count(RuntimeFiles) le 1" />
+    <xs:assert test="count(Notices) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_provides">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Capability" type="t_package_provides_capability" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_provides_capability">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Version" type="semanticVersion" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_export_runtime_files">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="File" type="t_package_runtime_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_package_runtime_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_export_notices">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Notice" type="t_package_notice" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_export_action">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Requires" type="t_package_requires" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Provides" type="t_package_provides" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Inputs" type="t_package_action_inputs" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Outputs" type="t_package_action_outputs" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Argument" type="t_package_action_argument" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="WorkingDirectory" type="t_package_action_working_directory" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Environment" type="t_package_action_environment" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Kind" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Generate" />
+        <xs:enumeration value="Analyze" />
+        <xs:enumeration value="Format" />
+        <xs:enumeration value="Validate" />
+        <xs:enumeration value="Custom" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Tool" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" />
+    <xs:attribute name="Deterministic" type="boolean" />
+    <xs:assert test="count(Requires) le 1" />
+    <xs:assert test="count(Provides) le 1" />
+    <xs:assert test="count(Inputs) le 1" />
+    <xs:assert test="count(Outputs) le 1" />
+    <xs:assert test="count(WorkingDirectory) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_inputs">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Header" type="t_package_action_input_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Source" type="t_package_action_input_source" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="File" type="t_package_action_input_file" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_action_input_header">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_input_source">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_input_file">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_outputs">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Source" type="t_package_action_output_source" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Header" type="t_package_action_output_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="File" type="t_package_action_output_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_package_action_output_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_action_output_source">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_output_header">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_output_file">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_output_directory">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_argument" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_package_action_working_directory">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_action_environment">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_export_asset">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="File" type="t_package_asset_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_package_asset_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Description" type="nonEmptyString" />
+    <xs:attribute name="Default" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_package_asset_file">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_asset_directory">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_package_integrations">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="cmake:AddSubdirectory" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Isolated" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:FindPackage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element ref="cmake:Manual" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_compatibility">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Target" type="t_package_compatibility_target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="t_package_compatibility_toolchain" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_package_compatibility_target">
+    <xs:attribute name="OS" type="nonEmptyString" />
+    <xs:attribute name="Architecture" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_package_compatibility_toolchain">
+    <xs:attribute name="Compiler" type="nonEmptyString" />
+    <xs:attribute name="RuntimeLibrary" type="nonEmptyString" />
+    <xs:attribute name="Linker" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_package_root">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Metadata" type="t_package_metadata" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Options" type="t_package_options" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Requires" type="t_package_requires" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Contributions" type="t_package_contributions" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Exports" type="t_package_exports" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Integrations" type="t_package_integrations" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Compatibility" type="t_package_compatibility" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Version" type="semanticVersion" use="required" />
+    <xs:assert test="count(Metadata) le 1" />
+    <xs:assert test="count(Options) le 1" />
+    <xs:assert test="count(Requires) le 1" />
+    <xs:assert test="count(Contributions) le 1" />
+    <xs:assert test="count(Exports) ge 1" />
+    <xs:assert test="count(Exports) le 1" />
+    <xs:assert test="count(Integrations) le 1" />
+    <xs:assert test="count(Compatibility) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_configuration">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_target">
+    <xs:attribute name="Name" type="nonEmptyString" />
+    <xs:attribute name="OS" type="nonEmptyString" />
+    <xs:attribute name="Architecture" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_toolchain">
+    <xs:attribute name="Name" type="nonEmptyString" />
+    <xs:attribute name="Compiler" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_cmake_select_option">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:element name="Package" type="t_package_root" />
+</xs:schema>

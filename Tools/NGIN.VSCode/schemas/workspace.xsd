@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from ManifestSpec. Do not edit. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           vc:minVersion="1.1" elementFormDefault="unqualified" attributeFormDefault="unqualified">
+  <xs:simpleType name="nonEmptyString">
+    <xs:restriction base="xs:string"><xs:minLength value="1" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="identifier">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Za-z0-9][A-Za-z0-9._-]*" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="boolean">
+    <xs:restriction base="xs:string"><xs:enumeration value="true" /><xs:enumeration value="false" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="semanticVersion">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="versionCompatibility">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?(\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_workspace_projects">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Project" type="t_workspace_projects_project" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Project) ge 1" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_projects_project">
+    <xs:attribute name="Path" type="nonEmptyString" />
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configurations">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Configuration" type="t_workspace_configuration" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configuration">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Optimization" type="t_workspace_configuration_optimization" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="DebugSymbols" type="t_workspace_configuration_debug_symbols" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="LinkTimeOptimization" type="t_workspace_configuration_lto" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_workspace_configuration_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:assert test="count(Optimization) le 1" />
+    <xs:assert test="count(DebugSymbols) le 1" />
+    <xs:assert test="count(LinkTimeOptimization) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configuration_optimization">
+    <xs:attribute name="Mode" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Off" />
+        <xs:enumeration value="Size" />
+        <xs:enumeration value="Speed" />
+        <xs:enumeration value="Full" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configuration_debug_symbols">
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configuration_lto">
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_configuration_option">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_targets">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Target" type="t_workspace_target" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_target">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="OS" type="nonEmptyString" use="required" />
+    <xs:attribute name="Architecture" type="nonEmptyString" use="required" />
+    <xs:attribute name="Alias" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_toolchains">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Toolchain" type="t_workspace_toolchain" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_toolchain">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Compiler" type="nonEmptyString" use="required" />
+    <xs:attribute name="CompilerVersion" type="nonEmptyString" />
+    <xs:attribute name="RuntimeLibrary" type="nonEmptyString" />
+    <xs:attribute name="Linker" type="nonEmptyString" />
+    <xs:attribute name="ToolchainFile" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="OutputRoot" type="t_workspace_defaults_output_root" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Configuration" type="t_workspace_defaults_configuration" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Target" type="t_workspace_defaults_target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="t_workspace_defaults_toolchain" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_workspace_defaults_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(OutputRoot) le 1" />
+    <xs:assert test="count(Configuration) le 1" />
+    <xs:assert test="count(Target) le 1" />
+    <xs:assert test="count(Toolchain) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults_output_root">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults_configuration">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults_target">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults_toolchain">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_defaults_option">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_packages">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Source" type="t_workspace_packages_source" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="LocalPackage" type="t_workspace_packages_local_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Version" type="t_workspace_packages_version" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Binding" type="t_workspace_packages_binding" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_packages_source">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Kind" type="nonEmptyString" use="required" />
+    <xs:attribute name="Path" type="nonEmptyString" />
+    <xs:attribute name="Url" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_packages_local_package">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Manifest" type="nonEmptyString" use="required" />
+    <xs:attribute name="Root" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_packages_version">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_packages_binding">
+    <xs:attribute name="Package" type="identifier" use="required" />
+    <xs:attribute name="Source" type="identifier" use="required" />
+    <xs:attribute name="Coordinate" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="PackageProviders" type="t_workspace_policies_providers" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Actions" type="t_workspace_policies_actions" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Paths" type="t_workspace_policies_paths" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Stage" type="t_workspace_policies_stage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Compatibility" type="t_workspace_policies_compatibility" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(PackageProviders) le 1" />
+    <xs:assert test="count(Actions) le 1" />
+    <xs:assert test="count(Paths) le 1" />
+    <xs:assert test="count(Stage) le 1" />
+    <xs:assert test="count(Compatibility) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_providers">
+    <xs:attribute name="Allowed" type="nonEmptyString" />
+    <xs:attribute name="IntegrityRequired" type="boolean" />
+    <xs:attribute name="Locked" type="boolean" />
+    <xs:attribute name="AllowNonHermetic" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_actions">
+    <xs:attribute name="AllowedOrigins" type="nonEmptyString" />
+    <xs:attribute name="RequireSignature" type="boolean" />
+    <xs:attribute name="RequireConfirmation" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_paths">
+    <xs:attribute name="AllowSymlinks" type="boolean" />
+    <xs:attribute name="RequireContained" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_stage">
+    <xs:attribute name="Collision">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Error" />
+        <xs:enumeration value="IdenticalBytes" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_compatibility">
+    <xs:attribute name="AllowedTargets" type="nonEmptyString" />
+    <xs:attribute name="AllowedToolchains" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_presets">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Preset" type="t_workspace_preset" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Configuration" type="t_workspace_preset_configuration" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Target" type="t_workspace_preset_target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="t_workspace_preset_toolchain" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_workspace_preset_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Launch" type="t_workspace_preset_launch" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Command" type="nonEmptyString" use="required" />
+    <xs:assert test="count(Configuration) le 1" />
+    <xs:assert test="count(Target) le 1" />
+    <xs:assert test="count(Toolchain) le 1" />
+    <xs:assert test="count(Launch) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset_configuration">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset_target">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset_toolchain">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset_option">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_preset_launch">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_root">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Projects" type="t_workspace_projects" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Configurations" type="t_workspace_configurations" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Targets" type="t_workspace_targets" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchains" type="t_workspace_toolchains" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Defaults" type="t_workspace_defaults" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Packages" type="t_workspace_packages" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Policies" type="t_workspace_policies" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Presets" type="t_workspace_presets" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:assert test="count(Projects) ge 1" />
+    <xs:assert test="count(Projects) le 1" />
+    <xs:assert test="count(Configurations) le 1" />
+    <xs:assert test="count(Targets) le 1" />
+    <xs:assert test="count(Toolchains) le 1" />
+    <xs:assert test="count(Defaults) le 1" />
+    <xs:assert test="count(Packages) le 1" />
+    <xs:assert test="count(Policies) le 1" />
+    <xs:assert test="count(Presets) le 1" />
+  </xs:complexType>
+  <xs:element name="Workspace" type="t_workspace_root" />
+</xs:schema>

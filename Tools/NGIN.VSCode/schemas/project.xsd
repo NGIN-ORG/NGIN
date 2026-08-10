@@ -1,0 +1,702 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from ManifestSpec. Do not edit. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           vc:minVersion="1.1" elementFormDefault="unqualified" attributeFormDefault="unqualified">
+  <xs:simpleType name="nonEmptyString">
+    <xs:restriction base="xs:string"><xs:minLength value="1" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="identifier">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Za-z0-9][A-Za-z0-9._-]*" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="boolean">
+    <xs:restriction base="xs:string"><xs:enumeration value="true" /><xs:enumeration value="false" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="semanticVersion">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="versionCompatibility">
+    <xs:restriction base="xs:string"><xs:pattern value="(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?(\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)?" /></xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_project_metadata">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Description" type="t_project_metadata_description" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="License" type="t_project_metadata_license" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Homepage" type="t_project_metadata_homepage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Vendor" type="t_project_metadata_vendor" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Description) le 1" />
+    <xs:assert test="count(License) le 1" />
+    <xs:assert test="count(Homepage) le 1" />
+    <xs:assert test="count(Vendor) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_metadata_description" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_metadata_license" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_metadata_homepage" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_metadata_vendor" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_options">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Boolean" type="t_project_options_boolean" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Enum" type="t_project_options_enum" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="String" type="t_project_options_string" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Integer" type="t_project_options_integer" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Path" type="t_project_options_path" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_options_boolean">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_enum">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Value" type="t_project_options_enum_value" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+    <xs:assert test="count(Value) ge 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_enum_value">
+    <xs:attribute name="Name" type="identifier" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_string">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Value" type="t_project_options_string_value" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_string_value">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_integer">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="xs:long" use="required" />
+    <xs:attribute name="Min" type="xs:long" />
+    <xs:attribute name="Max" type="xs:long" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_options_path">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="nonEmptyString" use="required" />
+    <xs:attribute name="Artifact" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies_version_range">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies_use">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_project_dependencies_version_range" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Use" type="t_project_dependencies_use" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_dependencies_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Language" type="t_project_build_language" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Source" type="t_project_build_source" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Header" type="t_project_build_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="CxxModule" type="t_project_build_cxx_module" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Resource" type="t_project_build_resource" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="IncludeDirectory" type="t_project_build_include_directory" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Define" type="t_project_build_define" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="CompileOption" type="t_project_build_compile_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="LinkOption" type="t_project_build_link_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="PrecompiledHeader" type="t_project_build_precompiled_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="UnityBuild" type="t_project_build_unity_build" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Convention" type="t_project_build_convention" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Conventions" type="boolean" />
+    <xs:assert test="count(Language) le 1" />
+    <xs:assert test="count(UnityBuild) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_language">
+    <xs:attribute name="Standard" type="nonEmptyString" use="required" />
+    <xs:attribute name="Extensions" type="boolean" />
+    <xs:attribute name="Required" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_source">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_header">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_cxx_module">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Kind">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Interface" />
+        <xs:enumeration value="Implementation" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_resource">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Into" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_include_directory">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="System" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_define">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_compile_option">
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_link_option">
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_precompiled_header">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_build_unity_build">
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+    <xs:attribute name="BatchSize" type="xs:long" />
+  </xs:complexType>
+  <xs:complexType name="t_project_build_convention">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_project_dependencies_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Project" type="t_project_dependencies_project" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_dependencies_project">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Path" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_generate">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Input" type="t_project_generate_input" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_generate_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Argument" type="t_project_generate_argument" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Action" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_generate_input">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_generate_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_generate_argument" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_tooling">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Analyze" type="t_project_tooling_analyze" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Format" type="t_project_tooling_format" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Validate" type="t_project_tooling_validate" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Custom" type="t_project_tooling_custom" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_tooling_analyze">
+    <xs:attribute name="Action" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_tooling_format">
+    <xs:attribute name="Action" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_tooling_validate">
+    <xs:attribute name="Action" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_tooling_custom">
+    <xs:attribute name="Action" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_stage">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="File" type="t_project_stage_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_project_stage_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_stage_file">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_stage_directory">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_launch">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Executable" type="t_project_launch_executable" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="WorkingDirectory" type="t_project_launch_working_directory" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Argument" type="t_project_launch_argument" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Environment" type="t_project_launch_environment" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Secret" type="t_project_launch_secret" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Default" type="boolean" />
+    <xs:assert test="count(Executable) ge 1" />
+    <xs:assert test="count(Executable) le 1" />
+    <xs:assert test="count(WorkingDirectory) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_launch_executable">
+    <xs:attribute name="Product" type="identifier" />
+    <xs:attribute name="Tool" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_launch_working_directory">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_launch_argument" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_launch_environment">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_launch_secret">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+    <xs:attribute name="From" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies_version_range">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies_use">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_project_testing_dependencies_version_range" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Use" type="t_project_testing_dependencies_use" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_testing_dependencies_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_project_testing_dependencies_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Project" type="t_project_testing_dependencies_project" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_dependencies_project">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Path" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Dependencies" type="t_project_testing_dependencies" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Argument" type="t_project_testing_argument" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Timeout" type="t_project_testing_timeout" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Dependencies) le 1" />
+    <xs:assert test="count(Timeout) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_argument" mixed="true">
+  </xs:complexType>
+  <xs:complexType name="t_project_testing_timeout">
+    <xs:attribute name="Seconds" type="xs:long" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Folder" type="t_project_publish_folder" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Archive" type="t_project_publish_archive" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Installer" type="t_project_publish_installer" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:assert test="count(Folder) le 1" />
+    <xs:assert test="count(Archive) le 1" />
+    <xs:assert test="count(Installer) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_folder">
+    <xs:attribute name="Output" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_archive">
+    <xs:attribute name="Format" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="zip" />
+        <xs:enumeration value="tgz" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Output" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_installer">
+    <xs:attribute name="Format" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="msi" />
+        <xs:enumeration value="deb" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Output" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinements">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Refinement" type="t_project_refinement" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Select" type="t_project_refinement_select" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Build" type="t_project_refinement_build" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Dependencies" type="t_project_refinement_dependencies" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Stage" type="t_project_refinement_stage" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Select) ge 1" />
+    <xs:assert test="count(Select) le 1" />
+    <xs:assert test="count(Build) le 1" />
+    <xs:assert test="count(Dependencies) le 1" />
+    <xs:assert test="count(Stage) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_select">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Configuration" type="t_project_refinement_select_configuration" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Target" type="t_project_refinement_select_target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="t_project_refinement_select_toolchain" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_refinement_select_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:assert test="count(Configuration) le 1" />
+    <xs:assert test="count(Target) le 1" />
+    <xs:assert test="count(Toolchain) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_select_configuration">
+    <xs:attribute name="Name" type="identifier" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_select_target">
+    <xs:attribute name="Name" type="identifier" />
+    <xs:attribute name="OS" type="nonEmptyString" />
+    <xs:attribute name="Architecture" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_select_toolchain">
+    <xs:attribute name="Name" type="identifier" />
+    <xs:attribute name="Compiler" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_select_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Language" type="t_project_refinement_build_language" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Source" type="t_project_refinement_build_source" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Header" type="t_project_refinement_build_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="CxxModule" type="t_project_refinement_build_cxx_module" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Resource" type="t_project_refinement_build_resource" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="IncludeDirectory" type="t_project_refinement_build_include_directory" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Define" type="t_project_refinement_build_define" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="CompileOption" type="t_project_refinement_build_compile_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="LinkOption" type="t_project_refinement_build_link_option" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="PrecompiledHeader" type="t_project_refinement_build_precompiled_header" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="UnityBuild" type="t_project_refinement_build_unity_build" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Convention" type="t_project_refinement_build_convention" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Conventions" type="boolean" />
+    <xs:assert test="count(Language) le 1" />
+    <xs:assert test="count(UnityBuild) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_language">
+    <xs:attribute name="Standard" type="nonEmptyString" use="required" />
+    <xs:attribute name="Extensions" type="boolean" />
+    <xs:attribute name="Required" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_source">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_header">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_cxx_module">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Kind">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Interface" />
+        <xs:enumeration value="Implementation" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_resource">
+    <xs:attribute name="Include" type="nonEmptyString" />
+    <xs:attribute name="Remove" type="nonEmptyString" />
+    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Exclude" type="nonEmptyString" />
+    <xs:attribute name="AllowEmpty" type="boolean" />
+    <xs:attribute name="Generated" type="boolean" />
+    <xs:attribute name="Into" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_include_directory">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="System" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_define">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_compile_option">
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_link_option">
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_precompiled_header">
+    <xs:attribute name="Path" type="nonEmptyString" use="required" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_unity_build">
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+    <xs:attribute name="BatchSize" type="xs:long" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_build_convention">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Enabled" type="boolean" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_dependencies_version_range">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_dependencies_use">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_dependencies_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_project_refinement_dependencies_version_range" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Use" type="t_project_refinement_dependencies_use" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_refinement_dependencies_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_dependencies_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_dependencies">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_project_refinement_dependencies_package" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_stage">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="File" type="t_project_refinement_stage_file" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Directory" type="t_project_refinement_stage_directory" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_stage_file">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_refinement_stage_directory">
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
+    <xs:attribute name="Into" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_root">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Metadata" type="t_project_metadata" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Options" type="t_project_options" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Dependencies" type="t_project_dependencies" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Build" type="t_project_build" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Generate" type="t_project_generate" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Tooling" type="t_project_tooling" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Stage" type="t_project_stage" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Launch" type="t_project_launch" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Testing" type="t_project_testing" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Publish" type="t_project_publish" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Refinements" type="t_project_refinements" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Type" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Application" />
+        <xs:enumeration value="Library" />
+        <xs:enumeration value="Tool" />
+        <xs:enumeration value="Test" />
+        <xs:enumeration value="Benchmark" />
+        <xs:enumeration value="Plugin" />
+        <xs:enumeration value="External" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Version" type="semanticVersion" />
+    <xs:assert test="count(Metadata) le 1" />
+    <xs:assert test="count(Options) le 1" />
+    <xs:assert test="count(Dependencies) le 1" />
+    <xs:assert test="count(Build) le 1" />
+    <xs:assert test="count(Tooling) le 1" />
+    <xs:assert test="count(Stage) le 1" />
+    <xs:assert test="count(Testing) le 1" />
+    <xs:assert test="count(Refinements) le 1" />
+  </xs:complexType>
+  <xs:element name="Project" type="t_project_root" />
+</xs:schema>

@@ -1,5 +1,225 @@
+#include "AuthoredManifest.hpp"
+#include "CompositionBoundary.hpp"
+#include "ManifestArtifacts.hpp"
 #include "Overlay.hpp"
 #include "TestSupport.hpp"
+
+namespace
+{
+  [[nodiscard]] auto ManifestDiagnosticCodes(
+      const AuthoredManifestResult &result) -> std::vector<std::string> {
+    std::vector<std::string> codes{};
+    std::ranges::transform(
+        result.diagnostics, std::back_inserter(codes),
+        [](const ManifestDiagnostic &diagnostic) { return diagnostic.code; });
+    return codes;
+  }
+}
+
+TEST_CASE("ManifestSpec describes the only pre-release document grammar") {
+  const auto &spec = CurrentManifestSpec();
+
+  REQUIRE(spec.Documents().size() == 3);
+  REQUIRE(spec.Namespaces().size() == 1);
+  REQUIRE(spec.Namespaces()[0].uri == std::string(CMakeIntegrationNamespace));
+
+  const auto &project = spec.Element("project.root");
+  REQUIRE(std::ranges::none_of(project.attributes, [](const auto &attribute) {
+    return attribute.name == "SchemaVersion" ||
+           attribute.name == "DefaultProfile";
+  }));
+  const auto type = std::ranges::find(project.attributes, "Type",
+                                      &ManifestAttributeSpec::name);
+  REQUIRE(type != project.attributes.end());
+  REQUIRE(std::ranges::find(type->allowedValues, "Module") ==
+          type->allowedValues.end());
+}
+
+TEST_CASE("semantic package identity and backend bindings are separate types") {
+  PackageCoordinate coordinate{
+      .name = "Example",
+      .versionConstraint = "Compatible:1",
+      .sourceBinding = "local",
+  };
+  PackageProviderResult provider{
+      .coordinate = coordinate,
+      .provider = "Directory",
+      .providerIdentity = "Packages/Example",
+      .exactVersion = "1.2.0",
+      .integrity = "sha256:example",
+      .root = "Packages/Example",
+      .hermetic = true,
+  };
+  PackageInstance instance{
+      .providerResult = provider,
+      .compatibility = BinaryCompatibility{.operatingSystem = "windows",
+                                            .architecture = "x64"},
+      .identity = "Example@1.2.0/windows-x64",
+  };
+  IntegrationBindings bindings = CMakeIntegrationBindings{
+      .packageInstance = instance.identity,
+      .mode = "FindPackage",
+      .targets = {{.exportName = "Core", .targetName = "Example::Core"}},
+  };
+
+  REQUIRE(instance.providerResult.coordinate.name == "Example");
+  REQUIRE(std::get<CMakeIntegrationBindings>(bindings).targets[0].exportName ==
+          "Core");
+}
+
+TEST_CASE("source-located authored parser accepts all manifest model fixtures") {
+  const auto fixtureRoot =
+      RepoRoot() / "Tools/NGIN.CLI/tests/fixtures/manifest-model";
+  const std::vector<fs::path> fixtures{
+      "minimal-application.nginproj", "framework-application.nginproj",
+      "telemetry-plugin.nginproj",    "multi-export.nginpkg",
+      "actions.nginpkg",              "workspace.ngin",
+  };
+
+  for (const auto &fixture : fixtures) {
+    CAPTURE(fixture);
+    const auto parsed = ParseAuthoredManifest(fixtureRoot / fixture);
+    const auto diagnostic =
+        parsed.diagnostics.empty()
+            ? std::string{}
+            : parsed.diagnostics.front().code + ": " +
+                  parsed.diagnostics.front().message;
+    INFO(diagnostic);
+    REQUIRE(parsed.Succeeded());
+  }
+
+  const auto parsed =
+      ParseAuthoredManifest(fixtureRoot / "minimal-application.nginproj");
+  const auto &project = std::get<AuthoredProjectManifest>(*parsed.value);
+  REQUIRE(project.name == "Hello.Native");
+  REQUIRE(project.type == "Application");
+  REQUIRE(project.root.source.begin.line == 2);
+  REQUIRE(project.root.Attribute("Name")->source.begin.line == 2);
+  REQUIRE_FALSE(project.manifest.canonicalPath.empty());
+}
+
+TEST_CASE("structural diagnostics reject unknown core vocabulary at source") {
+  const auto parsed = ParseAuthoredManifestText(
+      R"xml(<Project Name="Example" Type="Application">
+  <Features Enabled="true" />
+</Project>)xml",
+      "Unknown.nginproj");
+
+  REQUIRE_FALSE(parsed.Succeeded());
+  REQUIRE(ManifestDiagnosticCodes(parsed) == std::vector<std::string>{"NGIN1003"});
+  REQUIRE(parsed.diagnostics[0].source.begin.line == 2);
+  REQUIRE(parsed.diagnostics[0].source.begin.column == 3);
+}
+
+TEST_CASE("structural diagnostics reject unknown attributes and invalid scalars") {
+  const auto parsed = ParseAuthoredManifestText(
+      R"xml(<Project Name="Example" Type="Module" SchemaVersion="4" />)xml",
+      "Unknown.nginproj");
+
+  REQUIRE_FALSE(parsed.Succeeded());
+  const auto codes = ManifestDiagnosticCodes(parsed);
+  REQUIRE(std::ranges::count(codes, "NGIN1004") == 1);
+  REQUIRE(std::ranges::count(codes, "NGIN1007") == 1);
+}
+
+TEST_CASE("parser cardinality matches generated XSD assertions") {
+  const auto missing = ParseAuthoredManifestText(
+      R"xml(<Package Name="Example" Version="1.0.0" />)xml",
+      "Example.nginpkg");
+  REQUIRE_FALSE(missing.Succeeded());
+  REQUIRE(ManifestDiagnosticCodes(missing) ==
+          std::vector<std::string>{"NGIN1006"});
+
+  const auto duplicate = ParseAuthoredManifestText(
+      R"xml(<Project Name="Example" Type="Application">
+  <Metadata />
+  <Metadata />
+</Project>)xml",
+      "Example.nginproj");
+  REQUIRE_FALSE(duplicate.Succeeded());
+  REQUIRE(ManifestDiagnosticCodes(duplicate) ==
+          std::vector<std::string>{"NGIN1006"});
+}
+
+TEST_CASE("only registered integration namespaces are accepted") {
+  const auto accepted = ParseAuthoredManifestText(
+      R"xml(<Package xmlns:build="urn:ngin:integration:cmake" Name="Example" Version="1.0.0">
+  <Exports><Library Name="Core" Default="true" /></Exports>
+  <Integrations>
+    <build:FindPackage Name="Example">
+      <build:Target Export="Core" Name="Example::Core" />
+    </build:FindPackage>
+  </Integrations>
+</Package>)xml",
+      "Example.nginpkg");
+  REQUIRE(accepted.Succeeded());
+
+  const auto unknown = ParseAuthoredManifestText(
+      R"xml(<Package xmlns:other="urn:example:other" Name="Example" Version="1.0.0">
+  <Exports><Library Name="Core" /></Exports>
+  <Integrations><other:Build /></Integrations>
+</Package>)xml",
+      "Example.nginpkg");
+  REQUIRE_FALSE(unknown.Succeeded());
+  const auto unknownCodes = ManifestDiagnosticCodes(unknown);
+  REQUIRE(std::ranges::find(unknownCodes, "NGIN1002") != unknownCodes.end());
+
+  const auto misplaced = ParseAuthoredManifestText(
+      R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Example" Version="1.0.0">
+  <Exports><Library Name="Core"><cmake:Target Export="Core" Name="Example::Core" /></Library></Exports>
+</Package>)xml",
+      "Example.nginpkg");
+  REQUIRE_FALSE(misplaced.Succeeded());
+  const auto misplacedCodes = ManifestDiagnosticCodes(misplaced);
+  REQUIRE(std::ranges::find(misplacedCodes, "NGIN1009") !=
+          misplacedCodes.end());
+}
+
+TEST_CASE("semantic validator hooks run after structural parsing") {
+  bool called = false;
+  AuthoredManifestParseOptions options{};
+  options.semanticValidators.push_back(
+      [&](const AuthoredManifest &, std::vector<ManifestDiagnostic> &diagnostics) {
+        called = true;
+        diagnostics.push_back(ManifestDiagnostic{
+            .severity = ManifestDiagnosticSeverity::Warning,
+            .code = "TEST2000",
+            .message = "semantic hook called",
+        });
+      });
+
+  const auto parsed = ParseAuthoredManifestText(
+      R"xml(<Project Name="Example" Type="Application" />)xml",
+      "Example.nginproj", options);
+  REQUIRE(called);
+  REQUIRE(parsed.Succeeded());
+  REQUIRE(parsed.diagnostics.size() == 1);
+  REQUIRE(parsed.diagnostics[0].code == "TEST2000");
+}
+
+TEST_CASE("generated manifest schemas and editor metadata have no drift") {
+  const auto schemaRoot = RepoRoot() / "Tools/NGIN.VSCode/schemas";
+  const auto generated = GenerateManifestArtifacts();
+
+  REQUIRE(generated.size() == 5);
+  for (const auto &[name, contents] : generated) {
+    CAPTURE(name);
+    REQUIRE(ReadFile(schemaRoot / name) == contents);
+  }
+
+  REQUIRE_THAT(generated.at("project.xsd"),
+               ContainsSubstring("<xs:element name=\"Project\""));
+  REQUIRE_THAT(generated.at("project.xsd"),
+               ContainsSubstring("<xs:assert test=\"count(Metadata) le 1\""));
+  REQUIRE_THAT(generated.at("package.xsd"),
+               ContainsSubstring("<xs:assert test=\"count(Exports) ge 1\""));
+  REQUIRE_THAT(generated.at("package.xsd"),
+               ContainsSubstring("ref=\"cmake:FindPackage\""));
+  REQUIRE_THAT(generated.at("cmake-integration.xsd"),
+               ContainsSubstring("targetNamespace=\"urn:ngin:integration:cmake\""));
+  REQUIRE_THAT(generated.at("manifest-editor-metadata.json"),
+               ContainsSubstring("\"semanticValidator\""));
+}
 
 TEST_CASE("host target platforms resolve to the detected host identity") {
   const PlatformIdentity windowsHost{

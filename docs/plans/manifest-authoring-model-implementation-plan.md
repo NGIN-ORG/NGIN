@@ -12,7 +12,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | Milestone | Status | Milestone commit |
 | --- | --- | --- |
 | 0 — Ratify the complete contract | Complete | `docs(manifest): ratify authoring model contract` |
-| 1 — ManifestSpec, authored AST, diagnostics | Pending | — |
+| 1 — ManifestSpec, authored AST, diagnostics | Complete | `refactor(manifest): add structural authoring foundation` |
 | 2 — Selection, merge laws, paths, placeholders | Pending | — |
 | 3 — Direct project grammar and build items | Pending | — |
 | 4 — Package instances, exports, Options, capabilities | Pending | — |

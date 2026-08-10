@@ -19,6 +19,10 @@ The Composition Graph supplies resolved files, packages, generators, launches,
 publish targets, and tooling. When graph data is unavailable, the extension
 shows unknown state instead of guessing.
 
+Structural XML schemas and completion metadata under `schemas/` are generated
+from the CLI's `ManifestSpec`; they are not a second hand-maintained grammar.
+Run the `ngin_manifest_schema_generator` target when the specification changes.
+
 ## Requirements
 
 Build the native CLI first:
