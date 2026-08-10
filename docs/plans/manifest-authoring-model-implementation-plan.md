@@ -13,7 +13,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | --- | --- | --- |
 | 0 — Ratify the complete contract | Complete | `docs(manifest): ratify authoring model contract` |
 | 1 — ManifestSpec, authored AST, diagnostics | Complete | `refactor(manifest): add structural authoring foundation` |
-| 2 — Selection, merge laws, paths, placeholders | Pending | — |
+| 2 — Selection, merge laws, paths, placeholders | Complete | `feat(manifest): add semantic selection foundations` |
 | 3 — Direct project grammar and build items | Pending | — |
 | 4 — Package instances, exports, Options, capabilities | Pending | — |
 | 5 — Actions, Tools, execution trust | Pending | — |

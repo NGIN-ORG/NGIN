@@ -88,6 +88,7 @@ target_link_libraries(NGINCliTests PRIVATE
   ngin_cli_commands
   ngin_cli_build
   ngin_cli_resolution
+  ngin_cli_semantics
   ngin_cli_authoring
   ngin_cli_model
 )

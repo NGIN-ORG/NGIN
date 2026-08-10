@@ -485,7 +485,8 @@ namespace NGIN::CLI
             Add(spec, "workspace.targets", "Targets", {}, {C("workspace.target")});
             Add(spec, "workspace.target", "Target",
                 {Required("Name", ManifestValueKind::Identifier), Required("OS"), Required("Architecture"),
-                 A("Alias", ManifestValueKind::Identifier)});
+                 A("Emulator")}, {C("workspace.target.alias")});
+            Add(spec, "workspace.target.alias", "Alias", {Required("Name", ManifestValueKind::Identifier)});
             Add(spec, "workspace.toolchains", "Toolchains", {}, {C("workspace.toolchain")});
             Add(spec, "workspace.toolchain", "Toolchain",
                 {Required("Name", ManifestValueKind::Identifier), Required("Compiler"), A("CompilerVersion"),

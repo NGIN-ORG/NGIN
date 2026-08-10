@@ -611,7 +611,9 @@ workspace product identity are errors.
 </Configurations>
 
 <Targets>
-  <Target Name="win-x64" OS="windows" Architecture="x64" />
+  <Target Name="win-x64" OS="windows" Architecture="x64">
+    <Alias Name="windows-desktop" />
+  </Target>
   <Target Name="linux-x64" OS="linux" Architecture="x64" />
 </Targets>
 
@@ -848,6 +850,22 @@ Structural diagnostic codes are:
 | `NGIN1007` | Invalid structural scalar value |
 | `NGIN1008` | Text where an element-only model is required |
 | `NGIN1009` | Registered extension element in an invalid context |
+
+Foundational semantic diagnostic codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `NGIN2001` | Equal-authority scalar assignment conflict |
+| `NGIN2002` | Empty Version-constraint intersection |
+| `NGIN2003` | Invalid typed Option value |
+| `NGIN2004` | Preset command or explicit-input conflict |
+| `NGIN2005` | Unknown Target alias |
+| `NGIN2006` | Equal-specificity refinement conflict |
+| `NGIN2007` | Portable path or containment failure |
+| `NGIN2008` | Invalid glob, symlink cycle, or glob boundary failure |
+| `NGIN2009` | Case-insensitive Target path collision |
+| `NGIN2010` | Unknown, unavailable, recursive, or phase-invalid placeholder |
+| `NGIN2011` | Invalid or ambiguous workspace selection declaration |
 
 ## Graph and plan boundary
 

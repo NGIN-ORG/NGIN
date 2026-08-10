@@ -1,4 +1,105 @@
 #include "TestSupport.hpp"
+#include "AuthoredManifest.hpp"
+#include "SelectionAuthoring.hpp"
+
+TEST_CASE("workspace selection model parses aliases defaults and presets")
+{
+    const auto parsed = ParseAuthoredManifest(
+        RepoRoot() / "Tools/NGIN.CLI/tests/fixtures/manifest-model/workspace.ngin");
+    REQUIRE(parsed.Succeeded());
+    const auto &workspace = std::get<AuthoredWorkspaceManifest>(*parsed.value);
+    const auto semantic = ParseWorkspaceSelection(workspace);
+    REQUIRE(semantic.Succeeded());
+    REQUIRE(semantic.value->configurations.size() == 2);
+    REQUIRE(semantic.value->targets.size() == 2);
+    REQUIRE(semantic.value->targets[1].aliases.contains("windows-desktop"));
+    REQUIRE(semantic.value->defaults.configuration == "Debug");
+    REQUIRE(semantic.value->presets.size() == 1);
+
+    const auto expanded = ExpandPreset(semantic.value->presets[0], "build", {});
+    REQUIRE(expanded.Succeeded());
+    REQUIRE(*expanded.value == semantic.value->presets[0].selection);
+    const auto equivalent = ExpandPreset(semantic.value->presets[0], "build", *expanded.value);
+    REQUIRE(equivalent.Succeeded());
+    REQUIRE(*equivalent.value == *expanded.value);
+    REQUIRE_FALSE(ExpandPreset(semantic.value->presets[0], "test", {}).Succeeded());
+    REQUIRE_FALSE(ExpandPreset(semantic.value->presets[0], "build",
+                               SelectionRequest{.configuration = "Release"})
+                      .Succeeded());
+}
+
+TEST_CASE("Target aliases resolve to one structured canonical identity")
+{
+    const Target host{.name = "host-resolved", .operatingSystem = "linux", .architecture = "x64"};
+    const Target windows{.name = "win-x64",
+                         .aliases = {"windows-desktop"},
+                         .operatingSystem = "windows",
+                         .architecture = "x64"};
+    const auto [byName, nameDiagnostics] = ResolveTargetAlias("win-x64", {windows}, host);
+    const auto [byAlias, aliasDiagnostics] = ResolveTargetAlias("windows-desktop", {windows}, host);
+    const auto [byHost, hostDiagnostics] = ResolveTargetAlias("host", {windows}, host);
+    REQUIRE(nameDiagnostics.empty());
+    REQUIRE(aliasDiagnostics.empty());
+    REQUIRE(hostDiagnostics.empty());
+    REQUIRE(CanonicalTargetIdentity(*byName) == CanonicalTargetIdentity(*byAlias));
+    REQUIRE(*byHost == host);
+}
+
+TEST_CASE("typed Options validate and derive artifact compatibility only when declared")
+{
+    OptionDefinition linkage{.name = "Linkage",
+                             .type = OptionType::Enumeration,
+                             .defaultValue = TypedOptionValue{.type = OptionType::Enumeration,
+                                                              .value = std::string("Shared")},
+                             .artifact = true,
+                             .allowedValues = {"Shared", "Static"}};
+    OptionDefinition workers{.name = "Workers",
+                             .type = OptionType::Integer,
+                             .defaultValue = TypedOptionValue{.type = OptionType::Integer, .value = std::int64_t{4}},
+                             .minimum = 1,
+                             .maximum = 64};
+    const OptionDefinition enabled{
+        .name = "Enabled",
+        .type = OptionType::Boolean,
+        .defaultValue = TypedOptionValue{.type = OptionType::Boolean, .value = false}};
+    const OptionDefinition channel{
+        .name = "Channel",
+        .type = OptionType::String,
+        .defaultValue = TypedOptionValue{.type = OptionType::String, .value = std::string("dev")},
+        .allowedValues = {"dev", "stable"}};
+    const OptionDefinition assets{
+        .name = "Assets",
+        .type = OptionType::Path,
+        .defaultValue = TypedOptionValue{.type = OptionType::Path,
+                                         .value = PortablePath{.value = "assets"}}};
+    const auto staticLinkage = ParseOptionValue(linkage, "Static");
+    const auto workerCount = ParseOptionValue(workers, "8");
+    REQUIRE(staticLinkage.Succeeded());
+    REQUIRE(workerCount.Succeeded());
+    REQUIRE_FALSE(ParseOptionValue(linkage, "Dynamic").Succeeded());
+    REQUIRE_FALSE(ParseOptionValue(workers, "0").Succeeded());
+    REQUIRE(ParseOptionValue(enabled, "true").Succeeded());
+    REQUIRE_FALSE(ParseOptionValue(enabled, "yes").Succeeded());
+    REQUIRE(ParseOptionValue(channel, "stable").Succeeded());
+    REQUIRE_FALSE(ParseOptionValue(channel, "nightly").Succeeded());
+    const auto assetPath = ParseOptionValue(assets, "shaders/../assets");
+    REQUIRE(assetPath.Succeeded());
+    REQUIRE(std::get<PortablePath>(assetPath.value->value).value == "assets");
+    REQUIRE_THAT(CanonicalOptionValue(*staticLinkage.value),
+                 ContainsSubstring("\"type\":\"Enum\""));
+
+    SelectionFacts selection{
+        .configuration = Configuration{.name = "Debug"},
+        .target = Target{.operatingSystem = "windows", .architecture = "x64"},
+        .toolchain = Toolchain{.compiler = "msvc", .compilerVersion = "19.51", .runtimeLibrary = "dynamic"},
+        .options = {{"Linkage", *staticLinkage.value}, {"Workers", *workerCount.value}},
+    };
+    const auto compatibility = DeriveBinaryCompatibility(
+        selection, "Static", {{"Linkage", linkage}, {"Workers", workers}});
+    REQUIRE(compatibility.operatingSystem == "windows");
+    REQUIRE(compatibility.artifactOptions.size() == 1);
+    REQUIRE(compatibility.artifactOptions.contains("Linkage"));
+}
 
 TEST_CASE("workspace parses projects, package sources, and central package "
           "versions")

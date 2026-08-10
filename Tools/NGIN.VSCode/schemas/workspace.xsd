@@ -72,10 +72,16 @@
     </xs:choice>
   </xs:complexType>
   <xs:complexType name="t_workspace_target">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Alias" type="t_workspace_target_alias" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
     <xs:attribute name="Name" type="identifier" use="required" />
     <xs:attribute name="OS" type="nonEmptyString" use="required" />
     <xs:attribute name="Architecture" type="nonEmptyString" use="required" />
-    <xs:attribute name="Alias" type="identifier" />
+    <xs:attribute name="Emulator" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_target_alias">
+    <xs:attribute name="Name" type="identifier" use="required" />
   </xs:complexType>
   <xs:complexType name="t_workspace_toolchains">
     <xs:choice minOccurs="0" maxOccurs="unbounded">

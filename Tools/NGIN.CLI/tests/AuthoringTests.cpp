@@ -1,7 +1,9 @@
 #include "AuthoredManifest.hpp"
 #include "CompositionBoundary.hpp"
 #include "ManifestArtifacts.hpp"
+#include "ManifestPaths.hpp"
 #include "Overlay.hpp"
+#include "Placeholders.hpp"
 #include "TestSupport.hpp"
 
 namespace
@@ -219,6 +221,131 @@ TEST_CASE("generated manifest schemas and editor metadata have no drift") {
                ContainsSubstring("targetNamespace=\"urn:ngin:integration:cmake\""));
   REQUIRE_THAT(generated.at("manifest-editor-metadata.json"),
                ContainsSubstring("\"semanticValidator\""));
+}
+
+TEST_CASE("portable paths normalize to owner-relative semantic identities") {
+  const auto normalized = NormalizePortablePath(
+      "src/./ui/../main.cpp", PortablePathBase::Manifest);
+  REQUIRE(normalized.Succeeded());
+  REQUIRE(normalized.value->value == "src/main.cpp");
+  const auto sibling =
+      NormalizePortablePath("../sibling", PortablePathBase::Manifest);
+  REQUIRE(sibling.Succeeded());
+  REQUIRE(sibling.value->value == "../sibling");
+  REQUIRE_FALSE(NormalizePortablePath("C:/secret", PortablePathBase::Manifest)
+                    .Succeeded());
+  REQUIRE_FALSE(NormalizePortablePath("src\\main.cpp",
+                                      PortablePathBase::Manifest)
+                    .Succeeded());
+  REQUIRE_FALSE(NormalizeStageDestination("../../outside").Succeeded());
+
+  TempDir temp{};
+  const auto workspace = temp.path() / "workspace";
+  const auto manifestDirectory = workspace / "App";
+  WriteFile(workspace / "Sibling/value.txt", "value");
+  fs::create_directories(manifestDirectory);
+  const auto siblingFile = NormalizePortablePath(
+      "../Sibling/value.txt", PortablePathBase::Manifest);
+  const auto resolved = ResolvePortablePath(*siblingFile.value,
+                                            manifestDirectory, workspace,
+                                            workspace);
+  REQUIRE(resolved.Succeeded());
+  REQUIRE(resolved.value->base == PortablePathBase::Workspace);
+  REQUIRE(resolved.value->value == "Sibling/value.txt");
+
+  TempDir otherCheckout{};
+  const auto otherWorkspace = otherCheckout.path() / "workspace";
+  const auto otherManifest = otherWorkspace / "App";
+  WriteFile(otherWorkspace / "Sibling/value.txt", "value");
+  fs::create_directories(otherManifest);
+  const auto otherResolved = ResolvePortablePath(
+      *siblingFile.value, otherManifest, otherWorkspace, otherWorkspace);
+  REQUIRE(otherResolved.Succeeded());
+  REQUIRE(*otherResolved.value == *resolved.value);
+}
+
+TEST_CASE("portable glob expansion is deterministic and enforces case policy") {
+  TempDir temp{};
+  WriteFile(temp.path() / "src/z.cpp", "");
+  WriteFile(temp.path() / "src/a.cpp", "");
+  WriteFile(temp.path() / "src/nested/b.cpp", "");
+  WriteFile(temp.path() / "include/a.hpp", "");
+
+  const auto expanded =
+      ExpandPortableGlob(temp.path(), "src/**/*.cpp", false);
+  REQUIRE(expanded.Succeeded());
+  REQUIRE(expanded.matches ==
+          std::vector<PortablePath>{{.value = "src/a.cpp"},
+                                    {.value = "src/nested/b.cpp"},
+                                    {.value = "src/z.cpp"}});
+  REQUIRE(GlobMatchesPortable("**/*.cpp", "main.cpp"));
+  REQUIRE(GlobMatchesPortable("src/[ab].cpp", "src/a.cpp"));
+  REQUIRE_FALSE(GlobMatchesPortable("src/**x.cpp", "src/x.cpp"));
+
+  const std::vector<PortablePath> collision{
+      {.value = "Assets/Icon.png"}, {.value = "assets/icon.png"}};
+  REQUIRE(ValidateTargetPathCaseCollisions(collision, false).empty());
+  const auto diagnostics = ValidateTargetPathCaseCollisions(collision, true);
+  REQUIRE(diagnostics.size() == 1);
+  REQUIRE(diagnostics[0].code == "NGIN2009");
+}
+
+TEST_CASE("resolved symlinks cannot escape an authored path boundary") {
+  TempDir temp{};
+  const auto root = temp.path() / "root";
+  const auto outside = temp.path() / "outside";
+  WriteFile(outside / "secret.txt", "secret");
+  fs::create_directories(root);
+  std::error_code error{};
+  fs::create_directory_symlink(outside, root / "link", error);
+  if (error) {
+    WARN("symlink creation is unavailable in this environment: " << error.message());
+  } else {
+    const auto authored = NormalizePortablePath(
+        "link/secret.txt", PortablePathBase::Manifest);
+    REQUIRE(authored.Succeeded());
+    REQUIRE_FALSE(ResolvePortablePath(*authored.value, root, root, root)
+                      .Succeeded());
+  }
+}
+
+TEST_CASE("typed placeholders enforce registry phases and canonical identity") {
+  const std::map<std::string, PlaceholderValue, std::less<>> values{
+      {"project.name", {PlaceholderType::Identifier, "Gallery"}},
+      {"project.version", {PlaceholderType::SemanticVersion, "1.2.0"}},
+      {"configuration", {PlaceholderType::Identifier, "Debug"}},
+      {"target.os", {PlaceholderType::Identifier, "windows"}},
+      {"target.architecture", {PlaceholderType::Identifier, "x64"}},
+      {"output.name", {PlaceholderType::Filename, "Gallery.exe"}},
+      {"workspace.root", {PlaceholderType::Path, "C:/work/NGIN"}},
+  };
+  const auto publish = ExpandPlaceholders(
+      "dist/${project.name}-${project.version}.zip", PlaceholderPhase::Publish,
+      values, true);
+  REQUIRE(publish.Succeeded());
+  REQUIRE(*publish.value == "dist/Gallery-1.2.0.zip");
+
+  REQUIRE_FALSE(ExpandPlaceholders("${project.version}", PlaceholderPhase::Stage,
+                                   values)
+                    .Succeeded());
+  REQUIRE_FALSE(
+      ExpandPlaceholders("${unknown}", PlaceholderPhase::Output, values)
+          .Succeeded());
+  const auto local = ExpandPlaceholders("${workspace.root}",
+                                        PlaceholderPhase::LocalExecution,
+                                        values);
+  REQUIRE(local.Succeeded());
+  REQUIRE_FALSE(local.canonicalIdentity);
+  REQUIRE_FALSE(ExpandPlaceholders("${workspace.root}",
+                                   PlaceholderPhase::LocalExecution, values,
+                                   true)
+                    .Succeeded());
+
+  auto recursiveValues = values;
+  recursiveValues["project.name"].value = "${configuration}";
+  REQUIRE_FALSE(ExpandPlaceholders("${project.name}", PlaceholderPhase::Output,
+                                   recursiveValues)
+                    .Succeeded());
 }
 
 TEST_CASE("host target platforms resolve to the detected host identity") {

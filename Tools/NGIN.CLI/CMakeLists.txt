@@ -38,10 +38,21 @@ add_executable(ngin_manifest_schema_generator
 target_link_libraries(ngin_manifest_schema_generator PRIVATE ngin_cli_authoring)
 _ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 
+add_library(ngin_cli_semantics STATIC
+  src/Canonical.cpp
+  src/ManifestPaths.cpp
+  src/Placeholders.cpp
+  src/Selection.cpp
+  src/SelectionAuthoring.cpp
+  src/SemanticMerge.cpp
+)
+target_link_libraries(ngin_cli_semantics PUBLIC ngin_cli_authoring)
+_ngin_cli_apply_defaults(ngin_cli_semantics)
+
 add_library(ngin_cli_resolution STATIC
   src/Resolution.cpp
 )
-target_link_libraries(ngin_cli_resolution PUBLIC ngin_cli_authoring ngin_cli_model)
+target_link_libraries(ngin_cli_resolution PUBLIC ngin_cli_semantics ngin_cli_authoring ngin_cli_model)
 _ngin_cli_apply_defaults(ngin_cli_resolution)
 
 add_library(ngin_cli_build STATIC

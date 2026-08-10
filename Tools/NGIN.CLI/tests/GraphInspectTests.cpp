@@ -1,4 +1,38 @@
 #include "TestSupport.hpp"
+#include "Canonical.hpp"
+#include "Selection.hpp"
+
+TEST_CASE("canonical serialization sorts keys and escapes without host paths")
+{
+    const CanonicalValue::Object fields{{"z", "last"},
+                                        {"a", CanonicalValue::Array{"one", "two\n"}},
+                                        {"enabled", true}};
+    REQUIRE(SerializeCanonical(fields) ==
+            R"({"a":["one","two\n"],"enabled":true,"z":"last"})");
+    REQUIRE(CanonicalDigestInput("Example", fields) ==
+            R"({"kind":"Example","value":{"a":["one","two\n"],"enabled":true,"z":"last"}})");
+}
+
+TEST_CASE("canonical selection uses structured facts rather than Target aliases")
+{
+    const SelectionFacts first{
+        .configuration = Configuration{.name = "Debug"},
+        .target = Target{.name = "win-x64",
+                         .aliases = {"desktop"},
+                         .operatingSystem = "windows",
+                         .architecture = "x64"},
+        .toolchain = Toolchain{.name = "default", .compiler = "msvc", .linker = "link"},
+    };
+    auto second = first;
+    second.target.name = "windows-desktop";
+    second.target.aliases = {"win-x64"};
+    second.toolchain.name = "msvc-default";
+
+    REQUIRE(SerializeCanonical(CanonicalSelection(first)) ==
+            SerializeCanonical(CanonicalSelection(second)));
+    REQUIRE(CanonicalTargetIdentity(first.target) ==
+            CanonicalTargetIdentity(second.target));
+}
 
 TEST_CASE("inspect emits product identity")
 {

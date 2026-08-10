@@ -1,5 +1,115 @@
 #include "TestSupport.hpp"
 #include "Overlay.hpp"
+#include "Selection.hpp"
+#include "SemanticMerge.hpp"
+
+namespace
+{
+    [[nodiscard]] auto SemanticSource(std::string name, std::size_t line = 1) -> ManifestSourceRange
+    {
+        return ManifestSourceRange{.path = std::move(name),
+                                   .begin = {.offset = 0, .line = line, .column = 1},
+                                   .end = {.offset = 1, .line = line, .column = 2}};
+    }
+
+    [[nodiscard]] auto Version(std::string_view value) -> SemanticVersion
+    {
+        const auto parsed = ParseSemanticVersion(value);
+        REQUIRE(parsed.has_value());
+        return *parsed;
+    }
+}
+
+TEST_CASE("scalar merge law is authority-based and order-independent")
+{
+    const SourcedAssignment<std::string> workspace{
+        .value = "workspace", .authority = AssignmentAuthority::WorkspaceDefault,
+        .source = SemanticSource("Workspace.ngin")};
+    const SourcedAssignment<std::string> project{
+        .value = "project", .authority = AssignmentAuthority::Project,
+        .source = SemanticSource("App.nginproj")};
+
+    const auto forward = MergeScalarSetting<std::string>("output", {workspace, project});
+    const auto reverse = MergeScalarSetting<std::string>("output", {project, workspace});
+    REQUIRE(forward.Succeeded());
+    REQUIRE(reverse.Succeeded());
+    REQUIRE(forward.value->value == "project");
+    REQUIRE(reverse.value->value == "project");
+
+    const auto conflict = MergeScalarSetting<std::string>(
+        "output", {project, SourcedAssignment<std::string>{.value = "other",
+                                                             .authority = AssignmentAuthority::Project,
+                                                             .source = SemanticSource("Other.nginproj")}});
+    REQUIRE_FALSE(conflict.Succeeded());
+    REQUIRE(conflict.diagnostics[0].code == "NGIN2001");
+    REQUIRE(conflict.diagnostics[0].relatedSources.size() == 1);
+}
+
+TEST_CASE("version constraint merge law intersects with complete provenance")
+{
+    const SourcedVersionConstraint atLeastOne{
+        .lower = VersionBoundary{.version = Version("1.0.0"), .inclusive = true},
+        .source = SemanticSource("Project.nginproj", 2)};
+    const SourcedVersionConstraint beforeTwo{
+        .upper = VersionBoundary{.version = Version("2.0.0"), .inclusive = false},
+        .source = SemanticSource("Workspace.ngin", 3)};
+    const auto valid = IntersectVersionConstraints("Example", {beforeTwo, atLeastOne});
+    REQUIRE(valid.Succeeded());
+    REQUIRE(valid.value->lower->version == Version("1.0.0"));
+    REQUIRE(valid.value->upper->version == Version("2.0.0"));
+    REQUIRE(Version("1.0.0-alpha.2") < Version("1.0.0-alpha.10"));
+    REQUIRE(Version("1.0.0-alpha") < Version("1.0.0"));
+    REQUIRE_FALSE(ParseSemanticVersion("1.0.0-alpha.01").has_value());
+    REQUIRE_FALSE(ParseSemanticVersion("1.0.0+").has_value());
+
+    const SourcedVersionConstraint atLeastTwo{
+        .lower = VersionBoundary{.version = Version("2.0.0"), .inclusive = true},
+        .source = SemanticSource("Package.nginpkg", 4)};
+    const auto invalid = IntersectVersionConstraints("Example", {beforeTwo, atLeastTwo});
+    REQUIRE_FALSE(invalid.Succeeded());
+    REQUIRE(invalid.diagnostics[0].code == "NGIN2002");
+    REQUIRE(invalid.diagnostics[0].relatedSources.size() == 1);
+}
+
+TEST_CASE("set-union merge laws use stable semantic identities")
+{
+    const std::vector<SourcedIdentity> authored{{.identity = "B"}, {.identity = "A"}, {.identity = "B"}};
+    REQUIRE(MergeRequiredDependencies(authored)[0].identity == "A");
+    REQUIRE(MergeExportActivations(authored).size() == 2);
+    REQUIRE(MergeActionSelections(authored)[1].identity == "B");
+}
+
+TEST_CASE("refinement matching is specific, order-independent, and rejects ties")
+{
+    SelectionFacts selection{
+        .configuration = Configuration{.name = "Debug"},
+        .target = Target{.name = "win-x64", .operatingSystem = "windows", .architecture = "x64"},
+        .toolchain = Toolchain{.name = "msvc", .compiler = "msvc"},
+    };
+    const auto general = SemanticRefinement{
+        .selector = RefinementSelector{.configuration = "Debug"},
+        .assignments = {{.category = "Define", .identity = "TRACE", .value = "1",
+                         .source = SemanticSource("App.nginproj", 10)}}};
+    const auto specific = SemanticRefinement{
+        .selector = RefinementSelector{.configuration = "Debug", .targetOperatingSystem = "windows"},
+        .assignments = {{.category = "Define", .identity = "TRACE", .value = "2",
+                         .source = SemanticSource("App.nginproj", 20)}}};
+    const auto forward = ResolveRefinements(selection, {general, specific});
+    const auto reverse = ResolveRefinements(selection, {specific, general});
+    REQUIRE(forward.Succeeded());
+    REQUIRE(reverse.Succeeded());
+    REQUIRE(SerializeCanonical(forward.assignments.begin()->second.value) == "\"2\"");
+    REQUIRE(SerializeCanonical(reverse.assignments.begin()->second.value) == "\"2\"");
+
+    const auto tied = SemanticRefinement{
+        .selector = RefinementSelector{.configuration = "Debug", .toolchainName = "msvc"},
+        .assignments = {{.category = "Define", .identity = "TRACE", .value = "3",
+                         .source = SemanticSource("App.nginproj", 30)}}};
+    const auto conflict = ResolveRefinements(selection, {specific, tied});
+    REQUIRE_FALSE(conflict.Succeeded());
+    REQUIRE(conflict.diagnostics[0].code == "NGIN2006");
+    REQUIRE(conflict.diagnostics[0].relatedSources.size() == 1);
+}
 
 TEST_CASE("profile Uses overlays select package features")
 {

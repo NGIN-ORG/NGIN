@@ -19,7 +19,9 @@
 
   <Targets>
     <Target Name="host" OS="host" Architecture="host" />
-    <Target Name="win-x64" OS="windows" Architecture="x64" />
+    <Target Name="win-x64" OS="windows" Architecture="x64">
+      <Alias Name="windows-desktop" />
+    </Target>
   </Targets>
 
   <Toolchains>
