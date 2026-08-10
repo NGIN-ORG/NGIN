@@ -78,6 +78,7 @@ add_executable(NGINCliTests
   OverlayTests.cpp
   PackageTests.cpp
   ProductTests.cpp
+  SemanticResolutionTests.cpp
   ToolingTests.cpp
   WorkspaceTests.cpp
 )

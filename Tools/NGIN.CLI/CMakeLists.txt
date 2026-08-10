@@ -41,11 +41,13 @@ _ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 add_library(ngin_cli_semantics STATIC
   src/ActionModel.cpp
   src/Canonical.cpp
+  src/CompositionGraph.cpp
   src/ManifestPaths.cpp
   src/PackageModel.cpp
   src/Placeholders.cpp
   src/ProjectModel.cpp
   src/SemanticAuthoring.cpp
+  src/SemanticResolver.cpp
   src/Selection.cpp
   src/SelectionAuthoring.cpp
   src/SemanticMerge.cpp

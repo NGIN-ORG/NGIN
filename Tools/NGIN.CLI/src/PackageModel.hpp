@@ -63,6 +63,7 @@ namespace NGIN::CLI
         std::vector<ExportUse> exports{};
         std::map<std::string, std::string, std::less<>> optionAssignments{};
         RequirementVisibility visibility{RequirementVisibility::Private};
+        PackageInstanceContext context{PackageInstanceContext::Target};
         std::optional<RequirementCondition> condition{};
         ManifestSourceRange source{};
     };
@@ -91,6 +92,7 @@ namespace NGIN::CLI
         CapabilityDomain domain{CapabilityDomain::Link};
         std::optional<SourcedVersionConstraint> constraint{};
         RequirementVisibility visibility{RequirementVisibility::Private};
+        PackageInstanceContext context{PackageInstanceContext::Target};
         std::optional<RequirementCondition> condition{};
         std::string requester{};
         ManifestSourceRange source{};
@@ -121,6 +123,7 @@ namespace NGIN::CLI
         std::string name{};
         CapabilityDomain domain{CapabilityDomain::Link};
         SemanticVersion version{};
+        PackageInstanceContext context{PackageInstanceContext::Target};
         std::string packageInstance{};
         std::string exportName{};
         ManifestSourceRange source{};

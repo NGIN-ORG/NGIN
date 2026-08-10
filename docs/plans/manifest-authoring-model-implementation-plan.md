@@ -17,7 +17,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 3 — Direct project grammar and build items | Complete | `feat(manifest): implement direct project semantics` |
 | 4 — Package instances, exports, Options, capabilities | Complete | `feat(manifest): implement package activation semantics` |
 | 5 — Actions, Tools, execution trust | Complete | `feat(manifest): implement trusted Action semantics` |
-| 6 — Complete resolver and immutable graph | Pending | — |
+| 6 — Complete resolver and immutable graph | Complete | `feat(manifest): resolve immutable composition graph` |
 | 7 — Derived plans and CMake integration | Pending | — |
 | 8 — PackageProvider hardening and reproducibility | Pending | — |
 | 9 — Stage, launch, test, publish plans | Pending | — |

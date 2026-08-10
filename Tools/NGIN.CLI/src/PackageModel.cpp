@@ -675,7 +675,7 @@ namespace NGIN::CLI
                                             .sourceBinding = identity_},
             .providerKind = "Directory",
             .nativeIdentity = selected.release->nativeIdentity.empty()
-                                  ? selected.release->manifest.generic_string()
+                                  ? identity_ + "/" + request.name + "@" + selected.package.version
                                   : selected.release->nativeIdentity,
             .revision = selected.release->revision,
             .integrity = selected.release->integrity,
@@ -802,6 +802,7 @@ namespace NGIN::CLI
             }
             for (auto capability : exportModel.capabilities)
             {
+                capability.context = instance.context;
                 capability.packageInstance = instance.identity;
                 capability.exportName = exportModel.name;
                 result.capabilities.push_back(std::move(capability));
@@ -854,6 +855,7 @@ namespace NGIN::CLI
             std::vector<const CapabilityImplementation *> candidates{};
             for (const auto &implementation : implementations)
                 if (implementation.name == group.front().name && implementation.domain == group.front().domain &&
+                    implementation.context == group.front().context &&
                     VersionConstraintContains(*intersection.value, implementation.version))
                     candidates.push_back(&implementation);
             std::ranges::sort(candidates, [](const auto *left, const auto *right) {
