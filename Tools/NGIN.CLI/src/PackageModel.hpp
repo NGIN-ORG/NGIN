@@ -213,8 +213,10 @@ namespace NGIN::CLI
         fs::path manifest{};
         fs::path root{};
         std::string nativeIdentity{};
+        std::string nativeVersion{};
         std::string revision{};
         std::string integrity{};
+        std::string artifactIdentity{};
         bool hermetic{true};
     };
 
@@ -229,6 +231,21 @@ namespace NGIN::CLI
     private:
         std::string identity_{};
         std::vector<DirectoryPackageRelease> releases_{};
+    };
+
+    class CatalogPackageProvider final : public PackageProvider
+    {
+    public:
+        CatalogPackageProvider(std::string kind, std::string identity,
+                               std::vector<PackageProviderResult> releases);
+        [[nodiscard]] auto Kind() const -> std::string_view override;
+        [[nodiscard]] auto Resolve(const PackageProviderRequest &request) const
+            -> PackageProviderResolution override;
+
+    private:
+        std::string kind_{};
+        std::string identity_{};
+        std::vector<PackageProviderResult> releases_{};
     };
 
     struct PackageActivationRequest

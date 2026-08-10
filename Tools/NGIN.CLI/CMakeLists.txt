@@ -44,6 +44,7 @@ add_library(ngin_cli_semantics STATIC
     src/CMakeIntegration.cpp
     src/CMakeAdapter.cpp
     src/CompositionGraph.cpp
+    src/DependencyLock.cpp
     src/DerivedPlans.cpp
   src/ManifestPaths.cpp
   src/PackageModel.cpp

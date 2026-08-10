@@ -225,7 +225,17 @@ PackageProviderResult. The resolver combines that result with host/target
 context, derived BinaryCompatibility, and artifact-affecting Options to form a
 PackageInstance. Named Exports activate on that PackageInstance.
 
-PackageProvider-native revision, integrity, provenance, trust, and acquisition
-roots are not backend cache variables. The dependency lock records exact
-acquired instances; the separate composition fingerprint records active
-semantic choices.
+The normalized result keeps the NGIN `PackageCoordinate` separate from the
+provider kind, provider-native coordinate, provider-native version, revision,
+integrity, and provider-native artifact identity. A Conan recipe/package
+revision or vcpkg port/baseline therefore remains exact without being forced
+into NGIN's semantic-version grammar. Local/directory results use their
+manifest version as the native version unless the provider supplies a more
+specific value.
+
+Hermetic results must provide integrity. Providers backed by mutable system or
+external state set `hermetic=false`; they are usable in an explicitly relaxed
+workflow but rejected by locked CI policy. Provenance, trust, acquisition roots,
+and installed prefixes do not become backend cache variables. The dependency
+lock records exact acquired instances; the separate composition fingerprint
+records active semantic choices. See [dependency-lock.md](dependency-lock.md).

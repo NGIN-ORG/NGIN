@@ -33,4 +33,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto SerializeCanonical(const CanonicalValue &value) -> std::string;
     [[nodiscard]] auto CanonicalDigestInput(std::string_view kind, const CanonicalValue::Object &fields)
         -> std::string;
+    [[nodiscard]] auto Sha256Fingerprint(std::string_view value) -> std::string;
+    [[nodiscard]] auto CanonicalFingerprint(std::string_view kind, const CanonicalValue::Object &fields)
+        -> std::string;
 }

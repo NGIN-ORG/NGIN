@@ -64,8 +64,10 @@ namespace NGIN::CLI
         PackageInstanceContext context{PackageInstanceContext::Target};
         std::string providerKind{};
         std::string providerIdentity{};
+        std::string providerVersion{};
         std::string revision{};
         std::string integrity{};
+        std::string artifactIdentity{};
         bool hermetic{false};
         BinaryCompatibility compatibility{};
         std::map<std::string, std::string, std::less<>> artifactOptions{};

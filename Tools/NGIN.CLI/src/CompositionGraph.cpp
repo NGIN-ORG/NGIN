@@ -154,7 +154,8 @@ namespace NGIN::CLI
                 {"packages", Array(graph.packages, [](const GraphPackageInstance &value) {
                      CanonicalValue::Object options{};
                      for (const auto &[name, option] : value.artifactOptions) options.emplace(name, option);
-                     return CanonicalValue::Object{{"compatibility", CompatibilityValue(value.compatibility)},
+                    return CanonicalValue::Object{{"artifactIdentity", value.artifactIdentity},
+                                                   {"compatibility", CompatibilityValue(value.compatibility)},
                                                    {"context", ContextName(value.context)},
                                                    {"hermetic", value.hermetic},
                                                    {"identity", value.identity},
@@ -164,6 +165,7 @@ namespace NGIN::CLI
                                                    {"provenance", ProvenanceValue(value.provenance)},
                                                    {"providerIdentity", value.providerIdentity},
                                                    {"providerKind", value.providerKind},
+                                                   {"providerVersion", value.providerVersion},
                                                    {"revision", value.revision},
                                                    {"source", value.coordinate.sourceBinding.value_or("")},
                                                    {"version", value.coordinate.exactVersion}};
@@ -265,7 +267,7 @@ namespace NGIN::CLI
         SortByIdentity(data.edges);
         data_ = std::make_shared<const CompositionGraphData>(std::move(data));
         canonical_ = SerializeCompositionGraph(*data_);
-        identity_ = CanonicalDigestInput("CompositionIdentity", {{"graph", canonical_}});
+        identity_ = CanonicalFingerprint("CompositionFingerprint", {{"graph", canonical_}});
     }
 
     auto ResolvedCompositionGraph::Data() const -> const CompositionGraphData & { return *data_; }

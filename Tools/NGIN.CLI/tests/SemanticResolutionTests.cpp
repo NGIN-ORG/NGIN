@@ -1,4 +1,5 @@
 #include "TestSupport.hpp"
+#include "DependencyLock.hpp"
 #include "SemanticResolver.hpp"
 
 #include <type_traits>
@@ -223,6 +224,10 @@ TEST_CASE("resolved graph includes explicit host Actions Plugins generated items
     REQUIRE(resolved.graph->Data().actions.size() == 1);
     REQUIRE(resolved.graph->Data().plugins.size() == 1);
     REQUIRE(std::ranges::any_of(resolved.graph->Data().packages, [](const GraphPackageInstance &package) {
+        return package.coordinate.name == "Meta" && package.context == PackageInstanceContext::Host;
+    }));
+    const auto dependencyLock = CreateDependencyLock(*resolved.graph);
+    REQUIRE(std::ranges::any_of(dependencyLock.Data().packages, [](const DependencyLockEntry &package) {
         return package.coordinate.name == "Meta" && package.context == PackageInstanceContext::Host;
     }));
     REQUIRE(std::ranges::any_of(resolved.graph->Data().buildItems, [](const GraphBuildItem &item) {

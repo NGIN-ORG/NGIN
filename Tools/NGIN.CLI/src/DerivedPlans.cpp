@@ -113,4 +113,18 @@ namespace NGIN::CLI
                                                          {"plan", IdentityValue(plan.plan)},
                                                          {"steps", steps}});
     }
+
+    auto FingerprintBuildPlan(const BuildPlan &plan) -> std::string
+    {
+        auto canonical = plan;
+        canonical.plan.identity.clear();
+        return CanonicalFingerprint("BuildPlanFingerprint", {{"plan", SerializeBuildPlan(canonical)}});
+    }
+
+    auto FingerprintActionPlan(const ActionPlan &plan) -> std::string
+    {
+        auto canonical = plan;
+        canonical.plan.identity.clear();
+        return CanonicalFingerprint("ActionPlanFingerprint", {{"plan", SerializeActionPlan(canonical)}});
+    }
 }

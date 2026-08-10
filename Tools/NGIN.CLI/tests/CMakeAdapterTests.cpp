@@ -99,6 +99,9 @@ TEST_CASE("CMake AddSubdirectory bindings stay outside the semantic graph and de
                             .crossCompiling = true});
     INFO((plans.diagnostics.empty() ? std::string{} : plans.diagnostics[0].code + ": " + plans.diagnostics[0].message));
     REQUIRE(plans.Succeeded());
+    REQUIRE(plans.build->plan.identity.starts_with("sha256:"));
+    REQUIRE(plans.build->plan.identity == FingerprintBuildPlan(*plans.build));
+    REQUIRE(plans.actions->plan.identity == FingerprintActionPlan(*plans.actions));
     REQUIRE(plans.build->links.size() == 1);
     REQUIRE(plans.build->links[0].targetName == "Example::Core");
     REQUIRE(plans.build->packages.size() == 1);
@@ -212,7 +215,11 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
     const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Meta");
     INFO(Diagnostics(resolved));
     REQUIRE(resolved.Succeeded());
-    REQUIRE(resolved.cmakeIntegrations.Data()[0].packageInstance.find("Host") != std::string::npos);
+    const auto packageIdentity = resolved.cmakeIntegrations.Data()[0].packageInstance;
+    const auto package = std::ranges::find(resolved.graph->Data().packages, packageIdentity,
+                                           &GraphPackageInstance::identity);
+    REQUIRE(package != resolved.graph->Data().packages.end());
+    REQUIRE(package->context == PackageInstanceContext::Host);
     const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations);
     INFO((plans.diagnostics.empty() ? std::string{} : plans.diagnostics[0].code + ": " + plans.diagnostics[0].message));
     REQUIRE(plans.Succeeded());

@@ -224,8 +224,8 @@ namespace NGIN::CLI
         SortByIdentity(build.packages);
         SortByIdentity(actions.steps);
         std::ranges::sort(build.actionDependencies);
-        build.plan.identity = CanonicalDigestInput("BuildPlanIdentity", {{"plan", SerializeBuildPlan(build)}});
-        actions.plan.identity = CanonicalDigestInput("ActionPlanIdentity", {{"plan", SerializeActionPlan(actions)}});
+        build.plan.identity = FingerprintBuildPlan(build);
+        actions.plan.identity = FingerprintActionPlan(actions);
         result.build = std::move(build);
         result.actions = std::move(actions);
         return result;

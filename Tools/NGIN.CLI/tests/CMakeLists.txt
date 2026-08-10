@@ -74,6 +74,7 @@ add_executable(NGINCliTests
   CMakeAdapterTests.cpp
   CommandAuthoringTests.cpp
   CryptoCommandTests.cpp
+  DependencyLockTests.cpp
   FacadeTests.cpp
   GraphInspectTests.cpp
   OverlayTests.cpp

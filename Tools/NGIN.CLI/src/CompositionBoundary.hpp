@@ -29,8 +29,10 @@ namespace NGIN::CLI
         PackageCoordinate coordinate{};
         std::string providerKind{};
         std::string nativeIdentity{};
+        std::string nativeVersion{};
         std::string revision{};
         std::string integrity{};
+        std::string artifactIdentity{};
         std::filesystem::path root{};
         std::filesystem::path manifest{};
         std::optional<std::filesystem::path> installedPrefix{};
@@ -51,6 +53,8 @@ namespace NGIN::CLI
         std::string configuration{};
         std::string linkage{};
         std::map<std::string, std::string> artifactOptions{};
+
+        [[nodiscard]] friend auto operator==(const BinaryCompatibility &, const BinaryCompatibility &) -> bool = default;
     };
 
     struct PackageInstance

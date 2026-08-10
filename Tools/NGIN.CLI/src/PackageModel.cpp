@@ -46,6 +46,25 @@ namespace NGIN::CLI
                                                        .relatedSources = std::move(related)});
         }
 
+        [[nodiscard]] auto IsWithin(const fs::path &root, const fs::path &candidate) -> bool
+        {
+            std::error_code error{};
+            const auto normalizedRoot = fs::weakly_canonical(root, error);
+            if (error) return false;
+            const auto normalizedCandidate = fs::weakly_canonical(candidate, error);
+            if (error) return false;
+            const auto relative = normalizedCandidate.lexically_relative(normalizedRoot);
+            return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
+        }
+
+        [[nodiscard]] auto ArtifactIdentity(const PackageProviderResult &result) -> std::string
+        {
+            if (!result.artifactIdentity.empty()) return result.artifactIdentity;
+            if (!result.integrity.empty()) return result.integrity;
+            if (!result.revision.empty()) return result.nativeIdentity + "#" + result.revision;
+            return result.nativeIdentity;
+        }
+
         [[nodiscard]] auto ParseVisibility(const AuthoredElement &element,
                                            const RequirementVisibility fallback) -> RequirementVisibility
         {
@@ -636,6 +655,25 @@ namespace NGIN::CLI
         for (const auto &release : releases_)
         {
             if (release.name != request.name) continue;
+            if (release.root.empty() || release.manifest.empty() || !fs::exists(release.root) ||
+                !fs::is_regular_file(release.manifest) || !IsWithin(release.root, release.manifest))
+            {
+                AddError(result.diagnostics, "NGIN4015", "Directory PackageProvider release root/manifest is missing or escapes its root",
+                         request.source);
+                continue;
+            }
+            if (!release.nativeIdentity.empty() && fs::path(release.nativeIdentity).is_absolute())
+            {
+                AddError(result.diagnostics, "NGIN4016", "PackageProvider native identity must be logical, not an absolute path",
+                         request.source);
+                continue;
+            }
+            if (release.hermetic && release.integrity.empty())
+            {
+                AddError(result.diagnostics, "NGIN4017", "Hermetic PackageProvider release requires an integrity identity",
+                         request.source);
+                continue;
+            }
             const auto authored = ParseAuthoredManifest(release.manifest);
             if (!authored.Succeeded())
             {
@@ -669,7 +707,7 @@ namespace NGIN::CLI
             return result;
         }
         const auto &selected = candidates.front();
-        result.value = PackageProviderResult{
+        PackageProviderResult provider{
             .coordinate = PackageCoordinate{.name = request.name,
                                             .exactVersion = selected.package.version,
                                             .sourceBinding = identity_},
@@ -677,8 +715,11 @@ namespace NGIN::CLI
             .nativeIdentity = selected.release->nativeIdentity.empty()
                                   ? identity_ + "/" + request.name + "@" + selected.package.version
                                   : selected.release->nativeIdentity,
+            .nativeVersion = selected.release->nativeVersion.empty() ? selected.package.version
+                                                                      : selected.release->nativeVersion,
             .revision = selected.release->revision,
             .integrity = selected.release->integrity,
+            .artifactIdentity = selected.release->artifactIdentity,
             .root = selected.release->root,
             .manifest = selected.release->manifest,
             .context = request.context,
@@ -686,6 +727,75 @@ namespace NGIN::CLI
             .provenance = "directory:" + identity_,
             .trust = "workspace",
         };
+        provider.artifactIdentity = ArtifactIdentity(provider);
+        result.value = std::move(provider);
+        return result;
+    }
+
+    CatalogPackageProvider::CatalogPackageProvider(std::string kind, std::string identity,
+                                                   std::vector<PackageProviderResult> releases)
+        : kind_(std::move(kind)), identity_(std::move(identity)), releases_(std::move(releases))
+    {
+    }
+
+    auto CatalogPackageProvider::Kind() const -> std::string_view { return kind_; }
+
+    auto CatalogPackageProvider::Resolve(const PackageProviderRequest &request) const -> PackageProviderResolution
+    {
+        PackageProviderResolution result{};
+        if (request.sourceBinding.has_value() && *request.sourceBinding != identity_)
+        {
+            AddError(result.diagnostics, "NGIN4006", "PackageProvider source binding does not select '" + identity_ + "'",
+                     request.source);
+            return result;
+        }
+        std::vector<const PackageProviderResult *> candidates{};
+        for (const auto &release : releases_)
+        {
+            if (release.coordinate.name != request.name) continue;
+            const auto version = ParseSemanticVersion(release.coordinate.exactVersion);
+            if (!version.has_value() ||
+                (request.constraint.has_value() && !VersionConstraintContains(*request.constraint, *version)))
+                continue;
+            if (release.nativeIdentity.empty() || release.nativeVersion.empty() || release.providerKind != kind_)
+            {
+                AddError(result.diagnostics, "NGIN4018", "Catalog PackageProvider result is missing its native identity/version",
+                         request.source);
+                continue;
+            }
+            if (release.hermetic && release.integrity.empty())
+            {
+                AddError(result.diagnostics, "NGIN4017", "Hermetic PackageProvider release requires an integrity identity",
+                         request.source);
+                continue;
+            }
+            candidates.push_back(&release);
+        }
+        std::ranges::sort(candidates, [](const auto *left, const auto *right) {
+            const auto leftVersion = *ParseSemanticVersion(left->coordinate.exactVersion);
+            const auto rightVersion = *ParseSemanticVersion(right->coordinate.exactVersion);
+            if (leftVersion != rightVersion) return rightVersion < leftVersion;
+            return left->nativeIdentity < right->nativeIdentity;
+        });
+        if (candidates.empty())
+        {
+            AddError(result.diagnostics, "NGIN4006", "Catalog PackageProvider found no compatible release of '" +
+                                                          request.name + "'", request.source);
+            return result;
+        }
+        if (candidates.size() > 1 && candidates[0]->coordinate.exactVersion == candidates[1]->coordinate.exactVersion)
+        {
+            AddError(result.diagnostics, "NGIN4006", "Catalog PackageProvider has ambiguous exact release '" +
+                                                          request.name + "@" + candidates[0]->coordinate.exactVersion + "'",
+                     request.source);
+            return result;
+        }
+        auto selected = *candidates.front();
+        selected.coordinate.sourceBinding = identity_;
+        selected.context = request.context;
+        selected.artifactIdentity = ArtifactIdentity(selected);
+        if (!selected.hermetic && selected.provenance.empty()) selected.provenance = "non-hermetic:" + identity_;
+        result.value = std::move(selected);
         return result;
     }
 
@@ -695,13 +805,15 @@ namespace NGIN::CLI
     {
         CanonicalValue::Object options{};
         for (const auto &[name, value] : artifactOptions) options.emplace(name, value);
-        const auto identity = CanonicalDigestInput(
+        const auto identity = CanonicalFingerprint(
             "PackageInstance",
             {{"compatibility", CanonicalCompatibility(compatibility)},
              {"context", provider.context == PackageInstanceContext::Host ? "Host" : "Target"},
              {"integrity", provider.integrity},
+             {"artifactIdentity", provider.artifactIdentity},
              {"name", provider.coordinate.name},
              {"nativeIdentity", provider.nativeIdentity},
+             {"nativeVersion", provider.nativeVersion},
              {"options", options},
              {"provider", provider.providerKind},
              {"revision", provider.revision},

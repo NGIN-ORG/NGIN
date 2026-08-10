@@ -82,9 +82,12 @@ Serialization is deterministic:
 - backend bindings and commands are excluded; and
 - repeated equivalent resolution is byte-stable.
 
-The Composition Identity is derived from the canonical resolved semantics. The
-dependency lock and final cryptographic composition fingerprint build on the
-same resolved identities but are separate reproducibility artifacts.
+The Composition Identity is the lowercase `sha256:` fingerprint of a typed
+canonical envelope containing the complete resolved graph. The dependency lock
+is derived separately and contains only acquired PackageInstances. Build and
+Action plans likewise have their own SHA-256 fingerprints, so backend inputs do
+not silently change semantic graph identity. See
+[dependency-lock.md](dependency-lock.md).
 
 ## Node inventories
 

@@ -83,4 +83,6 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto SerializeBuildPlan(const BuildPlan &plan) -> std::string;
     [[nodiscard]] auto SerializeActionPlan(const ActionPlan &plan) -> std::string;
+    [[nodiscard]] auto FingerprintBuildPlan(const BuildPlan &plan) -> std::string;
+    [[nodiscard]] auto FingerprintActionPlan(const ActionPlan &plan) -> std::string;
 }

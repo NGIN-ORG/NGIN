@@ -385,6 +385,21 @@ namespace NGIN::CLI
                          pending.origins.empty() ? ManifestSourceRange{} : pending.origins.front().source);
                 return std::nullopt;
             }
+            const auto &selected = successes.front();
+            if (selected.providerKind.empty() || selected.nativeIdentity.empty() || selected.nativeVersion.empty() ||
+                selected.artifactIdentity.empty())
+            {
+                AddError(diagnostics, "NGIN6002",
+                         "PackageProviderResult must include provider kind, native coordinate/version, and artifact identity",
+                         pending.origins.empty() ? ManifestSourceRange{} : pending.origins.front().source);
+                return std::nullopt;
+            }
+            if (selected.hermetic && selected.integrity.empty())
+            {
+                AddError(diagnostics, "NGIN6002", "hermetic PackageProviderResult must include integrity",
+                         pending.origins.empty() ? ManifestSourceRange{} : pending.origins.front().source);
+                return std::nullopt;
+            }
             return successes.front();
         }
 
@@ -713,8 +728,10 @@ namespace NGIN::CLI
                 .context = state.request.context,
                 .providerKind = state.provider.providerKind,
                 .providerIdentity = state.provider.nativeIdentity,
+                .providerVersion = state.provider.nativeVersion,
                 .revision = state.provider.revision,
                 .integrity = state.provider.integrity,
+                .artifactIdentity = state.provider.artifactIdentity,
                 .hermetic = state.provider.hermetic,
                 .compatibility = state.instance.compatibility,
                 .artifactOptions = state.instance.artifactOptions,
