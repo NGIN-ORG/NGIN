@@ -1,38 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="Hello.Native"
-         DefaultProfile="Debug">
-
-  <Conditions>
-    <Condition Name="LocalDebug">
-      <When Environment="local"
-            Profile="Debug" />
-    </Condition>
-  </Conditions>
-
-  <Application>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-
-    <Launch Executable="$(OutputName)"
-            WorkingDirectory="." />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-
-    <Application>
-      <Build>
-        <Define Name="HELLO_NATIVE_LOCAL_DEBUG"
-                When="LocalDebug" />
-      </Build>
-    </Application>
-  </Profile>
+<Project Name="Hello.Native" Type="Application">
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Launch Name="Default" Default="true">
+    <WorkingDirectory Path="." />
+  </Launch>
+  <Refinements>
+    <Refinement>
+      <Select><Configuration Name="Debug" /></Select>
+      <Build><Define Name="HELLO_NATIVE_LOCAL_DEBUG" /></Build>
+    </Refinement>
+  </Refinements>
 </Project>

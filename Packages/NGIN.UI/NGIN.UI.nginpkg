@@ -1,61 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.UI"
-         Version="0.4.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Metadata>
-    <Description>Backend-neutral retained desktop UI toolkit.</Description>
-    <License>Apache-2.0</License>
-  </Metadata>
-  <Build Backend="CMake" Mode="AddSubdirectory">
-    <Options>
-      <Option Name="NGIN_UI_BUILD_TESTS" Value="OFF" />
-      <Option Name="NGIN_UI_BUILD_EXAMPLES" Value="OFF" />
-      <Option Name="NGIN_UI_ENABLE_NATIVE_TEXT" Value="ON" />
-      <Option Name="NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS" Value="ON" />
-      <Option Name="NGIN_UI_FETCH_THIRD_PARTY" Value="ON" />
-    </Options>
-  </Build>
-  <Uses>
-    <Package Name="NGIN.Base"
-             Version=">=0.1.0 &lt;0.2.0"
-             Scope="Target" />
-  </Uses>
-  <Library Name="NGIN.UI">
-    <Exports>
-      <LibraryTarget Name="NGIN::UI" Linkage="Static" />
-    </Exports>
-  </Library>
-  <Features>
-    <Feature Name="RuntimeAssets"
-             Description="Stage the bundled OFL font set and complete dependency notices.">
-      <Inputs>
-        <Assets>
-          <File Path="assets/fonts/NotoSans/NotoSans-Variable.ttf"
-                Target="fonts/NGIN.UI/NotoSans-Variable.ttf" />
-          <File Path="assets/fonts/NotoSans/OFL.txt"
-                Target="licenses/NGIN.UI/NotoSans-OFL.txt" />
-          <File Path="assets/fonts/NotoSansArabic/NotoSansArabic-Variable.ttf"
-                Target="fonts/NGIN.UI/NotoSansArabic-Variable.ttf" />
-          <File Path="assets/fonts/NotoSansArabic/OFL.txt"
-                Target="licenses/NGIN.UI/NotoSansArabic-OFL.txt" />
-          <File Path="assets/fonts/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf"
-                Target="fonts/NGIN.UI/NotoSansSymbols2-Regular.ttf" />
-          <File Path="assets/fonts/NotoSansSymbols2/OFL.txt"
-                Target="licenses/NGIN.UI/NotoSansSymbols2-OFL.txt" />
-          <File Path="assets/licenses/stb-LICENSE.txt"
-                Target="licenses/NGIN.UI/stb-LICENSE.txt" />
-          <File Path="THIRD_PARTY_NOTICES.md"
-                Target="licenses/NGIN.UI/THIRD_PARTY_NOTICES.md" />
-        </Assets>
-      </Inputs>
-    </Feature>
-  </Features>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.UI" Version="0.4.0">
+  <Metadata><Description>Backend-neutral retained desktop UI toolkit.</Description><License>Apache-2.0</License></Metadata>
+  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" /></Requires>
+  <Contributions>
+    <RuntimeFiles>
+      <File Include="assets/fonts/NotoSans/NotoSans-Variable.ttf" Into="fonts/NGIN.UI/NotoSans-Variable.ttf" />
+      <File Include="assets/fonts/NotoSansArabic/NotoSansArabic-Variable.ttf" Into="fonts/NGIN.UI/NotoSansArabic-Variable.ttf" />
+      <File Include="assets/fonts/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf" Into="fonts/NGIN.UI/NotoSansSymbols2-Regular.ttf" />
+    </RuntimeFiles>
+    <Notices>
+      <Notice Include="assets/fonts/NotoSans/OFL.txt" Into="licenses/NGIN.UI/NotoSans-OFL.txt" />
+      <Notice Include="assets/fonts/NotoSansArabic/OFL.txt" Into="licenses/NGIN.UI/NotoSansArabic-OFL.txt" />
+      <Notice Include="assets/fonts/NotoSansSymbols2/OFL.txt" Into="licenses/NGIN.UI/NotoSansSymbols2-OFL.txt" />
+      <Notice Include="assets/licenses/stb-LICENSE.txt" Into="licenses/NGIN.UI/stb-LICENSE.txt" />
+      <Notice Include="THIRD_PARTY_NOTICES.md" Into="licenses/NGIN.UI/THIRD_PARTY_NOTICES.md" />
+    </Notices>
+  </Contributions>
+  <Exports><Library Name="UI" Default="true" /></Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Cache Name="NGIN_UI_BUILD_TESTS" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_UI_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_UI_ENABLE_NATIVE_TEXT" Value="ON" Type="BOOL" />
+      <cmake:Cache Name="NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS" Value="ON" Type="BOOL" />
+      <cmake:Cache Name="NGIN_UI_FETCH_THIRD_PARTY" Value="ON" Type="BOOL" />
+      <cmake:Target Export="UI" Name="NGIN::UI" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>

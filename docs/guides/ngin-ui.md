@@ -56,7 +56,7 @@ Build and run the gallery:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Debug `
+  --configuration Debug `
   --output build/manual/NGIN.UI.Gallery
 
 build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe

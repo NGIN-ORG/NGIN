@@ -113,6 +113,7 @@ TEST_CASE("CMake AddSubdirectory bindings stay outside the semantic graph and de
     REQUIRE_THAT(cmake, ContainsSubstring("add_subdirectory("));
     REQUIRE_THAT(cmake, ContainsSubstring("target_link_libraries(App PRIVATE Example::Core)"));
     REQUIRE_THAT(cmake, ContainsSubstring("set(BUILD_SHARED_LIBS \"OFF\" CACHE STRING"));
+    REQUIRE_THAT(cmake, ContainsSubstring("PROPERTY CXX_STANDARD 23"));
 }
 
 TEST_CASE("CMake FindPackage integration maps exact semantic Exports")
@@ -208,6 +209,7 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
 </Project>)xml");
     WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Meta" Version="1.0.0">
   <Exports><Tool Name="MetaGen" /><Action Name="Generate" Kind="Generate" Tool="MetaGen" Deterministic="true">
+    <Argument>${ProjectDir}</Argument><Argument>${ActionContext}</Argument>
     <Outputs><Source Path="generated/meta.cpp" /></Outputs>
   </Action></Exports>
   <Integrations><cmake:AddSubdirectory Source="."><cmake:Target Export="MetaGen" Name="MetaGen" /></cmake:AddSubdirectory></Integrations>
@@ -220,14 +222,24 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
                                            &GraphPackageInstance::identity);
     REQUIRE(package != resolved.graph->Data().packages.end());
     REQUIRE(package->context == PackageInstanceContext::Host);
-    const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations);
+    const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations,
+                                        CMakeAdapterContext{.projectRoot = "/workspace/project",
+                                                            .buildRoot = "/workspace/build",
+                                                            .actionOutputRoot = "/workspace/actions",
+                                                            .actionContextRoot = "/workspace/contexts"});
     INFO((plans.diagnostics.empty() ? std::string{} : plans.diagnostics[0].code + ": " + plans.diagnostics[0].message));
     REQUIRE(plans.Succeeded());
     REQUIRE(plans.actions->steps.size() == 1);
     REQUIRE(plans.actions->steps[0].toolTarget == "MetaGen");
-    REQUIRE(plans.actions->steps[0].outputs == std::vector<std::string>{"generated/meta.cpp"});
-    REQUIRE_THAT(GenerateCMakeProject(*plans.build, *plans.actions),
-                 ContainsSubstring("add_dependencies(Generated MetaGen)"));
+    REQUIRE(plans.actions->steps[0].outputs ==
+            std::vector<std::string>{"/workspace/actions/generated/meta.cpp"});
+    REQUIRE(plans.actions->steps[0].arguments[0] == "/workspace/project");
+    REQUIRE(plans.actions->steps[0].arguments[1] == "/workspace/contexts/Meta__Generate.xml");
+    const auto generated = GenerateCMakeProject(*plans.build, *plans.actions);
+    REQUIRE_THAT(generated,
+                 ContainsSubstring("add_custom_command(OUTPUT \"/workspace/actions/generated/meta.cpp\""));
+    REQUIRE_THAT(generated, ContainsSubstring("DEPENDS MetaGen"));
+    REQUIRE_THAT(generated, ContainsSubstring("add_dependencies(Generated ngin_action_Meta__Generate)"));
 }
 
 TEST_CASE("CMake adapter rejects unsupported semantic capabilities explicitly")

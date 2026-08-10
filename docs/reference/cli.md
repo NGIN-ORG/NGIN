@@ -1,110 +1,104 @@
 # CLI reference
 
-Run `ngin` without arguments for the command list supported by the executable
-you are using. That output is authoritative; this page groups the commands by
-task.
+Run `ngin help` for the command list supported by the executable. The CLI has
+one authoring and resolution path: every lifecycle command resolves the direct
+XML model into a Composition Graph and then derives a typed plan.
 
-## Project lifecycle
+## Selection
+
+Project commands accept:
 
 ```text
-ngin validate
-ngin configure
-ngin build
-ngin stage
-ngin clean
-ngin rebuild
-ngin run
-ngin test
-ngin benchmark
-ngin publish [PublishName]
+--project <file.nginproj>
+--workspace <file.ngin>
+--configuration <name>
+--target <name-or-alias>
+--toolchain <name>
+--option <Name=Value>
+--preset <name>
 ```
 
-Project commands accept `--project`, `--workspace`, and `--profile`. Commands
-that write build output accept `--output <dir>` or
-`--output-root <dir>`, where supported.
+Presets expand command inputs before resolution. Their names do not enter the
+Composition Graph identity. An unknown selection is an error; it never falls
+back to the first workspace entry.
 
-## Create and edit
+## Authoring
 
 ```text
-ngin new <app|lib|tool|test|benchmark|plugin> <Name>
-ngin add package <Name> --version <range>
+ngin new <app|lib|tool|test|benchmark|plugin|external> <Name>
+ngin add package <Name> [--exact V|--compatible V|interval flags]
+                        [--use Kind:Name] [--option Name=Value]
 ngin add project-reference <Path>
-ngin add tool-action <Package::Action>
-ngin manifest format
-ngin settings init
-```
-
-## Inspect and explain
-
-```text
-ngin graph
-ngin inspect --format json
-ngin diff --from-profile <name> --to-profile <name>
-ngin diff --from-lock <file> --to-lock <file>
-ngin explain <kind>:<identity>
-ngin explain condition <Name>
-ngin explain package-feature <Package> <Feature>
-ngin explain generator <Name>
-ngin variables explain
+ngin add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custom>
+ngin package add|update|remove <Name> [dependency options]
+ngin manifest format --project <file.nginproj>
 ngin schema --format json
 ```
 
-`inspect` is the machine-readable, non-mutating project view. `graph` also
-offers focused build, editor, stage, package, launch, runtime, environment,
-publish, and tooling plans.
+Readable interval flags are `--at-least`, `--after`, `--at-most`, and
+`--before`. They produce a structured `<Version>` element and avoid encoded XML
+comparison operators.
 
-## Packages
-
-```text
-ngin restore [--locked]
-ngin package list
-ngin package show <Name>
-ngin package add|remove|update ...
-ngin package sources list|add|remove ...
-ngin package pack
-ngin package lock
-ngin package verify-lock
-```
-
-## Workspaces
+## Validation and explanation
 
 ```text
-ngin workspace list
-ngin workspace status
-ngin workspace doctor
+ngin validate
+ngin inspect --format json
+ngin graph --format json
+ngin explain <graph-identity> [--format json]
+ngin diff --against <other.nginproj> [--format json]
 ```
 
-The top-level aliases `ngin list`, `ngin status`, and `ngin doctor` are also
-accepted.
+`validate` performs structural and document-local semantic validation.
+`inspect` and `graph` also resolve packages, exports, options, capabilities,
+actions, provenance, and the selected target facts. `diff` returns `0` when the
+graphs are equivalent and `2` when semantic differences exist.
 
-## Tools and quality
+## Build and deployment
 
 ```text
-ngin analyze
-ngin format
-ngin scan
-ngin report
-ngin quality
-ngin quality baseline create|update|verify
-ngin tool list
-ngin tool plan
-ngin tool doctor
-ngin tool run <RunName>
-ngin tool results
-ngin tool edits
+ngin configure [--output <dir>]
+ngin build [--output <dir>]
+ngin stage [--output <dir>]
+ngin run [--output <dir>] [-- process arguments]
+ngin test [--output <dir>] [-- process arguments]
+ngin publish [PublishName] [--output <dir>]
 ```
 
-## Output
+CMake is the only implemented build adapter. Configure and build consume the
+derived CMake BuildPlan; stage, launch, test, and publish consume their own
+backend-neutral plans. `run` and `test` use native process execution with the
+planned working directory, environment, and timeout.
 
-Common output controls include `--quiet`, `--verbose`, `--trace`, `--plain`,
-`--color`, `--ui`, `--backend-output`, and `--events jsonl`.
+## Actions
 
-Lifecycle JSONL output uses the `NGIN.CLI.Event` `1.0` envelope. In event mode,
-stdout contains event objects only. Consumers must ignore unknown fields and
-event types within the same major schema.
+```text
+ngin analyze [--lock <ngin.lock>] [--output <dir>]
+ngin format [--lock <ngin.lock>] [--output <dir>]
+```
+
+Only explicitly selected Actions of the requested kind execute. The CLI
+resolves their Tool exports in host package context, verifies workspace trust
+policy, configures the CMake tool binding, and invokes the derived ActionPlan.
+Normal builds execute only selected `Generate` Actions; analyzers and formatters
+do not run as a side effect of package presence or `ngin build`.
+
+## Packages and reproducibility
+
+```text
+ngin restore
+ngin package lock [--output <ngin.lock>]
+ngin package verify-lock [--lock <ngin.lock>]
+```
+
+The dependency lock records exact acquired PackageInstances, including
+provider identity, host/target context, binary compatibility, integrity,
+artifact options, trust, and signature provenance. The separate Composition
+Graph fingerprint covers semantic activation and does not turn the dependency
+lock into a second graph lock.
 
 ## Exit behavior
 
-Invalid commands, invalid manifests, failed resolution, backend failures, and
-failed process execution return a nonzero status. Tool commands use more
-specific statuses documented in the [tool driver reference](tool-driver.md).
+Invalid syntax, failed validation or resolution, stale locks, denied Actions,
+backend failures, staging failures, and failed child processes return nonzero.
+Diagnostics are written to stderr; graph JSON is written to stdout.

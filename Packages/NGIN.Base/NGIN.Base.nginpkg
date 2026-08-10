@@ -1,32 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.Base"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Build Backend="CMake" Mode="AddSubdirectory">
-    <Options>
-      <Option Name="NGIN_BASE_BUILD_TESTS" Value="OFF" />
-      <Option Name="NGIN_BASE_BUILD_EXAMPLES" Value="OFF" />
-      <Option Name="NGIN_BASE_BUILD_BENCHMARKS" Value="OFF" />
-    </Options>
-  </Build>
-  <Library Name="NGIN.Base">
-    <Exports>
-      <LibraryTarget Name="NGIN::Base" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::Foundation" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::Execution" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::IO" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::Serialization" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::Crypto" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::Net" Linkage="Static" />
-      <LibraryTarget Name="NGIN::Base::NetTLS" Linkage="Static" />
-    </Exports>
-  </Library>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Base" Version="0.1.0">
+  <Exports>
+    <Library Name="Base" Default="true" />
+    <Library Name="Foundation" />
+    <Library Name="Execution" />
+    <Library Name="IO" />
+    <Library Name="Serialization" />
+    <Library Name="Crypto" />
+    <Library Name="Net" />
+    <Library Name="NetTLS" />
+  </Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Cache Name="NGIN_BASE_BUILD_TESTS" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_BASE_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_BASE_BUILD_BENCHMARKS" Value="OFF" Type="BOOL" />
+      <cmake:Target Export="Base" Name="NGIN::Base" />
+      <cmake:Target Export="Foundation" Name="NGIN::Base::Foundation" />
+      <cmake:Target Export="Execution" Name="NGIN::Base::Execution" />
+      <cmake:Target Export="IO" Name="NGIN::Base::IO" />
+      <cmake:Target Export="Serialization" Name="NGIN::Base::Serialization" />
+      <cmake:Target Export="Crypto" Name="NGIN::Base::Crypto" />
+      <cmake:Target Export="Net" Name="NGIN::Base::Net" />
+      <cmake:Target Export="NetTLS" Name="NGIN::Base::NetTLS" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>

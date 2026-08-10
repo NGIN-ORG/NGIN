@@ -39,7 +39,7 @@ Build and run the headless product:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj `
-  --profile Debug `
+  --configuration Debug `
   --output build/manual/NGIN.UI.Gallery.Tests
 
 build/manual/NGIN.UI.Gallery.Tests/bin/NGIN.UI.Gallery.Tests.exe

@@ -70,20 +70,11 @@ endif()
 include(Catch)
 
 add_executable(NGINCliTests
-  AuthoringTests.cpp
   CMakeAdapterTests.cpp
-  CommandAuthoringTests.cpp
-  CryptoCommandTests.cpp
   DependencyLockTests.cpp
   DeploymentPlanTests.cpp
-  FacadeTests.cpp
-  GraphInspectTests.cpp
-  OverlayTests.cpp
-  PackageTests.cpp
-  ProductTests.cpp
+  ManifestCliTests.cpp
   SemanticResolutionTests.cpp
-  ToolingTests.cpp
-  WorkspaceTests.cpp
   WorkspaceModelTests.cpp
 )
 target_compile_features(NGINCliTests PRIVATE cxx_std_20)
@@ -91,11 +82,8 @@ target_compile_definitions(NGINCliTests PRIVATE NGIN_CLI_TEST_REPO_ROOT="${CMAKE
 target_link_libraries(NGINCliTests PRIVATE
   Catch2::Catch2WithMain
   ngin_cli_commands
-  ngin_cli_build
-  ngin_cli_resolution
   ngin_cli_semantics
   ngin_cli_authoring
-  ngin_cli_model
 )
 
 if(MSVC)

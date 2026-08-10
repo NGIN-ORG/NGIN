@@ -99,8 +99,6 @@ int main(int argc, char **argv) {
   const NGIN::IO::Path sampleDir{NGIN_CORE_BASIC_HOST_DIR};
 
   auto builder = CreateApplicationBuilder(argc, argv);
-  builder->UseProjectFile(
-      std::string(sampleDir.Join("NGIN.Core.BasicHost.nginproj").View()));
   builder->SetApplicationName("NGIN.Core.BasicHost");
   builder->SetProfile("Samples.BasicHost");
   builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
@@ -114,9 +112,8 @@ int main(int argc, char **argv) {
       })
       .Enable("App.BasicHost");
   builder->Packages()
-      .AddManifestFile(
-          std::string(sampleDir.Join("Samples.DemoPackage.nginpkg").View()))
-      .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_DemoPackage);
+      .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_DemoPackage)
+      .ApplyBootstrap("Samples.DemoPackage");
 
   auto app = builder->Build();
   if (!app) {

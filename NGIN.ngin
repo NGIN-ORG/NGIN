@@ -1,76 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="4"
-           Name="NGIN"
-           DefaultProfile="dev"
-           PlatformVersion="0.1.0">
+<Workspace Name="NGIN">
   <Projects>
     <Project Path="Tools/NGIN.CLI/NGIN.CLI.nginproj" />
-    <Project Path="Examples/Hello.Native/Hello.Native.nginproj" />
-    <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
-    <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
-    <Project Path="Examples/Hello.ECS/Hello.ECS.nginproj" />
-    <Project Path="Examples/Hello.GameOfLife/Hello.GameOfLife.nginproj" />
-    <Project Path="Examples/Hello.Analyzer/Hello.Analyzer.nginproj" />
-    <Project Path="Examples/Hello.Formatter/Hello.Formatter.nginproj" />
-    <Project Path="Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj" />
-    <Project Path="Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj" />
-    <Project Path="Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj" />
+    <Project Include="Examples/**/*.nginproj" />
   </Projects>
-
+  <Configurations>
+    <Configuration Name="Debug">
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+    </Configuration>
+    <Configuration Name="Release">
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="true" />
+    </Configuration>
+  </Configurations>
+  <Targets>
+    <Target Name="host" OS="host" Architecture="host" />
+  </Targets>
+  <Toolchains>
+    <Toolchain Name="default" Compiler="default" Linker="default" />
+  </Toolchains>
   <Defaults>
     <OutputRoot Path="build/ngin" />
-    <Language Standard="C++23"
-              Required="true"
-              Extensions="false" />
-    <Backend Name="CMake"
-             Mode="Generated" />
-    <HostPlatform Name="host" />
-    <TargetPlatform Name="host" />
+    <Configuration Name="Debug" />
+    <Target Name="host" />
+    <Toolchain Name="default" />
   </Defaults>
-
   <Packages>
-    <Source Name="local"
-            Path="Packages" />
-
-    <Version Name="NGIN.Core"
-             Range="[0.1.0,0.2.0)" />
-    <Version Name="NGIN.UI"
-             Range="[0.2.0,0.3.0)" />
-    <Version Name="NGIN.UI.Backend.SDL3"
-             Range="[0.2.0,0.3.0)" />
-    <Version Name="NGIN.UI.Accessibility.Windows"
-             Range="[0.2.0,0.3.0)" />
-    <Version Name="NGIN.UI.Hosting"
-             Range="[0.2.0,0.3.0)" />
-    <Version Name="SDL3"
-             Range="[3.4.12,4.0.0)" />
-    <Version Name="NGIN.Base"
-             Range="[0.1.0,0.2.0)" />
-    <Version Name="NGIN.Reflection"
-             Range="[0.1.0,0.2.0)" />
-    <Version Name="NGIN.Reflection.MetaGen"
-             Range="[0.1.0,0.2.0)" />
-    <Version Name="NGIN.ECS"
-             Range="[0.4.0,0.5.0)" />
-    <Version Name="NGIN.Tooling.ClangTidy"
-             Range="[0.1.0,0.2.0)" />
-    <Version Name="NGIN.Tooling.ClangFormat"
-             Range="[0.1.0,0.2.0)" />
-
-    <PackageProvider Name="NGIN.Base"
-                     Root="Dependencies/NGIN/NGIN.Base" />
-    <PackageProvider Name="NGIN.ECS"
-                     Root="Dependencies/NGIN/NGIN.ECS" />
+    <Source Name="local" Kind="Directory" Path="Packages" />
+    <LocalPackage Name="NGIN.Base" Manifest="Packages/NGIN.Base/NGIN.Base.nginpkg" Root="Packages/NGIN.Base" />
+    <LocalPackage Name="NGIN.Core" Manifest="Packages/NGIN.Core/NGIN.Core.nginpkg" Root="Packages/NGIN.Core" />
+    <LocalPackage Name="NGIN.ECS" Manifest="Packages/NGIN.ECS/NGIN.ECS.nginpkg" Root="Packages/NGIN.ECS" />
+    <LocalPackage Name="NGIN.Log" Manifest="Packages/NGIN.Log/NGIN.Log.nginpkg" Root="Packages/NGIN.Log" />
+    <LocalPackage Name="NGIN.Reflection" Manifest="Packages/NGIN.Reflection/NGIN.Reflection.nginpkg" Root="Packages/NGIN.Reflection" />
+    <LocalPackage Name="NGIN.Reflection.MetaGen" Manifest="Packages/NGIN.Reflection.MetaGen/NGIN.Reflection.MetaGen.nginpkg" Root="Packages/NGIN.Reflection.MetaGen" />
+    <LocalPackage Name="NGIN.Tooling.ClangFormat" Manifest="Packages/NGIN.Tooling.ClangFormat/NGIN.Tooling.ClangFormat.nginpkg" Root="Packages/NGIN.Tooling.ClangFormat" />
+    <LocalPackage Name="NGIN.Tooling.ClangTidy" Manifest="Packages/NGIN.Tooling.ClangTidy/NGIN.Tooling.ClangTidy.nginpkg" Root="Packages/NGIN.Tooling.ClangTidy" />
+    <LocalPackage Name="NGIN.UI" Manifest="Packages/NGIN.UI/NGIN.UI.nginpkg" Root="Packages/NGIN.UI" />
+    <LocalPackage Name="NGIN.UI.Accessibility.Windows" Manifest="Packages/NGIN.UI.Accessibility.Windows/NGIN.UI.Accessibility.Windows.nginpkg" Root="Packages/NGIN.UI.Accessibility.Windows" />
+    <LocalPackage Name="NGIN.UI.Backend.SDL3" Manifest="Packages/NGIN.UI.Backend.SDL3/NGIN.UI.Backend.SDL3.nginpkg" Root="Packages/NGIN.UI.Backend.SDL3" />
+    <LocalPackage Name="NGIN.UI.Hosting" Manifest="Packages/NGIN.UI.Hosting/NGIN.UI.Hosting.nginpkg" Root="Packages/NGIN.UI.Hosting" />
+    <LocalPackage Name="SDL3" Manifest="Packages/SDL3/SDL3.nginpkg" Root="Packages/SDL3" />
+    <Version Name="NGIN.Base" Compatible="0.1" />
+    <Version Name="NGIN.Core" Compatible="0.1" />
+    <Version Name="NGIN.ECS" Compatible="0.4" />
+    <Version Name="NGIN.UI" Compatible="0.4" />
+    <Version Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
+    <Version Name="NGIN.UI.Hosting" Compatible="0.4" />
   </Packages>
-
-  <Profiles>
-    <Profile Name="dev">
-      <Defaults>
-        <Optimization Mode="Off" />
-        <DebugSymbols Enabled="true" />
-        <LinkTimeOptimization Enabled="false" />
-        <Environment Name="development" />
-      </Defaults>
-    </Profile>
-  </Profiles>
+  <Policies>
+    <PackageProviders IntegrityRequired="true" Locked="true">
+      <Allow Kind="Directory" />
+    </PackageProviders>
+    <Actions Default="Deny" RequireLocked="true" IntegrityRequired="true">
+      <Allow Package="NGIN.Reflection.MetaGen" Kind="Generate" Provider="Directory" Reason="First-party generator" />
+      <Allow Package="NGIN.Tooling.ClangFormat" Kind="Format" Provider="Directory" Reason="Workspace formatter" />
+      <Allow Package="NGIN.Tooling.ClangTidy" Kind="Analyze" Provider="Directory" Reason="Workspace analyzer" />
+    </Actions>
+    <Paths AllowSymlinks="false" RequireContained="true" />
+    <Stage Collision="Error" />
+  </Policies>
+  <Presets>
+    <Preset Name="dev" Command="build"><Configuration Name="Debug" /></Preset>
+    <Preset Name="release" Command="build"><Configuration Name="Release" /></Preset>
+  </Presets>
 </Workspace>

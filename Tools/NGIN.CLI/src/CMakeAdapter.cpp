@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <sstream>
@@ -78,6 +79,21 @@ namespace NGIN::CLI
             if (visibility == "Interface") return "INTERFACE";
             return "PRIVATE";
         }
+
+        [[nodiscard]] auto ExpandActionArgument(std::string value, const CMakeAdapterContext &context,
+                                                const std::string &contextFile) -> std::string
+        {
+            const auto replace = [&](const std::string_view name, const std::string_view replacement) {
+                const auto token = "${" + std::string(name) + '}';
+                for (auto position = value.find(token); position != std::string::npos; position = value.find(token))
+                    value.replace(position, token.size(), replacement);
+            };
+            replace("ProjectDir", context.projectRoot);
+            replace("BuildDir", context.buildRoot);
+            replace("ActionOutputDir", context.actionOutputRoot);
+            replace("ActionContext", contextFile);
+            return value;
+        }
     }
 
     auto CMakePlanResult::Succeeded() const -> bool
@@ -101,8 +117,13 @@ namespace NGIN::CLI
         BuildPlan build{.productGraphIdentity = data.product.identity,
                         .targetName = TargetName(data.product.name),
                         .targetKind = *targetKind,
+                        .configuration = data.selection.configuration,
+                        .languageStandard = data.product.languageStandard,
+                        .languageExtensions = data.product.languageExtensions,
+                        .languageRequired = data.product.languageRequired,
                         .generator = context.generator,
-                        .toolchainFile = context.toolchainFile,
+                        .toolchainFile = context.toolchainFile.has_value() ? context.toolchainFile
+                                                                          : data.selection.toolchainFile,
                         .multiConfiguration = context.multiConfiguration,
                         .crossCompiling = context.crossCompiling};
         ActionPlan actions{};
@@ -173,10 +194,18 @@ namespace NGIN::CLI
             if (item.kind == "CxxModule" && !capabilities.cxxModules)
                 AddError(result.diagnostics, "NGIN7104", "selected CMake adapter cannot represent C++ module item '" +
                                                               item.path + "'");
+            auto value = item.path;
+            const auto pathItem = item.kind == "Source" || item.kind == "Header" || item.kind == "CxxModule" ||
+                                  item.kind == "Resource" || item.kind == "IncludeDirectory" ||
+                                  item.kind == "PrecompiledHeader";
+            if (pathItem && item.generated && !context.actionOutputRoot.empty())
+                value = (std::filesystem::path(context.actionOutputRoot) / item.path).lexically_normal().generic_string();
+            else if (pathItem && !context.projectRoot.empty() && !std::filesystem::path(item.path).is_absolute())
+                value = (std::filesystem::path(context.projectRoot) / item.path).lexically_normal().generic_string();
             build.items.push_back(BuildPlanItem{.identity = "CMakeItem:" + item.identity,
                                                 .graphIdentity = item.identity,
                                                 .operation = item.kind,
-                                                .value = item.path,
+                                                .value = std::move(value),
                                                 .visibility = item.visibility,
                                                 .generated = item.generated,
                                                 .provenance = item.provenance});
@@ -200,6 +229,7 @@ namespace NGIN::CLI
         }
         for (const auto &action : data.actions)
         {
+            if (!context.actionKinds.contains(action.kind)) continue;
             const auto toolIdentity = action.packageInstance + "::" + action.toolExport;
             const auto tool = byExport.find(toolIdentity);
             if (tool == byExport.end())
@@ -208,13 +238,40 @@ namespace NGIN::CLI
                                                               toolIdentity);
                 continue;
             }
+            std::vector<std::string> inputs{};
+            for (const auto &input : action.inputs)
+                inputs.push_back(context.projectRoot.empty()
+                                     ? input
+                                     : (std::filesystem::path(context.projectRoot) / input).lexically_normal().generic_string());
+            std::vector<std::string> outputs{};
+            for (const auto &output : action.outputs)
+                outputs.push_back(context.actionOutputRoot.empty()
+                                      ? output
+                                      : (std::filesystem::path(context.actionOutputRoot) / output).lexically_normal().generic_string());
+            const auto workingDirectory = context.actionOutputRoot.empty()
+                                              ? action.workingDirectory
+                                              : (std::filesystem::path(context.actionOutputRoot) /
+                                                 action.workingDirectory).lexically_normal().generic_string();
+            const auto contextFile = context.actionContextRoot.empty() || action.kind != ActionKind::Generate
+                                         ? std::string{}
+                                         : (std::filesystem::path(context.actionContextRoot) /
+                                            (TargetName(action.identity) + ".xml")).lexically_normal().generic_string();
+            auto arguments = action.arguments;
+            for (auto &argument : arguments)
+                argument = ExpandActionArgument(std::move(argument), context, contextFile);
             actions.steps.push_back(ActionPlanStep{.identity = "CMakeAction:" + action.identity,
                                                    .graphIdentity = action.identity,
                                                    .kind = action.kind,
                                                    .toolGraphIdentity = toolIdentity,
                                                    .toolTarget = tool->second->targetName,
                                                    .deterministic = action.deterministic,
-                                                   .outputs = action.outputs,
+                                                   .inputs = std::move(inputs),
+                                                   .outputs = std::move(outputs),
+                                                   .arguments = std::move(arguments),
+                                                   .workingDirectory = workingDirectory,
+                                                   .environment = action.environment,
+                                                   .options = action.options,
+                                                   .contextFile = contextFile,
                                                    .provenance = action.provenance});
             build.actionDependencies.push_back(action.identity);
         }
@@ -265,6 +322,13 @@ namespace NGIN::CLI
         else if (plan.targetKind == "ModuleLibrary") out << "add_library(" << plan.targetName << " MODULE)\n";
         else out << "add_library(" << plan.targetName << " INTERFACE)\n";
         const auto interfaceTarget = plan.targetKind == "InterfaceLibrary";
+        auto standard = plan.languageStandard;
+        if (standard.starts_with("C++")) standard.erase(0, 3);
+        out << "set_property(TARGET " << plan.targetName << " PROPERTY CXX_STANDARD " << standard << ")\n"
+            << "set_property(TARGET " << plan.targetName << " PROPERTY CXX_EXTENSIONS "
+            << (plan.languageExtensions ? "ON" : "OFF") << ")\n"
+            << "set_property(TARGET " << plan.targetName << " PROPERTY CXX_STANDARD_REQUIRED "
+            << (plan.languageRequired ? "ON" : "OFF") << ")\n";
         for (const auto &item : plan.items)
         {
             const auto scope = Scope(item.visibility, interfaceTarget);
@@ -293,7 +357,39 @@ namespace NGIN::CLI
             out << "target_link_libraries(" << plan.targetName << ' ' << Scope(link.visibility, interfaceTarget) << ' '
                 << link.targetName << ")\n";
         for (const auto &action : actions.steps)
-            out << "add_dependencies(" << plan.targetName << ' ' << action.toolTarget << ")\n";
+        {
+            const auto actionTarget = "ngin_action_" + TargetName(action.graphIdentity);
+            if (action.outputs.empty())
+            {
+                out << "add_custom_target(" << actionTarget << "\n  COMMAND ${CMAKE_COMMAND} -E env";
+            }
+            else
+            {
+                out << "add_custom_command(OUTPUT";
+                for (const auto &output : action.outputs) out << " \"" << Escape(output) << "\"";
+                out << "\n  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << Escape(action.workingDirectory)
+                    << "\"\n  COMMAND ${CMAKE_COMMAND} -E env";
+            }
+            for (const auto &[name, value] : action.environment)
+                out << " \"" << Escape(name + "=" + value) << "\"";
+            out << " \"$<TARGET_FILE:" << action.toolTarget << ">\"";
+            if (!action.contextFile.empty()) out << " --context \"" << Escape(action.contextFile) << "\"";
+            for (const auto &argument : action.arguments) out << " \"" << Escape(argument) << "\"";
+            if (action.contextFile.empty())
+                for (const auto &input : action.inputs) out << " \"" << Escape(input) << "\"";
+            out << "\n  DEPENDS " << action.toolTarget;
+            for (const auto &input : action.inputs) out << " \"" << Escape(input) << "\"";
+            if (!action.workingDirectory.empty())
+                out << "\n  WORKING_DIRECTORY \"" << Escape(action.workingDirectory) << "\"";
+            out << "\n  VERBATIM\n)\n";
+            if (!action.outputs.empty())
+            {
+                out << "add_custom_target(" << actionTarget << " DEPENDS";
+                for (const auto &output : action.outputs) out << " \"" << Escape(output) << "\"";
+                out << ")\n";
+            }
+            out << "add_dependencies(" << plan.targetName << ' ' << actionTarget << ")\n";
+        }
         return out.str();
     }
 }

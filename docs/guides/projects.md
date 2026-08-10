@@ -1,81 +1,30 @@
 # Projects
 
-One `.nginproj` describes one primary product. This keeps the product identity
-clear and lets the resolved Composition Graph drive builds, editors, staging,
-tests, and publishing from the same information.
-
-## Choose a product kind
-
-Use the element that describes what the project produces:
-
-| Kind | Typical output |
-| --- | --- |
-| `Application` | Runnable application |
-| `Library` | Reusable library |
-| `Tool` | Host or developer executable |
-| `Test` | Test executable |
-| `Benchmark` | Benchmark executable |
-| `Plugin` | Loadable plugin |
-| `Module` | Runtime or library module |
-| `External` | Product owned by an external build |
-
-## Describe the build
-
-Build inputs belong inside the product:
+One `.nginproj` describes one primary product directly. Choose `Application`,
+`Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, or `External` with the root
+`Type` attribute. There is no generic Module product: linked reusable code is a
+Library, dynamically loaded code is a Plugin, and C++ modules are Build items.
 
 ```xml
-<Library Output="Static">
+<Project Name="Math" Type="Library" Linkage="Static">
   <Build>
     <Language Standard="C++23" Required="true" Extensions="false" />
-    <Sources Path="src/**.cpp" />
-    <Headers Path="include/**.hpp" Visibility="Public" />
-    <IncludePath Path="include" Visibility="Public" />
-    <Define Name="MATH_BUILDING" Value="1" />
+    <Source Include="src/**/*.cpp" />
+    <Header Include="include/**/*.hpp" Visibility="Public" />
+    <IncludeDirectory Path="include" Visibility="Public" />
+    <Define Name="MATH_BUILDING" Value="1" Visibility="Private" />
   </Build>
-
-  <Exports>
-    <LibraryTarget Name="Math::Math" />
-    <Headers Path="include/**.hpp" />
-  </Exports>
-</Library>
+</Project>
 ```
 
-`Sources` and `Headers` declare product inputs. Build settings such as
-`IncludePath`, `Define`, `CompileOption`, `LinkOption`, and `LinkLibrary` can
-carry selectors such as `Profile`, `OperatingSystem`, `Architecture`,
-`Toolchain`, `Environment`, or a named `When` condition.
+Build declarations are additive and have stable identities. `Include`,
+`Exclude`, `Remove`, and `Update` are explicit operations. Product differences
+use typed Options and narrowly matched Refinements over Configuration, Target,
+or Toolchain facts—there is no general condition language.
 
-## Add a condition
+Dependencies name packages or projects. Package `<Use>` children activate
+specific Libraries, Tools, Actions, Plugins, or Assets. Testing and publishing
+dependencies live in their own semantic sections.
 
-Use a named condition when several items share the same selection rule:
-
-```xml
-<Conditions>
-  <Condition Name="windows-debug">
-    <All>
-      <When OperatingSystem="windows" />
-      <When Profile="Debug" />
-    </All>
-  </Condition>
-</Conditions>
-
-<Application>
-  <Build>
-    <Define Name="APP_WINDOWS_DEBUG" Value="1" When="windows-debug" />
-  </Build>
-</Application>
-```
-
-## Inspect the result
-
-```bash
-ngin validate
-ngin graph
-ngin inspect --format json
-```
-
-The manifest records intent. The Composition Graph is the resolved result after
-profiles, workspace policy, packages, conditions, and defaults are applied.
-
-See [Profiles](profiles.md) next, or open the exact
-[project manifest reference](../reference/project-manifest.md).
+Use `ngin validate`, `ngin graph`, and `ngin explain <kind>:<identity>` to see
+the resolved result and provenance. See the [project manifest reference](../reference/project-manifest.md).

@@ -1,37 +1,38 @@
-# Variables
+# Placeholders
 
-Manifest strings can refer to resolved values with `$(Name)` syntax.
+Manifest placeholders use `${name}` syntax. They are typed and phase-limited;
+unknown names, unavailable values, recursive values, and values that violate
+their declared type are errors.
 
-Common project and build variables include:
+The backend-neutral registry contains:
 
-| Variable | Meaning |
+| Placeholder | Type | Available phases |
+| --- | --- | --- |
+| `${project.name}` | identifier | output, stage, launch, publish |
+| `${project.version}` | semantic version | output, publish |
+| `${configuration}` | identifier | output, stage, launch, publish |
+| `${target.os}` | identifier | output, stage, launch, publish |
+| `${target.architecture}` | identifier | output, stage, launch, publish |
+| `${output.name}` | filename | stage, launch, publish |
+| `${workspace.root}` | path | local execution only |
+
+Values used in canonical Composition Graph identity must be machine-portable.
+Local filesystem values such as `${workspace.root}` are deliberately excluded
+from canonical identity and can be expanded only while deriving a local
+execution plan.
+
+The CMake Action adapter additionally expands these execution-only arguments
+inside package Action `<Argument>` values:
+
+| Placeholder | Meaning |
 | --- | --- |
-| `$(ProjectName)` | Selected project name |
-| `$(ProjectVersion)` | Selected project version |
-| `$(ProjectDir)` | Directory containing the project manifest |
-| `$(ProfileName)` | Selected profile |
-| `$(OutputName)` | Product output name |
-| `$(OutputDir)` | Selected staged output directory |
-| `$(StageDir)` | Staging directory |
-| `$(GeneratedDir)` | Generated-file directory |
-| `$(GeneratorContext)` | Generator context file path |
+| `${ProjectDir}` | directory containing the selected project |
+| `${BuildDir}` | generated CMake build directory |
+| `${ActionOutputDir}` | isolated Action output root |
+| `${ActionContext}` | generated context document for Generate Actions |
 
-Tool drivers additionally support variables defined by their adapter contract,
-including `$(InputFile)`, `$(InputContentFile)`, `$(Config)`,
-`$(WorkspaceRoot)`, `$(ProjectPath)`, `$(WorkingDirectory)`, and
-`$(OutputDirectory)`.
-
-Availability depends on the element being resolved. Validation fails when a
-required variable is unavailable in that context.
-
-Use the CLI to inspect project environment values and their source:
-
-```bash
-ngin variables explain --project App.nginproj --profile Debug
-```
-
-Secret values are shown as `<secret>` or `<redacted>` and are not copied into
-graph JSON, diagnostics, logs, diffs, or generated launch metadata.
-
-`ngin settings init` creates the local settings file under
-`.ngin/local/user.nginsettings` and ensures it is ignored by source control.
+These adapter placeholders are resolved into an ActionPlan; they are not
+backend-neutral graph fields and do not leak CMake paths into package semantics.
+Secrets are references in Launch intent, not placeholders. The CLI refuses to
+launch when secret references exist and no external secret provider is
+configured; it never copies secret values into graph JSON or generated plans.

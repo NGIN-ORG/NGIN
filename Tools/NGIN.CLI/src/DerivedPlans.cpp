@@ -36,6 +36,14 @@ namespace NGIN::CLI
                                                         {"value", value.value}});
             return result;
         }
+
+        [[nodiscard]] auto StringMapValue(const std::map<std::string, std::string, std::less<>> &values)
+            -> CanonicalValue
+        {
+            CanonicalValue::Object result{};
+            for (const auto &[name, value] : values) result.emplace(name, value);
+            return result;
+        }
     }
 
     auto SerializeBuildPlan(const BuildPlan &plan) -> std::string
@@ -78,8 +86,12 @@ namespace NGIN::CLI
         CanonicalValue::Array actions{};
         for (const auto &action : plan.actionDependencies) actions.emplace_back(action);
         CanonicalValue::Object root{{"actionDependencies", actions},
+                                    {"configuration", plan.configuration},
                                     {"crossCompiling", plan.crossCompiling},
                                     {"generator", plan.generator},
+                                    {"languageExtensions", plan.languageExtensions},
+                                    {"languageRequired", plan.languageRequired},
+                                    {"languageStandard", plan.languageStandard},
                                                          {"items", items},
                                                          {"kind", "NGIN.BuildPlan"},
                                                          {"links", links},
@@ -98,16 +110,26 @@ namespace NGIN::CLI
         CanonicalValue::Array steps{};
         for (const auto &step : plan.steps)
         {
+            CanonicalValue::Array arguments{};
+            for (const auto &argument : step.arguments) arguments.emplace_back(argument);
+            CanonicalValue::Array inputs{};
+            for (const auto &input : step.inputs) inputs.emplace_back(input);
             CanonicalValue::Array outputs{};
             for (const auto &output : step.outputs) outputs.emplace_back(output);
-            steps.push_back(CanonicalValue::Object{{"deterministic", step.deterministic},
+            steps.push_back(CanonicalValue::Object{{"arguments", arguments},
+                                                   {"contextFile", step.contextFile},
+                                                   {"deterministic", step.deterministic},
+                                                   {"environment", StringMapValue(step.environment)},
                                                    {"graphIdentity", step.graphIdentity},
                                                    {"identity", step.identity},
+                                                   {"inputs", inputs},
                                                    {"kind", std::string(ActionKindName(step.kind))},
+                                                   {"options", StringMapValue(step.options)},
                                                    {"outputs", outputs},
                                                    {"provenance", ProvenanceValue(step.provenance)},
                                                    {"toolGraphIdentity", step.toolGraphIdentity},
-                                                   {"toolTarget", step.toolTarget}});
+                                                   {"toolTarget", step.toolTarget},
+                                                   {"workingDirectory", step.workingDirectory}});
         }
         return SerializeCanonical(CanonicalValue::Object{{"kind", "NGIN.ActionPlan"},
                                                          {"plan", IdentityValue(plan.plan)},

@@ -12,6 +12,12 @@ namespace NGIN::CLI
 {
     namespace
     {
+        [[nodiscard]] auto Utf8Path(const std::filesystem::path &path) -> std::string
+        {
+            const auto utf8 = path.generic_u8string();
+            return {reinterpret_cast<const char *>(utf8.data()), utf8.size()};
+        }
+
         auto AddPathError(std::vector<ManifestDiagnostic> &diagnostics, std::string code, std::string message,
                           const ManifestSourceRange &source) -> void
         {
@@ -144,6 +150,14 @@ namespace NGIN::CLI
             return result;
         }
 
+        // "." explicitly names the manifest directory. It is a useful and
+        // unambiguous integration root or working directory, not an empty path.
+        if (authored == ".")
+        {
+            result.value = PortablePath{.value = ".", .base = base};
+            return result;
+        }
+
         std::vector<std::string> segments{};
         std::size_t start = 0;
         while (start <= authored.size())
@@ -217,7 +231,7 @@ namespace NGIN::CLI
             AddPathError(result.diagnostics, "NGIN2007", "resolved path escapes its allowed root", source);
             return result;
         }
-        const auto relative = candidate.lexically_relative(canonicalRoot).generic_string();
+        const auto relative = Utf8Path(candidate.lexically_relative(canonicalRoot));
         std::error_code workspaceError{};
         const auto canonicalWorkspace = std::filesystem::weakly_canonical(workspaceRoot, workspaceError);
         result.value = PortablePath{.value = relative,
@@ -307,7 +321,7 @@ namespace NGIN::CLI
                 AddPathError(result.diagnostics, "NGIN2008", "cannot resolve glob directory: " + localError.message(), source);
                 return;
             }
-            const auto directoryIdentity = canonicalDirectory.generic_string();
+            const auto directoryIdentity = Utf8Path(canonicalDirectory);
             if (!activeDirectories.insert(directoryIdentity).second)
             {
                 AddPathError(result.diagnostics, "NGIN2008", "symlink cycle encountered while expanding glob", source);
@@ -327,7 +341,7 @@ namespace NGIN::CLI
                 return;
             }
             std::ranges::sort(entries, [](const auto &left, const auto &right) {
-                return left.path().filename().generic_string() < right.path().filename().generic_string();
+                return Utf8Path(left.path().filename()) < Utf8Path(right.path().filename());
             });
             for (const auto &entry : entries)
             {
@@ -349,7 +363,7 @@ namespace NGIN::CLI
                     continue;
                 }
                 if (!entry.is_regular_file(localError)) continue;
-                const auto relative = entry.path().lexically_relative(root).generic_string();
+                const auto relative = Utf8Path(entry.path().lexically_relative(root));
                 if (!GlobMatchesPortable(normalizedPattern.value->value, relative)) continue;
                 const auto folded = targetCaseInsensitive ? AsciiCaseFold(relative) : relative;
                 if (const auto existing = caseIdentities.find(folded);
@@ -366,7 +380,16 @@ namespace NGIN::CLI
             }
             activeDirectories.erase(directoryIdentity);
         };
-        visit(root);
+        // Begin at the non-pattern directory prefix. Besides avoiding needless
+        // traversal of large workspaces, this keeps an Examples-only discovery
+        // declaration from inspecting unrelated dependency and build trees.
+        auto visitRoot = root;
+        const auto &normalizedText = normalizedPattern.value->value;
+        const auto wildcard = normalizedText.find_first_of("*?[");
+        const auto fixedPrefix = normalizedText.substr(0, wildcard);
+        if (const auto slash = fixedPrefix.rfind('/'); slash != std::string::npos)
+            visitRoot /= std::filesystem::path(fixedPrefix.substr(0, slash));
+        if (std::filesystem::is_directory(visitRoot, error)) visit(visitRoot);
         for (auto &[_, match] : matches) result.matches.push_back(std::move(match));
         return result;
     }

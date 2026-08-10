@@ -185,20 +185,15 @@ A provider package depends on `NGIN.UI`, exports one library target, and is
 selected by the application product:
 
 ```xml
-<Package SchemaVersion="4"
-         Name="Vendor.UI.Backend"
-         Version="0.1.0">
-  <Build Backend="CMake" Mode="AddSubdirectory" />
-  <Uses>
-    <Package Name="NGIN.UI"
-             Version=">=0.4.0 &lt;0.5.0"
-             Scope="Target" />
-  </Uses>
-  <Library Name="Vendor.UI.Backend">
-    <Exports>
-      <LibraryTarget Name="Vendor::UIBackend" Linkage="Static" />
-    </Exports>
-  </Library>
+<Package xmlns:cmake="urn:ngin:integration:cmake"
+         Name="Vendor.UI.Backend" Version="0.1.0">
+  <Requires><Package Name="NGIN.UI" Compatible="0.4" Visibility="Public" /></Requires>
+  <Exports><Library Name="Backend" Default="true" /></Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Target Export="Backend" Name="Vendor::UIBackend" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>
 ```
 

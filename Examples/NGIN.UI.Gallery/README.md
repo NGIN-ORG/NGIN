@@ -9,8 +9,8 @@ collections, virtualization, motion, overlays, windows, themes, accessibility,
 and diagnostics. Each page includes a small public API example.
 
 ```bash
-ngin build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Debug --output build/manual/NGIN.UI.Gallery
-ngin run --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Debug --output build/manual/NGIN.UI.Gallery
+ngin build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --configuration Debug --output build/manual/NGIN.UI.Gallery
+ngin run --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --configuration Debug --output build/manual/NGIN.UI.Gallery
 ```
 
 Useful application arguments:

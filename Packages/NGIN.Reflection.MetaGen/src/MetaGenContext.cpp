@@ -79,9 +79,9 @@ namespace NGIN::Reflection::MetaGen
             diagnostics.push_back("generator context root element must be <GeneratorContext>");
             return context;
         }
-        if (Attribute(root, "SchemaVersion") != "1")
+        if (Attribute(root, "Version") != "1")
         {
-            diagnostics.push_back("unsupported generator context schema version '" + Attribute(root, "SchemaVersion") +
+            diagnostics.push_back("unsupported generator context version '" + Attribute(root, "Version") +
                                   "'");
             return context;
         }

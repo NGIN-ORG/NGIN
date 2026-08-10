@@ -33,6 +33,9 @@ namespace NGIN::CLI
         LibraryLinkage linkage{LibraryLinkage::None};
         std::optional<std::string> version{};
         std::optional<std::string> license{};
+        std::string languageStandard{"C++23"};
+        bool languageExtensions{false};
+        bool languageRequired{true};
         GraphProvenance provenance{};
     };
 
@@ -45,6 +48,10 @@ namespace NGIN::CLI
         std::string compiler{};
         std::string compilerVersion{};
         std::string runtimeLibrary{};
+        std::string optimization{"Off"};
+        bool debugSymbols{false};
+        bool linkTimeOptimization{false};
+        std::optional<std::string> toolchainFile{};
         GraphProvenance provenance{};
     };
 
@@ -68,6 +75,8 @@ namespace NGIN::CLI
         std::string providerVersion{};
         std::string revision{};
         std::string integrity{};
+        std::string trust{};
+        std::string signature{};
         std::string artifactIdentity{};
         bool hermetic{false};
         BinaryCompatibility compatibility{};
@@ -99,7 +108,12 @@ namespace NGIN::CLI
         std::string actionExport{};
         std::string toolExport{};
         bool deterministic{false};
+        std::vector<std::string> inputs{};
         std::vector<std::string> outputs{};
+        std::vector<std::string> arguments{};
+        std::string workingDirectory{"."};
+        std::map<std::string, std::string, std::less<>> environment{};
+        std::map<std::string, std::string, std::less<>> options{};
         GraphProvenance provenance{};
     };
 

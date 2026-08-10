@@ -1,72 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="OpenSSL"
-         Version="3.0.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="OpenSSL" Version="3.0.0">
   <Metadata>
-    <Description>OpenSSL libssl/libcrypto package-backed provider metadata for NGIN.Base crypto and TLS.</Description>
+    <Description>OpenSSL cryptography and TLS libraries.</Description>
     <License>Apache-2.0</License>
   </Metadata>
-  <Build Backend="CMake"
-         Mode="FindPackage"
-         ProviderPackage="openssl"
-         ProviderVersion="3.0.0"
-         CMakePackage="OpenSSL"
-         Linkage="Static;Shared"
-         RuntimeDeployment="PackageRuntimeLibraries"
-         RuntimeArtifacts="libssl;libcrypto">
-    <Options>
-      <Option Name="NGIN_BASE_CRYPTO_WITH_OPENSSL" Value="ON" />
-      <Option Name="NGIN_BASE_TLS_WITH_OPENSSL" Value="ON" />
-    </Options>
-  </Build>
-  <Library Name="OpenSSL.Crypto">
-    <Exports>
-      <LibraryTarget Name="OpenSSL::Crypto" />
-    </Exports>
-  </Library>
-  <Library Name="OpenSSL.TLS">
-    <Exports>
-      <LibraryTarget Name="OpenSSL::SSL" />
-      <LibraryTarget Name="OpenSSL::Crypto" />
-    </Exports>
-  </Library>
-  <Features>
-    <Feature Name="CryptoProvider"
-             Description="Expose OpenSSL libcrypto as a package-backed crypto provider candidate.">
+  <Exports>
+    <Library Name="Crypto" Default="true">
       <Provides>
-        <Capability Name="Crypto.Provider.openssl" />
-        <Capability Name="Crypto.Algorithm.Random" />
-        <Capability Name="Crypto.Algorithm.Sha256" />
-        <Capability Name="Crypto.Algorithm.Sha512" />
-        <Capability Name="Crypto.Algorithm.HmacSha256" />
-        <Capability Name="Crypto.Algorithm.HmacSha512" />
-        <Capability Name="Crypto.Algorithm.HkdfSha256" />
-        <Capability Name="Crypto.Algorithm.HkdfSha512" />
-        <Capability Name="Crypto.Algorithm.Pbkdf2Sha256" />
-        <Capability Name="Crypto.Algorithm.Pbkdf2Sha512" />
-        <Capability Name="Crypto.Algorithm.Aes128Gcm" />
-        <Capability Name="Crypto.Algorithm.Aes256Gcm" />
-        <Capability Name="Crypto.Algorithm.ChaCha20Poly1305" />
-        <Capability Name="Crypto.Algorithm.Ed25519" />
-        <Capability Name="Crypto.Algorithm.EcdsaP256Sha256" />
-        <Capability Name="Crypto.Algorithm.RsaPssSha256" />
-        <Capability Name="Crypto.Algorithm.RsaOaepSha256" />
-        <Capability Name="Crypto.Algorithm.X25519" />
+        <Capability Name="Crypto.Provider.openssl" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Random" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Sha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Sha512" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.HmacSha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.HmacSha512" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.HkdfSha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.HkdfSha512" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha512" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Aes128Gcm" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Aes256Gcm" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.ChaCha20Poly1305" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.Ed25519" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.EcdsaP256Sha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.RsaPssSha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.RsaOaepSha256" Version="3.0.0" Domain="Link" />
+        <Capability Name="Crypto.Algorithm.X25519" Version="3.0.0" Domain="Link" />
       </Provides>
-    </Feature>
-    <Feature Name="TlsProvider"
-             Description="Expose OpenSSL libssl as the NGIN.Net TLS provider.">
-      <Provides>
-        <Capability Name="Net.TLS.Provider.openssl" />
-      </Provides>
-    </Feature>
-  </Features>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
+    </Library>
+    <Library Name="TLS">
+      <Requires><Export Library="Crypto" Visibility="Public" /></Requires>
+      <Provides><Capability Name="Net.TLS.Provider.openssl" Version="3.0.0" Domain="Link" /></Provides>
+    </Library>
+  </Exports>
+  <Integrations>
+    <cmake:Manual Source=".">
+      <cmake:Target Export="Crypto" Name="OpenSSL::Crypto" />
+      <cmake:Target Export="TLS" Name="OpenSSL::SSL" />
+    </cmake:Manual>
+  </Integrations>
+  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
 </Package>

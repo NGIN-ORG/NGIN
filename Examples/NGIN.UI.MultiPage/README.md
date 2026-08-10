@@ -5,8 +5,8 @@ typed navigation parameters, back navigation, async loading, and deterministic
 scope teardown.
 
 ```bash
-ngin build --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Debug --output build/manual/NGIN.UI.MultiPage
-ngin run --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Debug --output build/manual/NGIN.UI.MultiPage
+ngin build --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --configuration Debug --output build/manual/NGIN.UI.MultiPage
+ngin run --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --configuration Debug --output build/manual/NGIN.UI.MultiPage
 ```
 
 Pass `--smoke` after `--` to create both pages, begin async loading, and exit

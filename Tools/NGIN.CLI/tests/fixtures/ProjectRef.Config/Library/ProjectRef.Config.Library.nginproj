@@ -1,22 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="ProjectRef.Config.Library"
-         DefaultProfile="Runtime">
-  <Library Output="Static">
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Stage>
-      <Config Source="config/library.cfg" />
-    </Stage>
-  </Library>
-  <Profile Name="Runtime">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="linux-x64" />
-      <Environment Name="development" />
-    </Defaults>
-  </Profile>
+<Project Name="ProjectRef.Config.Library" Type="Library" Linkage="Static">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Stage><File Include="config/library.cfg" Into="config/library.cfg" /></Stage>
 </Project>

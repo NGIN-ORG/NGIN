@@ -20,6 +20,8 @@ namespace NGIN::CLI
         std::string providerVersion{};
         std::string revision{};
         std::string integrity{};
+        std::string trust{};
+        std::string signature{};
         std::string artifactIdentity{};
         bool hermetic{false};
         BinaryCompatibility compatibility{};

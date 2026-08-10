@@ -7,9 +7,9 @@ Read [`Hello.Native.nginproj`](Hello.Native.nginproj) and
 [`src/main.cpp`](src/main.cpp), then run:
 
 ```bash
-ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
-ngin build --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug --output build/manual/Hello.Native
-ngin run --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug --output build/manual/Hello.Native
+ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
+ngin build --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug --output build/manual/Hello.Native
+ngin run --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug --output build/manual/Hello.Native
 ```
 
 Expected application output:

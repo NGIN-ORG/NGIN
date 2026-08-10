@@ -1,16 +1,17 @@
 # Hello.Analyzer
 
-A normal native application that selects the `NGIN.Tooling.ClangTidy` analyzer
-feature. Its source intentionally contains one warning so terminal and editor
+A normal native application that explicitly selects the
+`NGIN.Tooling.ClangTidy::Analyze` Action. Its source intentionally contains one
+warning so terminal and editor
 diagnostics are easy to verify.
 
 ```bash
-ngin tool doctor --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj --profile Debug.Analyzer
-ngin analyze --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj --profile Debug.Analyzer --output build/manual/Hello.Analyzer
+ngin package lock --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj --output build/manual/Hello.Analyzer.lock
+ngin analyze --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj --lock build/manual/Hello.Analyzer.lock --output build/manual/Hello.Analyzer
 ```
 
-`clang-tidy` must be on `PATH` or `NGIN_CLANG_TIDY` must point to it. The
-package supplies integration, not LLVM binaries.
+`clang-tidy` must be on `PATH`. The package supplies a trusted Tool/Action
+contract and CMake binding, not LLVM binaries.
 
 Read [`Hello.Analyzer.nginproj`](Hello.Analyzer.nginproj),
 [`.clang-tidy`](.clang-tidy), and [`src/main.cpp`](src/main.cpp).

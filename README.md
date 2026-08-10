@@ -72,12 +72,12 @@ Build and run the smallest example:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/hello
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/hello
 ```
 
@@ -107,28 +107,15 @@ MyApp/
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="MyApp" DefaultProfile="Debug">
-  <Application>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Launch Executable="$(OutputName)" />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-    </Defaults>
-  </Profile>
+<Project Name="MyApp" Type="Application">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Launch Name="default" Default="true"><Executable Product="MyApp" /></Launch>
 </Project>
 ```
 
 One `.nginproj` describes one primary product: an application, library, tool,
-test, benchmark, plugin, module, or external product. Profiles select complete
-behavior, not just a compiler preset. A workspace is optional.
+test, benchmark, plugin, or external product. Workspaces supply reusable
+configurations, targets, toolchains, policy, and optional presets.
 
 ## Examples
 

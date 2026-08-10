@@ -20,6 +20,7 @@ namespace NGIN::CLI
         SelectionFacts hostSelection{};
         std::vector<const PackageProvider *> packageProviders{};
         std::map<std::string, std::vector<SourcedVersionConstraint>, std::less<>> centralVersions{};
+        std::map<std::string, std::string, std::less<>> packageSourceBindings{};
         std::map<std::string, std::vector<PackageOptionAssignment>, std::less<>> packageOptions{};
         std::set<DependencyContext> dependencyContexts{};
         std::set<ActionKind> actionKinds{ActionKind::Generate};

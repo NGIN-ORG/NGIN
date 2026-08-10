@@ -9,8 +9,8 @@ Read [`Hello.Reflection.nginproj`](Hello.Reflection.nginproj),
 
 ```bash
 cmake --build build/dev --target ngin_reflection_metagen
-ngin build --project Examples/Hello.Reflection/Hello.Reflection.nginproj --profile Debug --output build/manual/Hello.Reflection
-ngin run --project Examples/Hello.Reflection/Hello.Reflection.nginproj --profile Debug --output build/manual/Hello.Reflection
+ngin build --project Examples/Hello.Reflection/Hello.Reflection.nginproj --configuration Debug --output build/manual/Hello.Reflection
+ngin run --project Examples/Hello.Reflection/Hello.Reflection.nginproj --configuration Debug --output build/manual/Hello.Reflection
 ```
 
 LLVM and libclang are required for MetaGen. Generated files remain under the

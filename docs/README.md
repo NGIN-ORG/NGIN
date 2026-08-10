@@ -31,7 +31,6 @@ Start with the path that matches what you are trying to do.
 - [CLI](reference/cli.md)
 - [Variables](reference/variables.md)
 - [Composition Graph JSON](reference/composition-graph.md)
-- [Tool driver protocol](reference/tool-driver.md)
 
 The CLI is the executable source of truth for commands and manifest schema:
 

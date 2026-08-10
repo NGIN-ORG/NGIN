@@ -1,26 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.Diagnostics"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
-  <Uses>
-    <Package Name="NGIN.Log" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="true" Scope="Target" />
-  </Uses>
-  <Plugin Name="NGIN.Diagnostics">
-    <Stage>
-      <Config Source="config/diagnostics.defaults.xml"
-              Target="config/diagnostics.defaults.xml" />
-    </Stage>
-    <Exports>
-      <Plugin Name="NGIN.Diagnostics" />
-    </Exports>
-  </Plugin>
+<Package Name="NGIN.Diagnostics" Version="0.1.0">
+  <Requires><Package Name="NGIN.Log" Compatible="0.1" Visibility="Private" /></Requires>
+  <Exports>
+    <Plugin Name="Diagnostics" Default="true">
+      <RuntimeFiles><File Include="config/diagnostics.defaults.xml" Into="config/diagnostics.defaults.xml" /></RuntimeFiles>
+    </Plugin>
+  </Exports>
+  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
 </Package>

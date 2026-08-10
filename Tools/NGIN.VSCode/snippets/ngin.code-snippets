@@ -1,255 +1,30 @@
 {
-  "Workspace": {
-    "scope": "ngin",
-    "prefix": "ngin-workspace",
+  "NGIN project": {
+    "prefix": "ngin-project",
     "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Workspace SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
-      "  <Projects>",
-      "    <Project Path=\"$2\" />",
-      "  </Projects>",
-      "",
-      "  <Defaults>",
-      "    <Language Standard=\"C++23\" Required=\"true\" Extensions=\"false\" />",
-      "    <Backend Name=\"CMake\" Mode=\"Generated\" />",
-      "    <HostPlatform Name=\"host\" />",
-      "    <TargetPlatform Name=\"host\" />",
-      "  </Defaults>",
-      "",
-      "  <Packages>",
-      "    <Source Name=\"local\" Path=\"$3\" />",
-      "  </Packages>",
-      "</Workspace>"
-    ]
-  },
-  "Definitions": {
-    "scope": "ngin",
-    "prefix": "ngin-definitions",
-    "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Definitions SchemaVersion=\"4\" Name=\"$1\">",
-      "  <Platforms>",
-      "    <Platform Name=\"$2\" OperatingSystem=\"$3\" Architecture=\"$4\" />",
-      "  </Platforms>",
-      "</Definitions>"
-    ]
-  },
-  "Application Project": {
-    "scope": "ngin",
-    "prefix": "ngin-app",
-    "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Project SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
-      "  <Application>",
-      "    <Build>",
-      "      <Sources Path=\"src/**.cpp\" />",
-      "    </Build>",
-      "",
-      "    <Launch Executable=\"$(OutputName)\" WorkingDirectory=\".\" />",
-      "  </Application>",
-      "",
-      "  <Profile Name=\"dev\">",
-      "    <Defaults>",
-      "      <Optimization Mode=\"Off\" />",
-      "      <DebugSymbols Enabled=\"true\" />",
-      "      <LinkTimeOptimization Enabled=\"false\" />",
-      "      <TargetPlatform Name=\"host\" />",
-      "      <Environment Name=\"development\" />",
-      "    </Defaults>",
-      "  </Profile>",
+      "<Project Name=\"${1:App}\" Type=\"${2|Application,Library,Tool,Test,Benchmark,Plugin,External|}\">",
+      "  <Build><Source Include=\"src/**/*.cpp\" /></Build>",
       "</Project>"
     ]
   },
-  "Library Project": {
-    "scope": "ngin",
-    "prefix": "ngin-lib",
-    "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Project SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
-      "  <Library>",
-      "    <Build>",
-      "      <Sources Path=\"src/**.cpp\" />",
-      "      <Headers Path=\"include/**.hpp\" Visibility=\"Public\" />",
-      "    </Build>",
-      "",
-      "    <Exports>",
-      "      <Headers Path=\"include/**.hpp\" />",
-      "      <LibraryTarget Name=\"$1\" />",
-      "    </Exports>",
-      "  </Library>",
-      "</Project>"
-    ]
+  "NGIN package dependency": {
+    "prefix": "ngin-dependency",
+    "body": ["<Package Name=\"${1:Package}\" Compatible=\"${2:1}\" />"]
   },
-  "Package": {
-    "scope": "ngin",
+  "NGIN package": {
     "prefix": "ngin-package",
     "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Package SchemaVersion=\"4\" Name=\"$1\" Version=\"$2\">",
-      "  <Metadata>",
-      "    <Description>$3</Description>",
-      "    <License>$4</License>",
-      "  </Metadata>",
-      "",
-      "  <Library Name=\"$1\">",
-      "    <Exports>",
-      "      <Headers Path=\"include/**.hpp\" />",
-      "      <LibraryTarget Name=\"$1\" />",
-      "    </Exports>",
-      "  </Library>",
+      "<Package Name=\"${1:Package}\" Version=\"${2:1.0.0}\">",
+      "  <Exports><Library Name=\"${3:Core}\" Default=\"true\" /></Exports>",
       "</Package>"
     ]
   },
-  "Package Dependency": {
-    "scope": "ngin",
-    "prefix": "ngin-package-use",
+  "NGIN workspace": {
+    "prefix": "ngin-workspace",
     "body": [
-      "<Package Name=\"$1\" Version=\"$2\" Scope=\"$3\" />"
-    ]
-  },
-  "Runtime Dependency": {
-    "scope": "ngin",
-    "prefix": "ngin-runtime-use",
-    "body": [
-      "<Runtime Name=\"$1\" Version=\"$2\" Scope=\"Target;Runtime\">",
-      "  <Feature Name=\"$3\" />",
-      "</Runtime>"
-    ]
-  },
-  "Tooling Run": {
-    "scope": "ngin",
-    "prefix": "ngin-tooling-run",
-    "body": [
-      "<Tooling>",
-      "  <Run Name=\"${1:quality}\" DisplayName=\"${2:Quality Check}\"",
-      "       Description=\"${3:Check the selected inputs.}\" Action=\"${4:Package.Name::action}\">",
-      "    <Input Scope=\"${5:Product}\" IncludeGenerated=\"${6:false}\" />",
-      "    <Policy Gate=\"${7:true}\" FailOn=\"${8:Warning}\" />",
-      "  </Run>",
-      "</Tooling>"
-    ]
-  },
-  "Command Generator": {
-    "scope": "ngin",
-    "prefix": "ngin-generator-command",
-    "body": [
-      "<Generate>",
-      "  <Generator Name=\"$1\" Phase=\"Generate\">",
-      "    <Tool Name=\"$2\" Executable=\"$3\" />",
-      "",
-      "    <Inputs>",
-      "      <Files Path=\"$4\" />",
-      "    </Inputs>",
-      "",
-      "    <Outputs>",
-      "      <Sources Path=\"$(GeneratedDir)/$5\" />",
-      "    </Outputs>",
-      "  </Generator>",
-      "</Generate>"
-    ]
-  },
-  "Tool Driver and Action": {
-    "scope": "ngin",
-    "prefix": "ngin-tool-action",
-    "body": [
-      "<ToolDrivers>",
-      "  <Driver Name=\"${1:driver}\" Protocol=\"NGIN.ToolDriver/1\" Executable=\"${2:driver-executable}\">",
-      "    <Capabilities><Capability Name=\"${3:diagnostics}\" /></Capabilities>",
-      "  </Driver>",
-      "</ToolDrivers>",
-      "<ToolActions>",
-      "  <Action Name=\"${4:analyze}\" Kind=\"${5:Analyze}\" Tool=\"${6:tool}\" Driver=\"${1:driver}\">",
-      "    <Accepts Contract=\"${7:files/v1}\" />",
-      "    <Capabilities><Capability Name=\"${3:diagnostics}\" /></Capabilities>",
-      "  </Action>",
-      "</ToolActions>"
-    ]
-  },
-  "Profile": {
-    "scope": "ngin",
-    "prefix": "ngin-profile",
-    "body": [
-      "<Profile Name=\"$1\">",
-      "  <Defaults>",
-      "    <Optimization Mode=\"${2|Off,Speed,Size|}\" />",
-      "    <DebugSymbols Enabled=\"${3|true,false|}\" />",
-      "    <LinkTimeOptimization Enabled=\"${4|false,true|}\" />",
-      "    <TargetPlatform Name=\"$5\" />",
-      "    <Environment Name=\"$6\" />",
-      "  </Defaults>",
-      "</Profile>"
-    ]
-  },
-  "Launch": {
-    "scope": "ngin",
-    "prefix": "ngin-launch",
-    "body": [
-      "<Launch Name=\"$1\" Executable=\"$2\" WorkingDirectory=\"$(StageDir)\" />"
-    ]
-  },
-  "Publish": {
-    "scope": "ngin",
-    "prefix": "ngin-publish",
-    "body": [
-      "<Publish Name=\"$1\" Kind=\"Folder\" Output=\"$2\">",
-      "  <Include Stage=\"all\" />",
-      "  <Include RuntimeDependencies=\"true\" />",
-      "</Publish>"
-    ]
-  },
-  "Installer Publish": {
-    "scope": "ngin",
-    "prefix": "ngin-installer",
-    "body": [
-      "<Publish Name=\"$1\" Kind=\"Installer\" Format=\"${2|msi,deb|}\" Output=\"$3\">",
-      "  <Include Stage=\"all\" />",
-      "  <Installer Identifier=\"$4\" Vendor=\"$5\" Contact=\"$6\" Scope=\"Machine\" AddToPath=\"${7|false,true|}\" />",
-      "</Publish>"
-    ]
-  },
-  "Package Output": {
-    "scope": "ngin",
-    "prefix": "ngin-package-output",
-    "body": [
-      "<PackageOutput Name=\"$1\" Version=\"$2\">",
-      "  <Metadata>",
-      "    <Description>$3</Description>",
-      "    <License>$4</License>",
-      "  </Metadata>",
-      "</PackageOutput>"
-    ]
-  },
-  "Config": {
-    "scope": "ngin",
-    "prefix": "ngin-config",
-    "body": [
-      "<Config Source=\"$1\" Target=\"$2\" />"
-    ]
-  },
-  "Environment Variable": {
-    "scope": "ngin",
-    "prefix": "ngin-env",
-    "body": [
-      "<Env Name=\"$1\" Value=\"$2\" />"
-    ]
-  },
-  "Secret": {
-    "scope": "ngin",
-    "prefix": "ngin-secret",
-    "body": [
-      "<Secret Name=\"$1\" From=\"local:$2\" Required=\"$3\" />"
-    ]
-  },
-  "Local Settings File": {
-    "scope": "ngin",
-    "prefix": "ngin-settings-file",
-    "body": [
-      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<LocalSettings SchemaVersion=\"1\">",
-      "  <Settings>",
-      "    <Setting Key=\"$1\" Value=\"$2\" Secret=\"$3\" />",
-      "  </Settings>",
-      "</LocalSettings>"
+      "<Workspace Name=\"${1:Workspace}\">",
+      "  <Projects><Project Include=\"${2:apps/**/*.nginproj}\" /></Projects>",
+      "</Workspace>"
     ]
   }
 }

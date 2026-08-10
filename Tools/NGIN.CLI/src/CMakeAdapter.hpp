@@ -3,6 +3,8 @@
 #include "DerivedPlans.hpp"
 #include "CMakeIntegration.hpp"
 
+#include <set>
+
 namespace NGIN::CLI
 {
     struct CMakeAdapterCapabilities
@@ -20,6 +22,11 @@ namespace NGIN::CLI
         std::optional<std::string> toolchainFile{};
         bool multiConfiguration{false};
         bool crossCompiling{false};
+        std::string projectRoot{};
+        std::string buildRoot{};
+        std::string actionOutputRoot{};
+        std::string actionContextRoot{};
+        std::set<ActionKind> actionKinds{ActionKind::Generate};
     };
 
     struct CMakePlanResult

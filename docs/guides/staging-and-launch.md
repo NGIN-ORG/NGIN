@@ -1,44 +1,21 @@
 # Staging and launch
 
-NGIN builds into a staged directory containing the selected product and its
-runtime files. This gives local runs, tests, editors, and publishing the same
-layout.
-
-## Stage files
+Projects stage their own files directly:
 
 ```xml
-<Application>
-  <Stage>
-    <Config Source="config/app.json" Target="config/app.json" />
-    <Content Source="assets/**" Target="assets" />
-  </Stage>
-</Application>
+<Stage>
+  <File Include="config/app.json" Into="config/app.json" />
+  <Directory Include="assets" Into="assets" />
+</Stage>
+<Launch Name="default" Default="true">
+  <Executable Product="App" />
+  <WorkingDirectory Path="." />
+  <Argument>--local</Argument>
+  <Environment Name="LOG_LEVEL" Value="debug" />
+</Launch>
 ```
 
-Every staged item has an owner and target. Collisions fail by default. Use
-`Collision="Override"` only when a closer authoring scope intentionally
-replaces the same target.
-
-Package features may also contribute runtime assets and notices. Those files
-join the same collision-checked stage plan.
-
-## Define launch behavior
-
-```xml
-<Launch Executable="$(OutputName)"
-        WorkingDirectory="."
-        Args="--config config/app.json" />
-```
-
-`ngin build` writes a generated `.nginlaunch` file into the staged output.
-`ngin run`, `ngin test`, and `ngin benchmark` consume resolved launch
-information rather than rereading source manifests at runtime.
-
-```bash
-ngin stage
-ngin graph --stage-plan --format json
-ngin graph --launch-plan --format json
-ngin run -- --user-argument
-```
-
-Do not commit or hand-edit `.nginlaunch`; it is generated output.
+Activated packages add required runtime files, notices, selected Assets, and
+Plugin artifacts automatically. Stage destinations are relative, normalized,
+and cannot escape the stage root. Secrets name an external source and are
+resolved only at launch; they never enter the graph or generated files.

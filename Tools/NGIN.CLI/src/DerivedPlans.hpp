@@ -53,6 +53,10 @@ namespace NGIN::CLI
         std::string productGraphIdentity{};
         std::string targetName{};
         std::string targetKind{};
+        std::string configuration{};
+        std::string languageStandard{"C++23"};
+        bool languageExtensions{false};
+        bool languageRequired{true};
         std::string generator{};
         std::optional<std::string> toolchainFile{};
         bool multiConfiguration{false};
@@ -71,7 +75,13 @@ namespace NGIN::CLI
         std::string toolGraphIdentity{};
         std::string toolTarget{};
         bool deterministic{false};
+        std::vector<std::string> inputs{};
         std::vector<std::string> outputs{};
+        std::vector<std::string> arguments{};
+        std::string workingDirectory{};
+        std::map<std::string, std::string, std::less<>> environment{};
+        std::map<std::string, std::string, std::less<>> options{};
+        std::string contextFile{};
         GraphProvenance provenance{};
     };
 

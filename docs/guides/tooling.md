@@ -1,40 +1,21 @@
-# Tooling and quality checks
+# Tooling Actions
 
-NGIN tools are packages. A package describes the executable, a protocol driver,
-and semantic actions such as analyze or format. Projects select features and
-named runs; the CLI and VS Code extension consume the same resolved plan.
-
-For example, enable the official Clang-Tidy wrapper:
+Packages export host Tools and explicit Actions. Merely depending on a package
+never runs its executable.
 
 ```xml
-<Application>
-  <Uses>
-    <Package Name="NGIN.Tooling.ClangTidy"
-             Version=">=0.1.0 &lt;0.2.0"
-             Scope="Dev">
-      <Feature Name="Analyzer" />
+<Project Name="Checked.App" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Tooling.ClangTidy" Compatible="0.1">
+      <Use Action="Analyze" />
     </Package>
-  </Uses>
-</Application>
+  </Dependencies>
+  <Tooling><Analyze Action="NGIN.Tooling.ClangTidy::Analyze" /></Tooling>
+</Project>
 ```
 
-The wrapper resolves `clang-tidy` from `NGIN_CLANG_TIDY` or `PATH`; it does not
-ship LLVM binaries.
-
-```bash
-ngin tool list --available
-ngin tool doctor
-ngin tool plan
-ngin analyze
-ngin format --check
-ngin format --apply
-ngin quality
-```
-
-Drivers report diagnostics and proposed edits. NGIN owns gate policy, caching,
-timeouts, result normalization, and edit application. Check and preview modes
-do not modify source files; apply modes validate file digests before editing.
-
-Use `ngin graph --tooling-plan --format json` to inspect the selected runs.
-Package authors can continue with [Tool driver authoring](tool-driver-authoring.md)
-and the [tool driver reference](../reference/tool-driver.md).
+An Action declares its Tool, typed inputs and outputs, arguments, environment,
+and determinism in the package manifest. NGIN resolves the Tool on a host
+PackageInstance and checks workspace trust before execution. Use `<Generate>`
+for generation and `<Analyze>`, `<Format>`, `<Validate>`, or `<Custom>` inside
+`<Tooling>` for the other Action kinds.

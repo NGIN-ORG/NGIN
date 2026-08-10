@@ -1,22 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="ProjectRef.Config.CollisionLibB"
-         DefaultProfile="Runtime">
-  <Library Output="Static">
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Stage>
-      <Config Source="config/shared.cfg" />
-    </Stage>
-  </Library>
-  <Profile Name="Runtime">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="linux-x64" />
-      <Environment Name="development" />
-    </Defaults>
-  </Profile>
+<Project Name="ProjectRef.Config.CollisionLibB" Type="Library" Linkage="Static">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Stage><File Include="config/shared.cfg" Into="config/shared.cfg" /></Stage>
 </Project>

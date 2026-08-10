@@ -1,32 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="Hello.Reflection"
-         DefaultProfile="Debug">
-
-  <Application>
-    <Uses>
-      <Package Name="NGIN.Reflection.MetaGen"
-               Version=">=0.1.0 &lt;0.2.0"
-               Scope="Build">
-        <Feature Name="ReflectionCodegen" />
-      </Package>
-    </Uses>
-
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-
-    <Launch Executable="Hello.Reflection"
-            WorkingDirectory="." />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-  </Profile>
+<Project Name="Hello.Reflection" Type="Application">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Generate Action="NGIN.Reflection.MetaGen::ReflectionCodegen">
+    <Input Include="src/**/*.hpp" />
+  </Generate>
+  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
 </Project>

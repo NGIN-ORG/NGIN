@@ -68,15 +68,15 @@ Build all three shared-view products from their authored manifests:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Release --output build/release/NGIN.UI.Gallery-0.2.0
+  --configuration Release --output build/release/NGIN.UI.Gallery-0.2.0
 
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj `
-  --profile Release --output build/release/NGIN.UI.Gallery.Hosted-0.2.0
+  --configuration Release --output build/release/NGIN.UI.Gallery.Hosted-0.2.0
 
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj `
-  --profile Release --output build/release/NGIN.UI.Gallery.Tests-0.2.0
+  --configuration Release --output build/release/NGIN.UI.Gallery.Tests-0.2.0
 ```
 
 Create the standalone archive:
@@ -84,7 +84,7 @@ Create the standalone archive:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe publish demo `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Release --output build/release/NGIN.UI.Gallery-0.2.0
+  --configuration Release --output build/release/NGIN.UI.Gallery-0.2.0
 ```
 
 The result is `dist/NGIN.UI.Gallery-0.2.0-demo.zip`. It contains the executable,

@@ -26,22 +26,9 @@ int main() {
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Hello" DefaultProfile="Debug">
-  <Application>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Launch Executable="$(OutputName)" />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-    </Defaults>
-  </Profile>
+<Project Name="Hello" Type="Application">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Launch Name="default" Default="true"><Executable Product="Hello" /></Launch>
 </Project>
 ```
 
@@ -55,8 +42,9 @@ ngin build
 ngin run
 ```
 
-NGIN discovers `Hello.nginproj`, resolves the `Debug` profile, generates a
-CMake build, compiles the executable, and creates a staged runnable directory.
+NGIN discovers `Hello.nginproj`, resolves the selected configuration, target,
+and toolchain, generates a CMake build, compiles the executable, and creates a
+staged runnable directory.
 
 Use `ngin graph` to see the resolved project and `ngin inspect --format json`
 for machine-readable output.
@@ -74,6 +62,6 @@ ngin new tool AssetCompiler
 ## Next steps
 
 - Learn how [projects](../guides/projects.md) are structured.
-- Add a [profile](../guides/profiles.md).
+- Add workspace [selection and presets](../reference/workspace-manifest.md).
 - Consume a [package](../guides/packages.md).
 - Compare your project with [Hello.Native](../../Examples/Hello.Native).

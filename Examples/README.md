@@ -25,9 +25,9 @@ NGIN.UI and NGIN.ECS in a larger interactive example.
 From the repository root:
 
 ```bash
-ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
-ngin build --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
-ngin run --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
+ngin build --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
+ngin run --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
 ```
 
 Replace the project path with the example you want. Examples that require an

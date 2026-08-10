@@ -22,8 +22,8 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 8 — PackageProvider hardening and reproducibility | Complete | `feat(manifest): lock exact package artifacts` |
 | 9 — Stage, launch, test, publish plans | Complete | `feat(manifest): derive deployment and publish plans` |
 | 10 — Workspace, authoring commands, editor | Complete | `feat(manifest): complete workspace authoring experience` |
-| 11 — Repository migration and old model deletion | Pending | — |
-| 12 — Verification and release hardening | Pending | — |
+| 11 — Repository migration and old model deletion | Complete | `refactor(manifest): complete repository migration` |
+| 12 — Verification and release hardening | In progress | — |
 
 ## Purpose
 
@@ -1159,8 +1159,8 @@ Implement the foundational rules used by every later resolver stage.
 
 ### Tests
 
-- Extend `OverlayTests.cpp`, `WorkspaceTests.cpp`, `AuthoringTests.cpp`, and
-  graph-focused tests.
+- Extend `WorkspaceModelTests.cpp`, `SemanticResolutionTests.cpp`,
+  `ManifestCliTests.cpp`, and graph-focused tests.
 - Cover order independence, equal-specificity conflict, preset equivalence,
   option typing, target aliases, derived BinaryCompatibility facts, glob
   ordering, case policy, symlinks, traversal rejection, and placeholder phase
@@ -1195,8 +1195,7 @@ Implement the direct product-first Project model and conventional build inputs.
 
 ### Tests
 
-- Extend `AuthoringTests.cpp`, `CommandAuthoringTests.cpp`, and
-  `ProductTests.cpp`.
+- Extend `ManifestCliTests.cpp` and `SemanticResolutionTests.cpp`.
 - Cover every product type, minimal documents, convention defaults, item
   operations, invalid placement, duplicates, and strict rejection of old forms.
 
@@ -1259,8 +1258,8 @@ activation, and versioned capabilities without generic Features.
 
 ### Tests
 
-- Extend `PackageTests.cpp`, `WorkspaceTests.cpp`, and
-  `GraphInspectTests.cpp`.
+- Extend `WorkspaceModelTests.cpp`, `SemanticResolutionTests.cpp`, and
+  `DependencyLockTests.cpp`.
 - Cover default/no/multiple exports, explicit activation, transitive export
   closure, version diamonds, option conflicts, required contributions, Assets,
   Plugin deployment without runtime activation, capability Version
@@ -1300,8 +1299,8 @@ runtime semantics.
 
 ### Tests
 
-- Extend `ToolingTests.cpp`, `FacadeTests.cpp`, `PackageTests.cpp`, and
-  graph-focused tests.
+- Extend `SemanticResolutionTests.cpp`, `CMakeAdapterTests.cpp`,
+  `DependencyLockTests.cpp`, and graph-focused tests.
 - Cover explicit action activation, no execution by package presence,
   Tool-export validation, host/target PackageInstance separation, trust denial,
   generated source contribution, output collisions, and rejection of runtime
@@ -1648,12 +1647,12 @@ Prove strictness, determinism, safety, explainability, and completeness.
 
 | Area | Primary locations | Responsibility |
 | --- | --- | --- |
-| ManifestSpec and authored AST | `Tools/NGIN.CLI/src/Model.hpp`, `Tools/NGIN.CLI/src/Authoring.cpp` | Core/extension structure, source locations, structural parsing |
-| Merge and semantic resolution | `Tools/NGIN.CLI/src/Overlay.cpp`, `Tools/NGIN.CLI/src/Resolution.cpp` | Category merge laws, PackageInstances, selection, constraints, activation, CapabilityBindings, provenance |
+| ManifestSpec and authored AST | `Tools/NGIN.CLI/src/ManifestSpec.*`, `Tools/NGIN.CLI/src/AuthoredManifest.*` | Core/extension structure, source locations, structural parsing |
+| Merge and semantic resolution | `Tools/NGIN.CLI/src/SemanticMerge.*`, `Selection.*`, `ProjectModel.*`, `PackageModel.*`, `SemanticResolver.*` | Category merge laws, PackageInstances, selection, constraints, activation, CapabilityBindings, provenance |
 | Graph and plan derivation | `Tools/NGIN.CLI/src/` graph/plan modules | Pure immutable semantic graph, composition fingerprint, and typed Restore/Build/Action/Stage/Launch/Test/Publish plans |
-| CMake adapter | `Tools/NGIN.CLI/src/Build.cpp` and focused adapter modules | CMake extension validation, CMakeIntegrationBindings, target mapping, generation, invocation |
-| Commands | `Tools/NGIN.CLI/src/Commands.cpp` | Authoring, validation, restore, build/deployment orchestration, inspect/diff/explain |
-| Publishing adapter | `Tools/NGIN.CLI/src/Publishing.cpp` | Current CPack implementation behind PublishPlan |
+| CMake adapter | `Tools/NGIN.CLI/src/CMakeIntegration.*`, `CMakeAdapter.*` | CMake extension validation, CMakeIntegrationBindings, target mapping, generation, invocation |
+| Commands | `Tools/NGIN.CLI/src/ManifestCli.*`, `main.cpp` | Authoring, validation, restore, build/deployment orchestration, inspect/diff/explain |
+| Publishing adapter | `Tools/NGIN.CLI/src/DeploymentPlans.*`, `ManifestCli.cpp` | Backend-neutral PublishPlan plus the current CPack execution adapter |
 | Focused tests | `Tools/NGIN.CLI/tests/` | Narrow behavioral, negative, graph, plan, and adapter coverage in existing files |
 | Editor support | `Tools/NGIN.VSCode/` | Generated structural schemas, metadata, completion, CLI semantic diagnostics |
 | Examples | `Examples/` | Minimal, framework-based, reflection, UI, testing, Plugin, and advanced patterns |

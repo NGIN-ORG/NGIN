@@ -6,9 +6,7 @@ int main(int argc, char** argv)
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
 
-    builder->UseProjectFile("NGIN.Samples.ApplicationModel.nginproj");
     builder->SetApplicationName("Sandbox.Game");
-    builder->SetProfile("Sandbox.Game");
 
     builder->Services()
         .AddDefaults()
@@ -16,13 +14,7 @@ int main(int argc, char** argv)
         .AddConfiguration()
         .AddSingletonValue<std::string>("Game.Name", "Sandbox.Game");
 
-    builder->Packages().Add({
-        .name = "NGIN.ECS",
-        .versionRange = ">=0.1.0 <1.0.0",
-        .optional = false,
-    });
     builder->Packages()
-        .AddManifestFile("NGIN.ECS.nginpkg")
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
         .ApplyBootstrap("NGIN.ECS");
 

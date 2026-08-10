@@ -4,12 +4,12 @@ This example selects the `NGIN.Tooling.ClangFormat` action. Its source is
 intentionally unformatted so check, preview, and apply behavior are visible.
 
 ```bash
-ngin format --project Examples/Hello.Formatter/Hello.Formatter.nginproj --profile Debug.Formatter --output build/manual/Hello.Formatter
+ngin package lock --project Examples/Hello.Formatter/Hello.Formatter.nginproj --output build/manual/Hello.Formatter.lock
+ngin format --project Examples/Hello.Formatter/Hello.Formatter.nginproj --lock build/manual/Hello.Formatter.lock --output build/manual/Hello.Formatter
 ```
 
-The default check does not edit files and returns `1` when changes are needed.
-Add `--apply` to apply digest-validated edits, or run `ngin tool run cpp-format`
-to store a preview result.
+This Action writes clang-format's proposed output to the terminal and does not
+silently modify authored files.
 
-`clang-format` must be on `PATH` or `NGIN_CLANG_FORMAT` must point to it. The
-package supplies integration, not LLVM binaries.
+`clang-format` must be on `PATH`. The package supplies a trusted Tool/Action
+contract and CMake binding, not LLVM binaries.

@@ -8,9 +8,9 @@ Read [`Hello.Hosted.nginproj`](Hello.Hosted.nginproj),
 [`src/main.cpp`](src/main.cpp), and [`config/app.cfg`](config/app.cfg).
 
 ```bash
-ngin validate --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug
-ngin build --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug --output build/manual/Hello.Hosted
-ngin run --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug --output build/manual/Hello.Hosted
+ngin validate --project Examples/Hello.Hosted/Hello.Hosted.nginproj --configuration Debug
+ngin build --project Examples/Hello.Hosted/Hello.Hosted.nginproj --configuration Debug --output build/manual/Hello.Hosted
+ngin run --project Examples/Hello.Hosted/Hello.Hosted.nginproj --configuration Debug --output build/manual/Hello.Hosted
 ```
 
 Expected application output:

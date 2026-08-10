@@ -1,41 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="Hello.Hosted"
-         DefaultProfile="Debug">
-
-  <Application>
-    <Uses>
-      <Runtime Name="NGIN.Core"
-               Version=">=0.1.0 &lt;0.2.0"
-               Scope="Target;Runtime" />
-    </Uses>
-
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-
-    <Stage>
-      <Config Source="config/app.cfg" />
-    </Stage>
-
-    <Runtime>
-      <Module Name="Hello.Hosted.Startup"
-              Stage="Features">
-        <Provides Service="Hello.Hosted.Ready" />
-      </Module>
-    </Runtime>
-
-    <Launch Executable="Hello.Hosted"
-            WorkingDirectory="." />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-  </Profile>
+<Project Name="Hello.Hosted" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Core" Compatible="0.1" />
+  </Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Stage><File Include="config/app.cfg" Into="config/app.cfg" /></Stage>
+  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
 </Project>

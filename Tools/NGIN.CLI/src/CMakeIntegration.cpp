@@ -307,10 +307,12 @@ namespace NGIN::CLI
                 return result;
             }
             bindings.source = (provider.root / fs::path(normalized.value->value)).lexically_normal();
-            const auto relative = bindings.source.lexically_relative(provider.root.lexically_normal());
-            if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
+            const auto normalizedRoot = provider.root.lexically_normal();
+            const auto relative = bindings.source.lexically_relative(normalizedRoot);
+            if (relative.is_absolute() || (!relative.empty() && *relative.begin() == ".."))
             {
-                AddError(result.diagnostics, "NGIN7002", "CMake integration Source escapes PackageProvider root",
+                AddError(result.diagnostics, "NGIN7002", "CMake integration Source '" + bindings.source.generic_string() +
+                                                              "' escapes PackageProvider root '" + normalizedRoot.generic_string() + "'",
                          root.source);
                 return result;
             }

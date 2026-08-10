@@ -89,6 +89,9 @@ namespace NGIN::CLI
         [[nodiscard]] auto GraphValue(const CompositionGraphData &graph) -> CanonicalValue
         {
             CanonicalValue::Object product{{"identity", graph.product.identity},
+                                           {"languageExtensions", graph.product.languageExtensions},
+                                           {"languageRequired", graph.product.languageRequired},
+                                           {"languageStandard", graph.product.languageStandard},
                                            {"linkage", LinkageName(graph.product.linkage)},
                                            {"name", graph.product.name},
                                            {"provenance", ProvenanceValue(graph.product.provenance)},
@@ -98,23 +101,38 @@ namespace NGIN::CLI
             const CanonicalValue::Object selection{{"compiler", graph.selection.compiler},
                                                    {"compilerVersion", graph.selection.compilerVersion},
                                                    {"configuration", graph.selection.configuration},
+                                                   {"debugSymbols", graph.selection.debugSymbols},
                                                    {"identity", graph.selection.identity},
+                                                   {"linkTimeOptimization", graph.selection.linkTimeOptimization},
+                                                   {"optimization", graph.selection.optimization},
                                                    {"provenance", ProvenanceValue(graph.selection.provenance)},
                                                    {"runtimeLibrary", graph.selection.runtimeLibrary},
                                                    {"targetArchitecture", graph.selection.targetArchitecture},
                                                    {"targetOperatingSystem", graph.selection.targetOperatingSystem}};
+            auto mutableSelection = selection;
+            if (graph.selection.toolchainFile.has_value())
+                mutableSelection.emplace("toolchainFile", *graph.selection.toolchainFile);
             return CanonicalValue::Object{
                 {"actions", Array(graph.actions, [](const GraphAction &value) {
+                     CanonicalValue::Array arguments{};
+                     for (const auto &argument : value.arguments) arguments.emplace_back(argument);
+                     CanonicalValue::Array inputs{};
+                     for (const auto &input : value.inputs) inputs.emplace_back(input);
                      CanonicalValue::Array outputs{};
                      for (const auto &output : value.outputs) outputs.emplace_back(output);
                      return CanonicalValue::Object{{"actionExport", value.actionExport},
+                                                   {"arguments", arguments},
                                                    {"deterministic", value.deterministic},
+                                                   {"environment", StringMapValue(value.environment)},
                                                    {"identity", value.identity},
+                                                   {"inputs", inputs},
                                                    {"kind", std::string(ActionKindName(value.kind))},
+                                                   {"options", StringMapValue(value.options)},
                                                    {"outputs", outputs},
                                                    {"packageInstance", value.packageInstance},
                                                    {"provenance", ProvenanceValue(value.provenance)},
-                                                   {"toolExport", value.toolExport}};
+                                                   {"toolExport", value.toolExport},
+                                                   {"workingDirectory", value.workingDirectory}};
                  })},
                 {"buildItems", Array(graph.buildItems, [](const GraphBuildItem &value) {
                      return CanonicalValue::Object{{"generated", value.generated},
@@ -196,7 +214,9 @@ namespace NGIN::CLI
                                                    {"providerKind", value.providerKind},
                                                    {"providerVersion", value.providerVersion},
                                                    {"revision", value.revision},
+                                                   {"signature", value.signature},
                                                    {"source", value.coordinate.sourceBinding.value_or("")},
+                                                   {"trust", value.trust},
                                                    {"version", value.coordinate.exactVersion}};
                  })},
                 {"plugins", Array(graph.plugins, [](const GraphPlugin &value) {
@@ -214,7 +234,7 @@ namespace NGIN::CLI
                                                    {"outputKind", value.outputKind},
                                                    {"provenance", ProvenanceValue(value.provenance)}};
                  })},
-                {"selection", selection},
+                {"selection", mutableSelection},
                 {"state", "resolved"},
                 {"testing", graph.testing.has_value()
                                 ? CanonicalValue{CanonicalValue::Object{
@@ -322,7 +342,11 @@ namespace NGIN::CLI
         SortByIdentity(data.exports);
         SortByIdentity(data.capabilities);
         SortByIdentity(data.actions);
-        for (auto &action : data.actions) std::ranges::sort(action.outputs);
+        for (auto &action : data.actions)
+        {
+            std::ranges::sort(action.inputs);
+            std::ranges::sort(action.outputs);
+        }
         SortByIdentity(data.plugins);
         SortByIdentity(data.contributions);
         SortByIdentity(data.buildItems);

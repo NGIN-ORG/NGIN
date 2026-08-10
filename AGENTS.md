@@ -10,12 +10,11 @@ repository combines a native CLI, package wrappers, a locally owned runtime
 package, and source-backed dependency trees that are composed through the
 workspace model.
 
-The current project model is product-first: one `.nginproj` describes one
-primary product identity, such as an
-`Application`, `Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, `Module`, or
-`External`. Project behavior belongs inside product sections such as
-`<Application><Build>...</Build></Application>`, not legacy root-level
-normalized sections. The resolved Composition Graph is the source of truth for
+The project model is product-first: one `.nginproj` describes one primary
+product identity through `<Project Type="Application|Library|Tool|Test|Benchmark|Plugin|External">`.
+Project behavior belongs in direct semantic sections such as `<Build>`,
+`<Stage>`, and `<Launch>`. Product wrappers and generic Module products are
+rejected. The resolved Composition Graph is the source of truth for
 build, packages, generation, staging, runtime, tests, launch, publish, editor
 tooling, diff, and explanation.
 
@@ -80,9 +79,8 @@ Treat these as authored inputs:
 - files under `docs/`, `Tools/`, `Packages/`, `Examples/`, and `Dependencies/`
 
 Project-level handwritten `CMakeLists.txt` files are no longer the normal app
-authoring path. Prefer product-first `.nginproj` sections for new project build
-behavior, for example `<Application><Build>...</Build></Application>` or
-`<Library><Build>...</Build></Library>`.
+authoring path. Prefer direct product-first `.nginproj` sections such as
+`<Project Type="Application"><Build>...</Build></Project>`.
 
 Treat these as generated outputs unless the user explicitly asks otherwise:
 
@@ -99,8 +97,8 @@ Do not edit generated files to implement behavior changes.
 - CLI model, authoring, resolution, restore, graph, and command behavior:
   `Tools/NGIN.CLI/src/`
 - CLI tests: add coverage to the focused file under `Tools/NGIN.CLI/tests/`
-  (`AuthoringTests.cpp`, `WorkspaceTests.cpp`, `PackageTests.cpp`,
-  `GraphInspectTests.cpp`, etc.)
+  (`ManifestCliTests.cpp`, `WorkspaceModelTests.cpp`,
+  `SemanticResolutionTests.cpp`, `CMakeAdapterTests.cpp`, etc.)
 - Workspace automation and tests: root `CMakeLists.txt` and `cmake/`
 - Canonical plain example changes: `Examples/Hello.Native/`
 - Canonical hosted runtime example changes: `Examples/Hello.Hosted/`
@@ -242,8 +240,7 @@ Smoke-test the hosted runtime example:
 
 - Do not edit generated files such as `build/`, `.ngin/build/`, staged layouts,
   or `*.nginlaunch` to implement behavior.
-- Do not add new root-level manifest sections when product sections are the
-  intended contract.
+- Do not add product wrappers or reintroduce superseded root/profile grammar.
 - Do not create monolithic test files when a focused test file exists.
 - Do not modify `Dependencies/ThirdParty/*` opportunistically.
 - Do not run every canonical command unless the user explicitly asks for broad

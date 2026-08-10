@@ -53,7 +53,7 @@ Then validate the smallest example:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug
+  --configuration Debug
 ```
 
 Add the executable's directory to `PATH` if you want to invoke it as `ngin`.

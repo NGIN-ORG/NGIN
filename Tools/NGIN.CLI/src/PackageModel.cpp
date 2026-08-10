@@ -655,10 +655,10 @@ namespace NGIN::CLI
         for (const auto &release : releases_)
         {
             if (release.name != request.name) continue;
-            if (release.root.empty() || release.manifest.empty() || !fs::exists(release.root) ||
-                !fs::is_regular_file(release.manifest) || !IsWithin(release.root, release.manifest))
+            if (release.root.empty() || release.manifest.empty() || !fs::is_directory(release.root) ||
+                !fs::is_regular_file(release.manifest))
             {
-                AddError(result.diagnostics, "NGIN4015", "Directory PackageProvider release root/manifest is missing or escapes its root",
+                AddError(result.diagnostics, "NGIN4015", "Directory PackageProvider release root or manifest is missing",
                          request.source);
                 continue;
             }

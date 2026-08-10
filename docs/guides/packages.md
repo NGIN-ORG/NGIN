@@ -1,66 +1,27 @@
 # Packages
 
-A `.nginpkg` gives a reusable dependency an identity and describes what it can
-contribute: build targets, tools, generators, runtime files, features, and
-compatibility information.
-
-## Consume a package
-
-Dependencies belong under the product's `<Uses>` section:
+Declare APIs your source uses directly. A package with one default Library is
+concise:
 
 ```xml
-<Application>
-  <Uses>
-    <Package Name="NGIN.UI"
-             Version=">=0.4.0 &lt;0.5.0"
-             Scope="Target">
-      <Feature Name="RuntimeAssets" />
-    </Package>
-  </Uses>
-</Application>
+<Dependencies><Package Name="NGIN.UI" Compatible="0.4" /></Dependencies>
 ```
 
-Use `Tool` for a host-side tool dependency and `Runtime` for an optional runtime
-such as `NGIN.Core`. Supported scopes are `Build`, `Target`, `Runtime`, `Test`,
-`Dev`, and `Publish`.
-
-## Find packages
-
-Package sources come from the workspace and local user configuration. A local
-source usually points at the repository's wrapper directory:
+Select a non-default or optional export by name:
 
 ```xml
-<Packages>
-  <Source Name="local" Path="Packages" />
-  <Version Name="NGIN.UI" Range=">=0.4.0 &lt;0.5.0" />
-  <PackageProvider Name="NGIN.UI" Root="Packages/NGIN.UI" />
-</Packages>
+<Package Name="OpenSSL">
+  <Version AtLeast="3.2.0" Before="4.0.0" />
+  <Use Library="TLS" />
+</Package>
 ```
 
-Provider entries connect source-built packages to the directory containing
-their CMake project. The package wrapper decides how that build is integrated.
+Package selection and export activation are separate. Libraries, Tools,
+Actions, Plugins, and Assets are typed exports; public package configuration is
+declared through typed Options. Required runtime files and notices are
+automatic contributions, so consumers do not enable housekeeping Features.
 
-## CMake integration modes
-
-- `AddSubdirectory` builds package source as part of the generated build.
-- `FindPackage` consumes an installed CMake package.
-- `Manual` uses wrapper-owned integration and is common for system tools.
-
-## Restore and lock
-
-```bash
-ngin restore
-ngin package list
-ngin package show NGIN.UI
-ngin package lock
-ngin package verify-lock
-```
-
-`ngin.lock` records the selected package graph. Use `restore --locked` in CI
-when resolution must agree with the lock file.
-
-Package archives use `.nginpack`. They are package-store artifacts and are
-separate from an application's published ZIP, TGZ, MSI, or DEB output.
-
-See the [package manifest reference](../reference/package-manifest.md) and the
-working wrappers under [`Packages/`](../../Packages).
+Workspaces may manage constraints centrally with `<Version Name="..."
+Compatible="..." />` and bind coordinates to PackageProviders. CMake target
+names live only in the package's `cmake:` integration extension. See the
+[package reference](../reference/package-manifest.md).

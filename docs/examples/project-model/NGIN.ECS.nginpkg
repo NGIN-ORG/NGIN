@@ -1,33 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.ECS"
-         Version="0.1.0">
-  <Metadata>
-    <Description>Example ECS package contract for project-model documentation.</Description>
-    <License>MIT</License>
-  </Metadata>
-
-  <Library Name="NGIN.ECS">
-    <Exports>
-      <Headers Path="include/**.hpp" />
-      <LibraryTarget Name="NGIN::ECS" />
-      <Capability Name="ECS" />
-    </Exports>
-  </Library>
-
-  <Uses>
-    <Package Name="NGIN.Base"
-             Version="[0.1.0,1.0.0)"
-             Scope="Target" />
-
-    <Runtime Name="NGIN.Core"
-             Version="[0.1.0,1.0.0)"
-             Scope="Target;Runtime" />
-  </Uses>
-
-  <Runtime>
-    <Bootstrap Mode="BuilderHook"
-               EntryPoint="NGIN_Bootstrap_NGIN_ECS"
-               AutoApply="true" />
-  </Runtime>
+<Package Name="NGIN.ECS" Version="0.1.0">
+  <Metadata><Description>Example ECS package contract.</Description><License>MIT</License></Metadata>
+  <Requires>
+    <Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" />
+    <Package Name="NGIN.Core" Compatible="0.1" Visibility="Public" />
+  </Requires>
+  <Exports><Library Name="ECS" Default="true" /></Exports>
 </Package>

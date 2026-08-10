@@ -1,35 +1,19 @@
 # Publishing
 
-Publishing turns a staged product into a folder, archive, or native installer.
+Publishing consumes the resolved StagePlan rather than rediscovering files:
 
 ```xml
-<Project SchemaVersion="4" Name="Gallery" Version="1.2.3">
-  <Application>
-    <Publish Name="demo"
-             Kind="Archive"
-             Format="zip"
-             Output="dist/Gallery-$(ProjectVersion).zip" />
-  </Application>
+<Project Name="Gallery" Type="Application" Version="1.2.3">
+  <Publish Name="portable">
+    <Archive Format="zip" Output="dist/Gallery-${project.version}.zip" />
+  </Publish>
+  <Publish Name="windows">
+    <Installer Format="msi" Output="dist/Gallery-${project.version}.msi" />
+  </Publish>
 </Project>
 ```
 
-Run the named publish definition with:
-
-```bash
-ngin publish demo --profile Release
-```
-
-Supported output families are:
-
-- `Folder`
-- `Archive` using `zip` or `tgz`
-- `Installer` using `msi` on Windows or `deb` on Linux
-
-Installer publishing requires a semantic project version and explicit
-installer identity, vendor, and contact metadata. Native formats also require
-their platform tooling. WiX 7 requires the person or automation account doing
-the build to accept its OSMF terms; NGIN does not accept legal terms on a
-user's behalf.
-
-Use `ngin graph --publish-plan --format json` to inspect the resolved publish
-definition before producing output.
+Each Publish definition has exactly one Folder, Archive, or Installer output.
+Publish-only dependencies belong in its `<Dependencies>` child. The semantic
+PublishPlan is backend-neutral; the currently implemented publisher maps it to
+CPack where applicable.

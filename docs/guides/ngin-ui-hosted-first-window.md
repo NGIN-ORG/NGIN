@@ -15,44 +15,24 @@ The application product declares the Core runtime, hosting bridge, and concrete
 backend:
 
 ```xml
-<Project SchemaVersion="4"
-         Name="Hello.UI.Hosted"
-         DefaultProfile="Debug">
-  <Application>
-    <Uses>
-      <Runtime Name="NGIN.Core"
-               Version=">=0.1.0 &lt;0.2.0"
-               Scope="Target;Runtime" />
-      <Package Name="NGIN.UI.Hosting"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target;Runtime" />
-      <Package Name="NGIN.UI.Backend.SDL3"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target">
-        <Feature Name="RuntimeNotices" />
-      </Package>
-      <Package Name="NGIN.UI"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target">
-        <Feature Name="RuntimeAssets" />
-      </Package>
-    </Uses>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Runtime>
-      <Module Name="Hello.UI.Presentation" Stage="Presentation">
-        <Requires Service="NGIN.UI.IApplication" />
-        <Requires Service="NGIN.UI.IUIDispatcher" />
-      </Module>
-    </Runtime>
-    <Launch Executable="Hello.UI.Hosted" WorkingDirectory="." />
-  </Application>
+<Project Name="Hello.UI.Hosted" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Core" Compatible="0.1" />
+    <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
+    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
+    <Package Name="NGIN.UI" Compatible="0.4" />
+  </Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Launch Name="default" Default="true">
+    <Executable Product="Hello.UI.Hosted" />
+    <WorkingDirectory Path="." />
+  </Launch>
 </Project>
 ```
 
-The service requirements make startup order explicit in the resolved
-Composition Graph.
+The manifest answers what must be acquired, linked, staged, and launched.
+Application code owns service registration, module ordering, and lifecycle
+through NGIN.Core; those are deliberately not build-manifest concepts.
 
 ## Presentation module
 
@@ -160,7 +140,7 @@ or `ImageTextureCache` from a worker. Use
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj `
-  --profile Debug `
+  --configuration Debug `
   --output build/manual/NGIN.UI.Gallery.Hosted
 
 build/manual/NGIN.UI.Gallery.Hosted/bin/NGIN.UI.Gallery.Hosted.exe

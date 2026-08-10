@@ -1,43 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.Reflection.MetaGen"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Build Backend="CMake" Mode="AddSubdirectory" />
-  <Uses>
-    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-  </Uses>
-  <Tool Name="NGIN.Reflection.MetaGen">
-    <Exports>
-      <Tool Name="MetaGen"
-            Kind="Generator"
-            Executable="bin/ngin-metagen" />
-    </Exports>
-  </Tool>
-  <Features>
-    <Feature Name="ReflectionCodegen" Description="Generate NGIN.Reflection metadata from annotated C++ headers.">
-      <Uses>
-        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-      </Uses>
-      <Generators>
-        <Generator Name="ReflectionMetaGen" Kind="Command" Tool="MetaGen">
-          <Arguments>
-            <Arg Value="--context" />
-            <Arg Path="$(GeneratorContext)" />
-          </Arguments>
-          <Outputs>
-            <Generated Role="Source"
-                       Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
-          </Outputs>
-        </Generator>
-      </Generators>
-    </Feature>
-  </Features>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Reflection.MetaGen" Version="0.1.0">
+  <Requires><Package Name="NGIN.Reflection" Compatible="0.1" Visibility="Public" /></Requires>
+  <Exports>
+    <Tool Name="MetaGen" />
+    <Action Name="ReflectionCodegen" Kind="Generate" Tool="MetaGen" Deterministic="true">
+      <Inputs><Header Include="**/*.hpp" /></Inputs>
+      <Outputs><Source Path="generated/reflection.generated.cpp" /></Outputs>
+    </Action>
+  </Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Target Export="MetaGen" Name="ngin_reflection_metagen" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>

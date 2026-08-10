@@ -1,32 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="Hello.Formatter"
-         DefaultProfile="Debug.Formatter">
-
-  <Application>
-    <Uses>
-      <Package Name="NGIN.Tooling.ClangFormat"
-               Version="[0.1.0,0.2.0)"
-               Scope="Dev">
-        <Feature Name="Formatter" />
-      </Package>
-    </Uses>
-
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-
-    <Launch Executable="$(OutputName)"
-            WorkingDirectory="." />
-  </Application>
-
-  <Profile Name="Debug.Formatter">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-  </Profile>
+<Project Name="Hello.Formatter" Type="Application">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Tooling><Format Action="NGIN.Tooling.ClangFormat::Format" /></Tooling>
+  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
 </Project>

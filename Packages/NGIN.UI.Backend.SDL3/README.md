@@ -11,15 +11,12 @@ headless platform and recording renderer from `NGIN.UI` for deterministic unit
 tests.
 
 ```xml
-<Package Name="NGIN.UI.Backend.SDL3"
-         Version=">=0.4.0 &lt;0.5.0"
-         Scope="Target">
-  <Feature Name="RuntimeNotices" />
-</Package>
+<Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
 ```
 
 Start with the [first-window guide](../../docs/guides/ngin-ui-first-window.md)
 or the runnable [Gallery](../../Examples/NGIN.UI.Gallery).
 
-SDL notices and licenses are staged through the `RuntimeNotices` feature. See
+SDL notices and licenses are required package contributions and are staged
+whenever the backend export is active. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

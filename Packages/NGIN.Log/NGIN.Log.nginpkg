@@ -1,28 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.Log"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Build Backend="CMake" Mode="AddSubdirectory">
-    <Options>
-      <Option Name="NGIN_LOG_BUILD_TESTS" Value="OFF" />
-      <Option Name="NGIN_LOG_BUILD_EXAMPLES" Value="OFF" />
-      <Option Name="NGIN_LOG_BUILD_BENCHMARKS" Value="OFF" />
-    </Options>
-  </Build>
-  <Uses>
-    <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-  </Uses>
-  <Library Name="NGIN.Log">
-    <Exports>
-      <LibraryTarget Name="NGIN::Log" Linkage="Static" />
-    </Exports>
-  </Library>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Log" Version="0.1.0">
+  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" /></Requires>
+  <Exports><Library Name="Log" Default="true" /></Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Cache Name="NGIN_LOG_BUILD_TESTS" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_LOG_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_LOG_BUILD_BENCHMARKS" Value="OFF" Type="BOOL" />
+      <cmake:Target Export="Log" Name="NGIN::Log" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>

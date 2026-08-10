@@ -461,7 +461,12 @@ namespace NGIN::CLI
                 }
                 constraint = intersection.value;
             }
-            const auto provider = ResolveProvider(pending, constraint, request.packageProviders, diagnostics);
+            auto providerRequest = pending;
+            if (!providerRequest.sourceBinding.has_value())
+                if (const auto binding = request.packageSourceBindings.find(pending.name);
+                    binding != request.packageSourceBindings.end())
+                    providerRequest.sourceBinding = binding->second;
+            const auto provider = ResolveProvider(providerRequest, constraint, request.packageProviders, diagnostics);
             if (!provider.has_value()) return std::nullopt;
             const auto package = ParseProviderPackage(*provider, diagnostics);
             if (!package.has_value()) return std::nullopt;
@@ -705,6 +710,9 @@ namespace NGIN::CLI
                                                     ? std::optional<std::string>{VersionText(*request.project.version)}
                                                     : std::nullopt,
                                      .license = request.project.metadata.license,
+                                     .languageStandard = request.project.build.language.standard,
+                                     .languageExtensions = request.project.build.language.extensions,
+                                     .languageRequired = request.project.build.language.required,
                                      .provenance = Provenance(projectSource, request.workspaceRoot, "Project",
                                                               request.project.name, "primary product")};
         graph.selection = GraphSelection{.configuration = request.targetSelection.configuration.name,
@@ -713,6 +721,15 @@ namespace NGIN::CLI
                                          .compiler = request.targetSelection.toolchain.compiler,
                                          .compilerVersion = request.targetSelection.toolchain.compilerVersion,
                                          .runtimeLibrary = request.targetSelection.toolchain.runtimeLibrary,
+                                         .optimization = request.targetSelection.configuration.optimization,
+                                         .debugSymbols = request.targetSelection.configuration.debugSymbols,
+                                         .linkTimeOptimization = request.targetSelection.configuration.linkTimeOptimization,
+                                         .toolchainFile = request.targetSelection.toolchain.toolchainFile.has_value()
+                                                              ? std::optional<std::string>{
+                                                                    (request.workspaceRoot /
+                                                                     request.targetSelection.toolchain.toolchainFile->value)
+                                                                        .lexically_normal().generic_string()}
+                                                              : std::nullopt,
                                          .provenance = Provenance(projectSource, request.workspaceRoot,
                                                                   "Selection", request.project.name,
                                                                   "resolved target selection")};
@@ -794,6 +811,8 @@ namespace NGIN::CLI
                 .providerVersion = state.provider.nativeVersion,
                 .revision = state.provider.revision,
                 .integrity = state.provider.integrity,
+                .trust = state.provider.trust,
+                .signature = state.provider.signature,
                 .artifactIdentity = state.provider.artifactIdentity,
                 .hermetic = state.provider.hermetic,
                 .compatibility = state.instance.compatibility,
@@ -928,6 +947,26 @@ namespace NGIN::CLI
                 continue;
             }
             resolvedActions.push_back(*resolved.value);
+            std::vector<std::string> inputs{};
+            const auto expandInput = [&](const std::string &include, const std::optional<std::string> &exclude,
+                                         const ManifestSourceRange &source) {
+                const auto expanded = ExpandPortableGlob(request.projectDirectory, include, false, source);
+                result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
+                                          expanded.diagnostics.end());
+                for (const auto &match : expanded.matches)
+                {
+                    if (exclude.has_value() && GlobMatchesPortable(*exclude, match.value)) continue;
+                    inputs.push_back(match.value);
+                }
+            };
+            if (!resolved.value->inputs.empty())
+                for (const auto &input : resolved.value->inputs)
+                    expandInput(input.include, input.exclude, input.source);
+            else
+                for (const auto &input : resolved.value->contract.inputs)
+                    expandInput(input.include, input.exclude, input.source);
+            std::ranges::sort(inputs);
+            inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
             std::vector<std::string> outputs{};
             for (const auto &output : resolved.value->contract.outputs) outputs.push_back(output.path.value);
             graph.actions.push_back(GraphAction{
@@ -937,7 +976,14 @@ namespace NGIN::CLI
                 .actionExport = resolved.value->actionExport,
                 .toolExport = resolved.value->toolExport,
                 .deterministic = resolved.value->contract.deterministic,
+                .inputs = std::move(inputs),
                 .outputs = std::move(outputs),
+                .arguments = resolved.value->arguments,
+                .workingDirectory = resolved.value->contract.workingDirectory.has_value()
+                                        ? resolved.value->contract.workingDirectory->value
+                                        : ".",
+                .environment = resolved.value->contract.environment,
+                .options = resolved.value->options,
                 .provenance = Provenance(selection.source, request.workspaceRoot, "ActionSelection",
                                          request.project.name, std::string(ActionKindName(selection.kind)))});
             graph.edges.push_back(GraphEdge{.identity = selection.qualifiedAction + "->Tool:" +

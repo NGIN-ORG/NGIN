@@ -1,50 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="MyGame"
-         DefaultProfile="game">
-  <Application>
-    <Uses>
-      <Runtime Name="NGIN.Core"
-               Version="[0.1.0,0.2.0)"
-               Scope="Target;Runtime" />
-
-      <Package Name="NGIN.ECS"
-               Version="[0.1.0,0.2.0)"
-               Scope="Target;Runtime" />
-
-      <Package Name="SDL2"
-               Version="[2.30.0,3.0.0)"
-               Scope="Target;Runtime" />
-    </Uses>
-
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-
-    <Stage>
-      <Config Source="config/game.xml"
-              Target="config/game.xml" />
-    </Stage>
-
-    <Runtime>
-      <Module Name="App.GameRuntime"
-              Stage="Features"
-              Order="100">
-        <Provides Service="App.GameRuntime.Ready" />
-      </Module>
-    </Runtime>
-
-    <Launch Executable="$(OutputName)"
-            WorkingDirectory="." />
-  </Application>
-
-  <Profile Name="game">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="linux-x64" />
-      <Environment Name="development" />
-    </Defaults>
-  </Profile>
+<Project Name="MyGame" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Core" Compatible="0.1" />
+    <Package Name="NGIN.ECS" Compatible="0.1" />
+    <Package Name="SDL2"><Version AtLeast="2.30.0" Before="3.0.0" /></Package>
+  </Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Stage><File Include="config/game.xml" Into="config/game.xml" /></Stage>
+  <Launch Name="game" Default="true"><Executable Product="MyGame" /><WorkingDirectory Path="." /></Launch>
 </Project>

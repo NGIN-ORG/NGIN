@@ -1,41 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="MyGame.Runtime"
-         Version="0.1.0">
-  <Metadata>
-    <Description>Example runtime package contract for the MyGame sample.</Description>
-    <License>MIT</License>
-  </Metadata>
-
-  <Application Name="MyGame.Runtime">
-    <Exports>
-      <Executable Path="bin/MyGame.Runtime"
-                  TargetPlatform="linux-x64"
-                  Abi="linux-x64-clang18-libc++-cxx23-debug" />
-      <Capability Name="MyGame.Runtime" />
-    </Exports>
-  </Application>
-
-  <Uses>
-    <Runtime Name="NGIN.Core"
-             Version="[0.1.0,0.2.0)"
-             Scope="Target;Runtime" />
-
-    <Package Name="NGIN.ECS"
-             Version="[0.1.0,0.2.0)"
-             Scope="Target;Runtime" />
-
-    <Package Name="SDL2"
-             Version="[2.30.0,3.0.0)"
-             Scope="Runtime" />
-  </Uses>
-
-  <Runtime>
-    <Module Name="App.GameRuntime"
-            Stage="Features"
-            Order="100">
-      <Provides Service="App.GameRuntime.Ready" />
-      <Capability Name="Runtime" />
-    </Module>
-  </Runtime>
+<Package Name="MyGame.Runtime" Version="0.1.0">
+  <Metadata><Description>Example reusable game runtime package.</Description><License>MIT</License></Metadata>
+  <Requires>
+    <Package Name="NGIN.Core" Compatible="0.1" Visibility="Public" />
+    <Package Name="NGIN.ECS" Compatible="0.1" Visibility="Public" />
+    <Package Name="SDL2" Compatible="2.30" Visibility="Private" />
+  </Requires>
+  <Exports><Library Name="Runtime" Default="true" /></Exports>
 </Package>

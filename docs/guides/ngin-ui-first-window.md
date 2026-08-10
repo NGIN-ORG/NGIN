@@ -14,41 +14,23 @@ Create `Hello.UI.nginproj`:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="Hello.UI"
-         DefaultProfile="Debug">
-  <Application>
-    <Uses>
-      <Package Name="NGIN.UI.Backend.SDL3"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target">
-        <Feature Name="RuntimeNotices" />
-      </Package>
-      <Package Name="NGIN.UI"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target">
-        <Feature Name="RuntimeAssets" />
-      </Package>
-    </Uses>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Launch Executable="Hello.UI" WorkingDirectory="." />
-  </Application>
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-  </Profile>
+<Project Name="Hello.UI" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
+    <Package Name="NGIN.UI" Compatible="0.4" />
+  </Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Launch Name="default" Default="true">
+    <Executable Product="Hello.UI" />
+    <WorkingDirectory Path="." />
+  </Launch>
 </Project>
 ```
 
-`NGIN.UI.Backend.SDL3` brings in the backend-neutral `NGIN.UI` package and the
-SDL3 provider. The workspace must expose those package providers; this
-repository's root workspace already does.
+`NGIN.UI.Backend.SDL3` brings in SDL3 transitively. Fonts and legal notices are
+required package contributions, so applications never need magic features to
+receive them. The project still declares `NGIN.UI` directly because its source
+uses that public API.
 
 ## 2. Create the application
 
@@ -145,7 +127,7 @@ From the workspace:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project path/to/Hello.UI.nginproj `
-  --profile Debug `
+  --configuration Debug `
   --output build/manual/Hello.UI
 
 build/manual/Hello.UI/bin/Hello.UI.exe

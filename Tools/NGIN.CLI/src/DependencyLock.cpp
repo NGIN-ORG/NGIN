@@ -58,7 +58,9 @@ namespace NGIN::CLI
                                           {"providerKind", entry.providerKind},
                                           {"providerVersion", entry.providerVersion},
                                           {"revision", entry.revision},
+                                          {"signature", entry.signature},
                                           {"source", entry.coordinate.sourceBinding.value_or("")},
+                                          {"trust", entry.trust},
                                           {"version", entry.coordinate.exactVersion}};
         }
 
@@ -202,6 +204,8 @@ namespace NGIN::CLI
                                                         .providerVersion = package.providerVersion,
                                                         .revision = package.revision,
                                                         .integrity = package.integrity,
+                                                        .trust = package.trust,
+                                                        .signature = package.signature,
                                                         .artifactIdentity = package.artifactIdentity,
                                                         .hermetic = package.hermetic,
                                                         .compatibility = package.compatibility,
@@ -266,6 +270,8 @@ namespace NGIN::CLI
             const auto providerVersion = StringMember(*object, "providerVersion", result.diagnostics);
             const auto revision = StringMember(*object, "revision", result.diagnostics);
             const auto integrity = StringMember(*object, "integrity", result.diagnostics);
+            const auto trust = StringMember(*object, "trust", result.diagnostics);
+            const auto signature = StringMember(*object, "signature", result.diagnostics);
             const auto artifactIdentity = StringMember(*object, "artifactIdentity", result.diagnostics);
             const auto hermetic = BoolMember(*object, "hermetic", result.diagnostics);
             const auto artifactOptions = StringMap(*object, "artifactOptions", result.diagnostics);
@@ -275,7 +281,7 @@ namespace NGIN::CLI
                                                            : std::nullopt;
             if (!compatibilityObject) AddParseError(result.diagnostics, "dependency lock 'compatibility' must be an object");
             if (!packageInstance || !name || !version || !source || !context || !providerKind ||
-                !providerCoordinate || !providerVersion || !revision || !integrity || !artifactIdentity ||
+                !providerCoordinate || !providerVersion || !revision || !integrity || !trust || !signature || !artifactIdentity ||
                 !hermetic || !artifactOptions || !compatibility) continue;
             if (*context != "Host" && *context != "Target")
             {
@@ -292,6 +298,8 @@ namespace NGIN::CLI
             entry.providerVersion = *providerVersion;
             entry.revision = *revision;
             entry.integrity = *integrity;
+            entry.trust = *trust;
+            entry.signature = *signature;
             entry.artifactIdentity = *artifactIdentity;
             entry.hermetic = *hermetic;
             entry.artifactOptions = *artifactOptions;
@@ -340,6 +348,8 @@ namespace NGIN::CLI
                 Difference(result, entry, "providerVersion", entry.providerVersion, other.providerVersion);
                 Difference(result, entry, "revision", entry.revision, other.revision);
                 Difference(result, entry, "integrity", entry.integrity, other.integrity);
+                Difference(result, entry, "trust", entry.trust, other.trust);
+                Difference(result, entry, "signature", entry.signature, other.signature);
                 Difference(result, entry, "artifactIdentity", entry.artifactIdentity, other.artifactIdentity);
                 Difference(result, entry, "hermetic", entry.hermetic ? "true" : "false",
                            other.hermetic ? "true" : "false");

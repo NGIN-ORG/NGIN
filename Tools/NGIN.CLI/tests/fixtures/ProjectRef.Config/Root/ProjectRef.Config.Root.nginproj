@@ -1,27 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="ProjectRef.Config.Root"
-         DefaultProfile="Runtime">
-  <Application>
-    <Uses>
-      <Project Name="ProjectRef.Config.Library"
-               Path="../Library/ProjectRef.Config.Library.nginproj" />
-    </Uses>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Stage>
-      <Config Source="config/root.cfg" />
-    </Stage>
-    <Launch Executable="$(OutputName)" WorkingDirectory="." />
-  </Application>
-  <Profile Name="Runtime">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="linux-x64" />
-      <Environment Name="development" />
-    </Defaults>
-  </Profile>
+<Project Name="ProjectRef.Config.Root" Type="Application">
+  <Dependencies><Project Name="ProjectRef.Config.Library" Path="../Library/ProjectRef.Config.Library.nginproj" /></Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Stage><File Include="config/root.cfg" Into="config/root.cfg" /></Stage>
+  <Launch Name="default" Default="true"><Executable Product="ProjectRef.Config.Root" /><WorkingDirectory Path="." /></Launch>
 </Project>

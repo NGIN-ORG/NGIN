@@ -531,7 +531,13 @@ namespace NGIN::CLI
             }
             semantic.testing = std::move(definition);
             if (const auto *dependencies = Child(*testing, "project.testing.dependencies"))
+            {
+                if (semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark)
+                    AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
+                                                              " products declare test dependencies at the root",
+                             dependencies->source);
                 ParseDependencies(*dependencies, DependencyContext::Test, std::nullopt, semantic, result.diagnostics);
+            }
         }
         for (const auto *publish : Children(project.root, "project.publish"))
         {
@@ -561,10 +567,6 @@ namespace NGIN::CLI
         if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) && !semantic.launches.empty())
             AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
                                                           " products cannot declare Launch",
-                     project.root.source);
-        if ((semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark) && semantic.testing.has_value())
-            AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
-                                                          " products declare test dependencies at the root",
                      project.root.source);
         if (semantic.type == ProductType::External && semantic.hasBuildSection)
             AddError(result.diagnostics, "NGIN3000", "External products cannot declare core Build inputs",

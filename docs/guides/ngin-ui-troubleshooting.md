@@ -22,16 +22,16 @@ Checks:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe validate `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Debug
+  --configuration Debug
 
 build/dev/Tools/NGIN.CLI/ngin.exe graph `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Debug
+  --configuration Debug
 ```
 
 Confirm that the workspace `PackageProviders` includes this repository's
 `Packages/` wrappers and that the product uses `<Uses>` under
-`<Application>`. Do not add a handwritten project CMake fallback.
+the project's direct `<Build>` section. Do not add a handwritten project CMake fallback.
 
 Delete or repair only the exact generated output after confirming it is safe;
 authored manifests are the source of truth.

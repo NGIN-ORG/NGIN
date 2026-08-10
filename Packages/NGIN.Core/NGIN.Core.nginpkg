@@ -1,47 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="4"
-         Name="NGIN.Core"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Build Backend="CMake" Mode="AddSubdirectory">
-    <Options>
-      <Option Name="NGIN_CORE_BUILD_TESTS" Value="OFF" />
-      <Option Name="NGIN_CORE_BUILD_EXAMPLES" Value="OFF" />
-      <Option Name="NGIN_CORE_BUILD_BENCHMARKS" Value="OFF" />
-    </Options>
-  </Build>
-  <Uses>
-    <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-    <Package Name="NGIN.Log" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="true" Scope="Target" />
-  </Uses>
-  <Library Name="NGIN.Core">
-    <Exports>
-      <LibraryTarget Name="NGIN::Core" Linkage="Static" />
-    </Exports>
-  </Library>
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
-  <Features>
-    <Feature Name="Reflection"
-             Description="Enable NGIN.Reflection-backed runtime metadata support.">
-      <Provides>
-        <Capability Name="Reflection" />
-      </Provides>
-      <Uses>
-        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-      </Uses>
-      <Build>
-        <Options>
-          <Option Name="NGIN_CORE_FEATURE_REFLECTION" Value="ON" />
-        </Options>
-        <Define Name="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
-      </Build>
-    </Feature>
-  </Features>
+<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Core" Version="0.1.0">
+  <Options><Boolean Name="Reflection" Default="false" Artifact="true" /></Options>
+  <Requires>
+    <Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" />
+    <Package Name="NGIN.Log" Compatible="0.1" Visibility="Public" />
+    <When Option="Reflection" Equals="true">
+      <Package Name="NGIN.Reflection" Compatible="0.1" Visibility="Public" />
+    </When>
+  </Requires>
+  <Exports><Library Name="Core" Default="true" /></Exports>
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Cache Name="NGIN_CORE_BUILD_TESTS" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_CORE_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
+      <cmake:Cache Name="NGIN_CORE_BUILD_BENCHMARKS" Value="OFF" Type="BOOL" />
+      <cmake:MapOption Option="Reflection" Cache="NGIN_CORE_FEATURE_REFLECTION" True="ON" False="OFF" Artifact="true" />
+      <cmake:Target Export="Core" Name="NGIN::Core" />
+    </cmake:AddSubdirectory>
+  </Integrations>
 </Package>

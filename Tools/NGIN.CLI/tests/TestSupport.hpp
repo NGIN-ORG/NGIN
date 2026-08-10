@@ -1,13 +1,5 @@
 #pragma once
 
-#include "Authoring.hpp"
-#include "Build.hpp"
-#include "Commands.hpp"
-#include "Diagnostics.hpp"
-#include "Platform.hpp"
-#include "Resolution.hpp"
-#include "Support.hpp"
-
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -173,32 +165,11 @@ namespace NGIN::CLI::Tests
 #endif
     }
 
-    inline auto WriteNginPack(
-        const fs::path &path,
-        const std::string &manifest,
-        std::vector<ZipFileEntry> payload = {}) -> void
-    {
-        payload.push_back(ZipFileEntry{
-            .path = "package.nginpkg",
-            .contents = manifest,
-        });
-        WriteZipFile(path, std::move(payload));
-    }
-
     [[nodiscard]] inline auto RepoRoot() -> fs::path
     {
         return fs::path(NGIN_CLI_TEST_REPO_ROOT);
     }
 
-    [[nodiscard]] inline auto DiagnosticMessages(const DiagnosticReport &report) -> std::vector<std::string>
-    {
-        std::vector<std::string> messages{};
-        for (const auto &entry : report.entries)
-        {
-            messages.push_back(entry.message);
-        }
-        return messages;
-    }
 }
 
 namespace fs = std::filesystem;

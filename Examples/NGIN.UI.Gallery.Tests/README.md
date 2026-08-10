@@ -6,7 +6,7 @@ inspector state, auxiliary windows, and modal dialogs without opening native
 windows.
 
 ```bash
-ngin test --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --profile Debug
+ngin test --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --configuration Debug
 ```
 
 The interactive companion is the [NGIN.UI Gallery](../NGIN.UI.Gallery).

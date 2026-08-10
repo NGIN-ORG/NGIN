@@ -1,43 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="NGIN.UI.Gallery.Tests"
-         Version="0.4.0"
-         DefaultProfile="Debug">
-
-  <Test>
-    <Uses>
-      <Package Name="NGIN.UI"
-               Version=">=0.4.0 &lt;0.5.0"
-               Scope="Target" />
-    </Uses>
-
-    <Build>
-      <Sources Path="src/**.cpp" />
-      <Sources Path="../NGIN.UI.Gallery/src/Gallery*.cpp" />
-      <IncludePath Path="../NGIN.UI.Gallery/include" />
-    </Build>
-
-    <Run Name="unit"
-         WorkingDirectory="." />
-  </Test>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="local" />
-    </Defaults>
-  </Profile>
-
-  <Profile Name="Release">
-    <Defaults>
-      <Optimization Mode="Speed" />
-      <DebugSymbols Enabled="false" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-      <Environment Name="shipping" />
-    </Defaults>
-  </Profile>
+<Project Name="NGIN.UI.Gallery.Tests" Type="Test" Version="0.4.0">
+  <Dependencies><Package Name="NGIN.UI" Compatible="0.4" /></Dependencies>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+    <Source Include="../NGIN.UI.Gallery/src/Gallery*.cpp" />
+    <IncludeDirectory Path="../NGIN.UI.Gallery/include" />
+  </Build>
+  <Testing><Timeout Seconds="60" /></Testing>
 </Project>

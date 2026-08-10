@@ -1,44 +1,16 @@
-# Project manifest authoring
+# Project authoring
 
-An `.nginproj` describes one primary product and the behavior needed to build,
-stage, and use it. This page is the short map; the focused guides explain each
-part.
+A `.nginproj` describes one product directly:
 
 ```xml
-<Project SchemaVersion="4" Name="App" DefaultProfile="Debug">
-  <Application>
-    <Build>
-      <Sources Path="src/**.cpp" />
-    </Build>
-    <Launch Executable="$(OutputName)" />
-  </Application>
-
-  <Profile Name="Debug">
-    <Defaults>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <TargetPlatform Name="host" />
-    </Defaults>
-  </Profile>
+<Project Name="App" Type="Application">
+  <Dependencies><Package Name="NGIN.Base" Compatible="0.1" /></Dependencies>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Launch Name="default" Default="true"><Executable Product="App" /></Launch>
 </Project>
 ```
 
-The product element is one of `Application`, `Library`, `Tool`, `Test`,
-`Benchmark`, `Plugin`, `Module`, or `External`. Product behavior belongs inside
-that element. Profiles may add or replace behavior with an element of the same
-product kind.
-
-Read next:
-
-- [Projects](projects.md) for product structure and build inputs.
-- [Profiles](profiles.md) for selection and overlays.
-- [Packages](packages.md) for dependencies and features.
-- [Generators](generators.md) for code generation.
-- [Staging and launch](staging-and-launch.md) for runnable output.
-- [Publishing](publishing.md) for distributable output.
-- [Project manifest reference](../reference/project-manifest.md) for the
-  contract summary.
-
-Use `ngin validate` while authoring and `ngin schema --format json` when you
-need the exact schema supported by the CLI you are running.
+There is no format number, product wrapper, generic Feature, Scope string, or
+profile overlay. Use named exports for package components, typed Options for
+product choices, Actions for tools, and workspaces for shared selection and
+policy. The complete contract is in the [project manifest reference](../reference/project-manifest.md).

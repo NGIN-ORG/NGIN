@@ -84,7 +84,7 @@ Build the Gallery archive with:
 ```powershell
 build/dev/Tools/NGIN.CLI/ngin.exe build `
   --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj `
-  --profile Release `
+  --configuration Release `
   --output build/release/NGIN.UI.Gallery-0.4.0
 ```
 
