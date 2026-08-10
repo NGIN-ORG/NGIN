@@ -1,6 +1,6 @@
 # NGIN Manifest Authoring Model Implementation Plan
 
-Status: In progress
+Status: Complete
 Created: 2026-08-10
 Revised: 2026-08-10
 Scope: project, package, and workspace manifests; CLI authoring and resolution;
@@ -23,7 +23,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 9 — Stage, launch, test, publish plans | Complete | `feat(manifest): derive deployment and publish plans` |
 | 10 — Workspace, authoring commands, editor | Complete | `feat(manifest): complete workspace authoring experience` |
 | 11 — Repository migration and old model deletion | Complete | `refactor(manifest): complete repository migration` |
-| 12 — Verification and release hardening | In progress | — |
+| 12 — Verification and release hardening | Complete | `test(manifest): harden release integration` |
 
 ## Purpose
 
@@ -1643,6 +1643,31 @@ Prove strictness, determinism, safety, explainability, and completeness.
 - No manifest, semantic model, graph, or plan contains application Host, Module,
   service-registration, or lifecycle-ordering semantics.
 
+### Completion evidence
+
+- All 49 checked-in authored manifests pass structural and semantic parsing;
+  all 13 active project manifests pass CLI resolution for Debug.
+- `NGINCliTests` passes 34 focused cases and 381 assertions, including
+  Refinement specificity/conflicts, project-reference composition identity,
+  Directory PackageProvider discovery, path policy, dependency locks, CMake
+  integration, and deployment-plan safety.
+- `ngin.workflow` passes after the workspace automation was migrated from the
+  removed profile CLI to Configuration selection and current output layouts.
+- Workspace `ctest` passes all 50 registered tests, including configure/build,
+  referenced-project staging/collision checks, old-syntax rejection, graph,
+  adapter, resolver, and plan coverage.
+- Hello.Native validates, builds, stages, and runs. Hello.Hosted validates and
+  builds through the standard workspace flow. Hello.Reflection validates,
+  resolves and authorizes its locked Generate Action, builds its nested CMake
+  packages without Windows path overflow, and reaches MetaGen. The final
+  generator invocation reports the repository's explicit unavailable stub
+  because LLVM/libclang development support is not installed; this is an
+  external generator prerequisite, not a manifest or adapter failure.
+- Locked ClangTidy Analyze and ClangFormat Format Actions execute successfully;
+  the analyzer emits its intentional fixture warning and the formatter emits
+  the proposed formatting without modifying the source.
+- The VS Code extension passes `npm run typecheck`.
+
 ## Repository ownership map
 
 | Area | Primary locations | Responsibility |
@@ -1712,65 +1737,65 @@ build output, staged layouts, or `*.nginlaunch` files to implement the model.
 
 ## Definition of done
 
-- [ ] One normative XML grammar covers Project, Package, and Workspace authoring.
-- [ ] Authored manifests contain no public manifest format number before the
+- [x] One normative XML grammar covers Project, Package, and Workspace authoring.
+- [x] Authored manifests contain no public manifest format number before the
       official release.
-- [ ] Projects declare one primary product directly with no product wrapper.
-- [ ] Product Types exclude generic Module; reusable linked code uses Library,
+- [x] Projects declare one primary product directly with no product wrapper.
+- [x] Product Types exclude generic Module; reusable linked code uses Library,
       dynamically loaded products use Plugin, and C++ modules are build items.
-- [ ] Semantic categories use documented category-specific merge laws.
-- [ ] Fundamental selection is Configuration, Target, Toolchain, and typed
+- [x] Semantic categories use documented category-specific merge laws.
+- [x] Fundamental selection is Configuration, Target, Toolchain, and typed
       Options; Presets do not enter graph identity.
-- [ ] PackageCoordinate, PackageProviderResult, PackageInstance, and export
+- [x] PackageCoordinate, PackageProviderResult, PackageInstance, and export
       activation are distinct.
-- [ ] BinaryCompatibility is derived from Target, Toolchain, Configuration,
+- [x] BinaryCompatibility is derived from Target, Toolchain, Configuration,
       linkage, and artifact-affecting Options rather than stored on Target.
-- [ ] Multi-export packages activate only the selected/default export closure.
-- [ ] Dependencies use testing/publishing context and typed export activation
+- [x] Multi-export packages activate only the selected/default export closure.
+- [x] Dependencies use testing/publishing context and typed export activation
       rather than compound Scopes, generic Optional, or generic Link flags.
-- [ ] Version constraints require no escaped comparison operator.
-- [ ] Generic Features are replaced by exports, Options, Assets, Actions,
+- [x] Version constraints require no escaped comparison operator.
+- [x] Generic Features are replaced by exports, Options, Assets, Actions,
       capabilities, Plugins, or required contributions.
-- [ ] Every capability implementation has a Version, every requirement has a
+- [x] Every capability implementation has a Version, every requirement has a
       Version constraint, and resolution produces a CapabilityBinding.
-- [ ] CapabilityBindings affect only acquisition, build, linking, generation,
+- [x] CapabilityBindings affect only acquisition, build, linking, generation,
       artifact selection, or deployment; runtime services are excluded.
-- [ ] Required files/notices attach to package-level or export-level activation.
-- [ ] Package-side generation/tooling uses one Action contract and project
+- [x] Required files/notices attach to package-level or export-level activation.
+- [x] Package-side generation/tooling uses one Action contract and project
       authoring retains typed verbs.
-- [ ] Every exported Action references a semantic Tool export resolved on a
+- [x] Every exported Action references a semantic Tool export resolved on a
       host PackageInstance.
-- [ ] Exported Actions require explicit activation and trust validation.
-- [ ] Application runtime composition is owned by C++ and optional frameworks;
+- [x] Exported Actions require explicit activation and trust validation.
+- [x] Application runtime composition is owned by C++ and optional frameworks;
       manifests contain no Host, Module, runtime-service, DI, or lifecycle
       ordering concepts.
-- [ ] Plugin exports describe build/deployment artifacts only and never direct
+- [x] Plugin exports describe build/deployment artifacts only and never direct
       runtime discovery, loading, or ordering.
-- [ ] Semantic package metadata and graph types contain no CMake vocabulary or
+- [x] Semantic package metadata and graph types contain no CMake vocabulary or
       opaque backend data.
-- [ ] CMakeIntegrationBindings are immutable, separate from the graph, and map
+- [x] CMakeIntegrationBindings are immutable, separate from the graph, and map
       semantic Product/Export/Tool identities to CMake representations.
-- [ ] CMake integration is explicit, schema-defined, and the only implemented
+- [x] CMake integration is explicit, schema-defined, and the only implemented
       backend in this overhaul.
-- [ ] PackageProvider, integration, artifact, and publisher boundaries can
+- [x] PackageProvider, integration, artifact, and publisher boundaries can
       admit future adapters without changing ordinary dependency/export
       semantics.
-- [ ] The Composition Graph is immutable semantic truth with provenance.
-- [ ] Build, Action, Stage, Launch, Test, and Publish behavior comes from
+- [x] The Composition Graph is immutable semantic truth with provenance.
+- [x] Build, Action, Stage, Launch, Test, and Publish behavior comes from
       deterministic derived plans.
-- [ ] No command rereads XML after graph construction.
-- [ ] Path, glob, placeholder, canonicalization, and trust behavior is normative
+- [x] No command rereads XML after graph construction.
+- [x] Path, glob, placeholder, canonicalization, and trust behavior is normative
       and tested.
-- [ ] The dependency lock records exact acquired PackageInstances and only
+- [x] The dependency lock records exact acquired PackageInstances and only
       acquisition/artifact-affecting selection facts.
-- [ ] The canonical Composition Graph produces a separate composition
+- [x] The canonical Composition Graph produces a separate composition
       fingerprint covering active exports, Options, CapabilityBindings,
       Actions, Tools, Plugins, and deployment semantics.
-- [ ] ManifestSpec drives structural XSD, editor metadata, CLI validation hooks,
+- [x] ManifestSpec drives structural XSD, editor metadata, CLI validation hooks,
       and reference vocabulary.
-- [ ] Parser and XSD agree structurally; CLI semantic validation is complete.
-- [ ] All repository manifests and positive fixtures use the new grammar.
-- [ ] Old syntax is rejected and no production compatibility path remains.
-- [ ] Canonical native, framework-based, and reflection projects validate
+- [x] Parser and XSD agree structurally; CLI semantic validation is complete.
+- [x] All repository manifests and positive fixtures use the new grammar.
+- [x] Old syntax is rejected and no production compatibility path remains.
+- [x] Canonical native, framework-based, and reflection projects validate
       successfully.
-- [ ] Focused and final integration verification pass.
+- [x] Focused and final integration verification pass.

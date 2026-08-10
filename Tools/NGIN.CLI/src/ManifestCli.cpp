@@ -2,8 +2,9 @@
 
 #include "AuthoredManifest.hpp"
 #include "CMakeAdapter.hpp"
-#include "DeploymentPlans.hpp"
+#include "Canonical.hpp"
 #include "DependencyLock.hpp"
+#include "DeploymentPlans.hpp"
 #include "ManifestArtifacts.hpp"
 #include "ManifestFormatter.hpp"
 #include "PackageModel.hpp"
@@ -17,6 +18,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <ranges>
@@ -62,11 +64,16 @@ namespace NGIN::CLI
             std::string escaped{};
             for (const auto character : value)
             {
-                if (character == '&') escaped += "&amp;";
-                else if (character == '<') escaped += "&lt;";
-                else if (character == '>') escaped += "&gt;";
-                else if (character == '"') escaped += "&quot;";
-                else escaped += character;
+                if (character == '&')
+                    escaped += "&amp;";
+                else if (character == '<')
+                    escaped += "&lt;";
+                else if (character == '>')
+                    escaped += "&gt;";
+                else if (character == '"')
+                    escaped += "&quot;";
+                else
+                    escaped += character;
             }
             return escaped;
         }
@@ -89,8 +96,7 @@ namespace NGIN::CLI
             return escaped;
         }
 
-        [[nodiscard]] auto Child(const AuthoredElement &owner, const std::string_view specId)
-            -> const AuthoredElement *
+        [[nodiscard]] auto Child(const AuthoredElement &owner, const std::string_view specId) -> const AuthoredElement *
         {
             const auto found = std::ranges::find(owner.children, specId, &AuthoredElement::specId);
             return found == owner.children.end() ? nullptr : &*found;
@@ -100,8 +106,9 @@ namespace NGIN::CLI
         {
             const auto parsed = ParseAuthoredManifest(path);
             if (!parsed.Succeeded())
-                throw std::runtime_error(path.string() + ": " +
-                                         (parsed.diagnostics.empty() ? "invalid manifest" : parsed.diagnostics[0].message));
+                throw std::runtime_error(
+                    path.string() + ": " +
+                    (parsed.diagnostics.empty() ? "invalid manifest" : parsed.diagnostics[0].message));
             if (!std::holds_alternative<AuthoredProjectManifest>(*parsed.value))
                 throw std::runtime_error(path.string() + ": expected Project manifest");
             return std::get<AuthoredProjectManifest>(*parsed.value);
@@ -183,8 +190,8 @@ namespace NGIN::CLI
             {
                 const auto separator = assignment.find('=');
                 if (separator == std::string::npos) throw std::runtime_error("--option expects Name=Value");
-                children += "      <Option Name=\"" + EscapeXml(assignment.substr(0, separator)) +
-                            "\" Value=\"" + EscapeXml(assignment.substr(separator + 1)) + "\" />\n";
+                children += "      <Option Name=\"" + EscapeXml(assignment.substr(0, separator)) + "\" Value=\"" +
+                            EscapeXml(assignment.substr(separator + 1)) + "\" />\n";
             }
             const auto opening = "    <Package Name=\"" + EscapeXml(*arguments.packageName) + "\"" + attributes;
             return children.empty() ? opening + " />\n" : opening + ">\n" + children + "    </Package>\n";
@@ -197,10 +204,11 @@ namespace NGIN::CLI
             {
                 if (diagnostic.severity == ManifestDiagnosticSeverity::Error) ++errors;
                 const auto &path = diagnostic.source.path.empty() ? fallback : diagnostic.source.path;
-                std::cout << path.string() << ':' << diagnostic.source.begin.line << ':' << diagnostic.source.begin.column
-                          << ": " << (diagnostic.severity == ManifestDiagnosticSeverity::Error ? "error" : "warning")
-                          << ' ' << diagnostic.code << ": " << diagnostic.message << '\n';
-                if (diagnostic.fixHint) std::cout << "  hint: " << *diagnostic.fixHint << '\n';
+                std::cerr << path.string() << ':' << diagnostic.source.begin.line << ':'
+                          << diagnostic.source.begin.column << ": "
+                          << (diagnostic.severity == ManifestDiagnosticSeverity::Error ? "error" : "warning") << ' '
+                          << diagnostic.code << ": " << diagnostic.message << '\n';
+                if (diagnostic.fixHint) std::cerr << "  hint: " << *diagnostic.fixHint << '\n';
             }
             return errors;
         }
@@ -254,9 +262,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto RequestedSelection(const CliArguments &arguments) -> SelectionRequest
         {
-            SelectionRequest result{.configuration = arguments.configuration,
-                                    .target = arguments.target,
-                                    .toolchain = arguments.toolchain};
+            SelectionRequest result{
+                .configuration = arguments.configuration, .target = arguments.target, .toolchain = arguments.toolchain};
             for (const auto &assignment : arguments.optionAssignments)
             {
                 const auto separator = assignment.find('=');
@@ -271,8 +278,7 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto DependencyContextsForCommand(const std::string_view command)
-            -> std::set<DependencyContext>
+        [[nodiscard]] auto DependencyContextsForCommand(const std::string_view command) -> std::set<DependencyContext>
         {
             if (command == "test") return {DependencyContext::Target, DependencyContext::Test};
             if (command == "publish") return {DependencyContext::Target, DependencyContext::Publish};
@@ -294,6 +300,44 @@ namespace NGIN::CLI
                     ActionKind::Custom};
         }
 
+        struct LoadedComposition;
+
+        class UnavailablePackageProvider final : public PackageProvider
+        {
+          public:
+            UnavailablePackageProvider(std::string kind, std::string identity)
+                : kind_(std::move(kind)), identity_(std::move(identity))
+            {
+            }
+
+            [[nodiscard]] auto Kind() const -> std::string_view override { return kind_; }
+
+            [[nodiscard]] auto Resolve(const PackageProviderRequest &request) const
+                -> PackageProviderResolution override
+            {
+                PackageProviderResolution result{};
+                if (request.sourceBinding.has_value() && *request.sourceBinding != identity_) return result;
+                result.diagnostics.push_back(
+                    ManifestDiagnostic{.code = "NGIN4019",
+                                       .message = "PackageProvider Source '" + identity_ + "' uses " + kind_ +
+                                                  ", but this installation implements only Directory acquisition",
+                                       .source = request.source});
+                return result;
+            }
+
+          private:
+            std::string kind_{};
+            std::string identity_{};
+        };
+
+        struct LoadedProjectReference
+        {
+            std::string name{};
+            DependencyContext context{DependencyContext::Target};
+            fs::path path{};
+            std::unique_ptr<LoadedComposition> composition{};
+        };
+
         struct LoadedComposition
         {
             std::optional<ResolvedCompositionGraph> graph{};
@@ -301,20 +345,27 @@ namespace NGIN::CLI
             fs::path projectDirectory{};
             std::map<std::string, fs::path, std::less<>> packageRoots{};
             ActionTrustPolicy actionTrustPolicy{};
+            WorkspaceStageCollisionPolicy stageCollision{WorkspaceStageCollisionPolicy::Error};
+            bool allowSymlinks{false};
+            bool providerLockRequired{false};
+            std::vector<LoadedProjectReference> projectReferences{};
             std::vector<ManifestDiagnostic> diagnostics{};
         };
 
-        [[nodiscard]] auto Resolve(const fs::path &projectPath, const CliArguments &arguments,
-                                   const std::string_view command = "inspect") -> LoadedComposition
+        [[nodiscard]] auto ResolveImpl(const fs::path &projectPath, const CliArguments &arguments,
+                                       const std::string_view command, std::vector<fs::path> ancestry)
+            -> LoadedComposition
         {
             LoadedComposition loaded{};
             loaded.projectDirectory = projectPath.parent_path();
             const auto authored = ParseAuthoredManifest(projectPath);
             loaded.diagnostics = authored.diagnostics;
-            if (!authored.Succeeded() || !std::holds_alternative<AuthoredProjectManifest>(*authored.value)) return loaded;
+            if (!authored.Succeeded() || !std::holds_alternative<AuthoredProjectManifest>(*authored.value))
+                return loaded;
             auto project = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
             loaded.diagnostics.insert(loaded.diagnostics.end(), project.diagnostics.begin(), project.diagnostics.end());
             if (!project.Succeeded()) return loaded;
+            const auto projectDependencies = project.value->dependencies;
 
             auto requested = RequestedSelection(arguments);
             SelectionFacts selection{};
@@ -323,31 +374,48 @@ namespace NGIN::CLI
             if (requested.target.has_value()) selection.target.name = *requested.target;
             selection.toolchain = DefaultToolchain();
             if (requested.toolchain.has_value()) selection.toolchain.name = *requested.toolchain;
-            for (const auto &[name, definition] : project.value->options) selection.options.emplace(name, definition.defaultValue);
+            for (const auto &[name, definition] : project.value->options)
+                selection.options.emplace(name, definition.defaultValue);
 
             std::vector<std::unique_ptr<PackageProvider>> providers{};
             std::map<std::string, fs::path, std::less<>> localRoots{};
             std::map<std::string, std::vector<SourcedVersionConstraint>, std::less<>> central{};
             std::map<std::string, std::string, std::less<>> packageSourceBindings{};
+            std::map<std::string, fs::path, std::less<>> workspaceProjects{};
+            bool allowSymlinks = false;
+            bool providerIntegrityRequired = false;
+            bool allowNonHermeticProviders = true;
             auto workspaceRoot = projectPath.parent_path();
             bool foundWorkspace = false;
             if (const auto workspacePath = FindWorkspace(projectPath, arguments))
             {
                 foundWorkspace = true;
                 const auto workspaceAuthored = ParseAuthoredManifest(*workspacePath);
-                loaded.diagnostics.insert(loaded.diagnostics.end(), workspaceAuthored.diagnostics.begin(), workspaceAuthored.diagnostics.end());
-                if (workspaceAuthored.Succeeded() && std::holds_alternative<AuthoredWorkspaceManifest>(*workspaceAuthored.value))
+                loaded.diagnostics.insert(loaded.diagnostics.end(), workspaceAuthored.diagnostics.begin(),
+                                          workspaceAuthored.diagnostics.end());
+                if (workspaceAuthored.Succeeded() &&
+                    std::holds_alternative<AuthoredWorkspaceManifest>(*workspaceAuthored.value))
                 {
-                    auto workspace = ParseSemanticWorkspace(std::get<AuthoredWorkspaceManifest>(*workspaceAuthored.value));
-                    loaded.diagnostics.insert(loaded.diagnostics.end(), workspace.diagnostics.begin(), workspace.diagnostics.end());
+                    auto workspace =
+                        ParseSemanticWorkspace(std::get<AuthoredWorkspaceManifest>(*workspaceAuthored.value));
+                    loaded.diagnostics.insert(loaded.diagnostics.end(), workspace.diagnostics.begin(),
+                                              workspace.diagnostics.end());
                     if (workspace.Succeeded())
                     {
                         workspaceRoot = workspace.value->root;
+                        for (const auto &entry : workspace.value->projects)
+                            workspaceProjects.emplace(entry.project.name, entry.path);
                         loaded.actionTrustPolicy = workspace.value->actionTrustPolicy;
+                        loaded.stageCollision = workspace.value->stageCollision;
+                        loaded.allowSymlinks = workspace.value->pathPolicy.allowSymlinks;
+                        allowSymlinks = workspace.value->pathPolicy.allowSymlinks;
+                        loaded.providerLockRequired = workspace.value->providerPolicy.locked;
+                        providerIntegrityRequired = workspace.value->providerPolicy.integrityRequired;
+                        allowNonHermeticProviders = workspace.value->providerPolicy.allowNonHermetic;
                         if (arguments.preset.has_value())
                         {
-                            const auto preset = std::ranges::find(workspace.value->selection.presets,
-                                                                  *arguments.preset, &Preset::name);
+                            const auto preset =
+                                std::ranges::find(workspace.value->selection.presets, *arguments.preset, &Preset::name);
                             if (preset == workspace.value->selection.presets.end())
                                 throw std::runtime_error("unknown Preset '" + *arguments.preset + "'");
                             auto expansion = ExpandPreset(*preset, command, requested);
@@ -357,26 +425,29 @@ namespace NGIN::CLI
                             requested = std::move(*expansion.value);
                         }
                         const auto selectByName = [](const auto &items, const std::optional<std::string> &requested,
-                                                     const std::optional<std::string> &fallback) -> const typename std::decay_t<decltype(items)>::value_type * {
+                                                     const std::optional<std::string> &fallback)
+                            -> const typename std::decay_t<decltype(items)>::value_type * {
                             const auto name = requested ? requested : fallback;
                             if (name)
                             {
-                                if (const auto found = std::ranges::find(items, *name,
-                                                                         &std::decay_t<decltype(items[0])>::name);
+                                if (const auto found =
+                                        std::ranges::find(items, *name, &std::decay_t<decltype(items[0])>::name);
                                     found != items.end())
                                     return &*found;
                                 throw std::runtime_error("unknown selection '" + *name + "'");
                             }
                             return items.empty() ? nullptr : &items.front();
                         };
-                        if (const auto *value = selectByName(workspace.value->selection.configurations, requested.configuration,
-                                                             workspace.value->selection.defaults.configuration)) selection.configuration = *value;
-                        const auto selectedTargetName = requested.target ? requested.target
-                                                                         : workspace.value->selection.defaults.target;
+                        if (const auto *value =
+                                selectByName(workspace.value->selection.configurations, requested.configuration,
+                                             workspace.value->selection.defaults.configuration))
+                            selection.configuration = *value;
+                        const auto selectedTargetName =
+                            requested.target ? requested.target : workspace.value->selection.defaults.target;
                         if (selectedTargetName)
                         {
-                            const auto target = std::ranges::find_if(workspace.value->selection.targets,
-                                [&](const Target &candidate) {
+                            const auto target =
+                                std::ranges::find_if(workspace.value->selection.targets, [&](const Target &candidate) {
                                     return candidate.name == *selectedTargetName ||
                                            candidate.aliases.contains(*selectedTargetName);
                                 });
@@ -387,7 +458,16 @@ namespace NGIN::CLI
                         else if (!workspace.value->selection.targets.empty())
                             selection.target = workspace.value->selection.targets.front();
                         if (const auto *value = selectByName(workspace.value->selection.toolchains, requested.toolchain,
-                                                             workspace.value->selection.defaults.toolchain)) selection.toolchain = *value;
+                                                             workspace.value->selection.defaults.toolchain))
+                            selection.toolchain = *value;
+                        if (!workspace.value->compatibilityPolicy.targets.empty() &&
+                            !workspace.value->compatibilityPolicy.targets.contains(selection.target.name))
+                            throw std::runtime_error("Target '" + selection.target.name +
+                                                     "' is rejected by workspace Compatibility policy");
+                        if (!workspace.value->compatibilityPolicy.toolchains.empty() &&
+                            !workspace.value->compatibilityPolicy.toolchains.contains(selection.toolchain.name))
+                            throw std::runtime_error("Toolchain '" + selection.toolchain.name +
+                                                     "' is rejected by workspace Compatibility policy");
                         const auto applyWorkspaceOption = [&](const std::string &name, const std::string &value) {
                             const auto definition = project.value->options.find(name);
                             if (definition == project.value->options.end()) return;
@@ -418,30 +498,42 @@ namespace NGIN::CLI
                             const auto manifestPath = fs::weakly_canonical(workspaceRoot / local.manifest.value);
                             const auto rootPath = fs::weakly_canonical(workspaceRoot / local.root.value);
                             const auto sourceName = sourceForRoot(rootPath);
-                            releasesBySource[sourceName].push_back(DirectoryPackageRelease{
-                                .name = name,
-                                .manifest = manifestPath,
-                                .root = rootPath,
-                                .nativeIdentity = name,
-                                .nativeVersion = version,
-                                .revision = "workspace",
-                                .integrity = "workspace:" + name + '@' + version,
-                                .artifactIdentity = name + '@' + version,
-                                .hermetic = false});
+                            releasesBySource[sourceName].push_back(
+                                DirectoryPackageRelease{.name = name,
+                                                        .manifest = manifestPath,
+                                                        .root = rootPath,
+                                                        .nativeIdentity = name,
+                                                        .nativeVersion = version,
+                                                        .revision = "workspace",
+                                                        .integrity = Sha256Fingerprint(ReadText(manifestPath)),
+                                                        .artifactIdentity = name + '@' + version,
+                                                        .hermetic = false});
                             explicitManifests.insert(manifestPath);
-                            localRoots[name] = rootPath;
+                            localRoots[name + '@' + version] = rootPath;
                         }
                         for (const auto &[sourceName, source] : workspace.value->packageSources)
                         {
                             if (source.kind != "Directory" || !source.path.has_value()) continue;
                             const auto sourceRoot = fs::weakly_canonical(workspaceRoot / source.path->value);
                             std::error_code enumerationError{};
-                            fs::recursive_directory_iterator iterator(sourceRoot,
-                                fs::directory_options::skip_permission_denied, enumerationError);
+                            auto options = fs::directory_options::skip_permission_denied;
+                            if (allowSymlinks) options |= fs::directory_options::follow_directory_symlink;
+                            fs::recursive_directory_iterator iterator(sourceRoot, options, enumerationError);
                             const fs::recursive_directory_iterator end{};
                             for (; !enumerationError && iterator != end; iterator.increment(enumerationError))
                             {
-                                if (!iterator->is_regular_file() || iterator->path().extension() != ".nginpkg") continue;
+                                if (iterator->is_symlink() && !allowSymlinks)
+                                {
+                                    loaded.diagnostics.push_back(ManifestDiagnostic{
+                                        .code = "NGIN2008",
+                                        .message = "symlink encountered in Directory PackageProvider "
+                                                   "Source while "
+                                                   "workspace policy disallows symlinks",
+                                        .source = source.source});
+                                    continue;
+                                }
+                                if (!iterator->is_regular_file() || iterator->path().extension() != ".nginpkg")
+                                    continue;
                                 const auto manifestPath = fs::weakly_canonical(iterator->path());
                                 if (explicitManifests.contains(manifestPath)) continue;
                                 const auto packageAuthored = ParseAuthoredManifest(manifestPath);
@@ -450,17 +542,18 @@ namespace NGIN::CLI
                                 if (!packageAuthored.Succeeded()) continue;
                                 const auto *package = std::get_if<AuthoredPackageManifest>(&*packageAuthored.value);
                                 if (package == nullptr) continue;
-                                releasesBySource[sourceName].push_back(DirectoryPackageRelease{
-                                    .name = package->name,
-                                    .manifest = manifestPath,
-                                    .root = manifestPath.parent_path(),
-                                    .nativeIdentity = package->name,
-                                    .nativeVersion = package->version,
-                                    .revision = "workspace",
-                                    .integrity = "workspace:" + package->name + '@' + package->version,
-                                    .artifactIdentity = package->name + '@' + package->version,
-                                    .hermetic = false});
-                                localRoots.try_emplace(package->name, manifestPath.parent_path());
+                                releasesBySource[sourceName].push_back(
+                                    DirectoryPackageRelease{.name = package->name,
+                                                            .manifest = manifestPath,
+                                                            .root = manifestPath.parent_path(),
+                                                            .nativeIdentity = package->name,
+                                                            .nativeVersion = package->version,
+                                                            .revision = "workspace",
+                                                            .integrity = Sha256Fingerprint(ReadText(manifestPath)),
+                                                            .artifactIdentity = package->name + '@' + package->version,
+                                                            .hermetic = false});
+                                localRoots.try_emplace(package->name + '@' + package->version,
+                                                       manifestPath.parent_path());
                             }
                             if (enumerationError)
                                 loaded.diagnostics.push_back(ManifestDiagnostic{
@@ -471,9 +564,14 @@ namespace NGIN::CLI
                         }
                         for (auto &[sourceName, releases] : releasesBySource)
                             if (!releases.empty())
-                                providers.push_back(std::make_unique<DirectoryPackageProvider>(sourceName,
-                                                                                                std::move(releases)));
-                        for (const auto &[name, constraint] : workspace.value->centralVersions) central[name].push_back(constraint);
+                                providers.push_back(
+                                    std::make_unique<DirectoryPackageProvider>(sourceName, std::move(releases)));
+                        for (const auto &[sourceName, source] : workspace.value->packageSources)
+                            if (source.kind != "Directory")
+                                providers.push_back(
+                                    std::make_unique<UnavailablePackageProvider>(source.kind, sourceName));
+                        for (const auto &[name, constraint] : workspace.value->centralVersions)
+                            central[name].push_back(constraint);
                         for (const auto &[name, binding] : workspace.value->packageBindings)
                             packageSourceBindings.emplace(name, binding.sourceName);
                     }
@@ -500,24 +598,138 @@ namespace NGIN::CLI
             for (const auto &provider : providers) providerViews.push_back(provider.get());
             auto hostSelection = selection;
             hostSelection.target = host;
-            auto resolution = ResolveComposition(SemanticResolutionRequest{
-                .project = std::move(*project.value),
-                .projectDirectory = projectPath.parent_path(),
-                .workspaceRoot = workspaceRoot,
-                .targetSelection = selection,
-                .hostSelection = hostSelection,
-                .packageProviders = std::move(providerViews),
-                .centralVersions = std::move(central),
-                .packageSourceBindings = std::move(packageSourceBindings),
-                .dependencyContexts = DependencyContextsForCommand(command),
-                .actionKinds = ActionKindsForCommand(command)});
-            loaded.diagnostics.insert(loaded.diagnostics.end(), resolution.diagnostics.begin(), resolution.diagnostics.end());
+            auto resolution = ResolveComposition(
+                SemanticResolutionRequest{.project = std::move(*project.value),
+                                          .projectDirectory = projectPath.parent_path(),
+                                          .workspaceRoot = workspaceRoot,
+                                          .targetSelection = selection,
+                                          .hostSelection = hostSelection,
+                                          .packageProviders = std::move(providerViews),
+                                          .centralVersions = std::move(central),
+                                          .packageSourceBindings = std::move(packageSourceBindings),
+                                          .dependencyContexts = DependencyContextsForCommand(command),
+                                          .actionKinds = ActionKindsForCommand(command),
+                                          .targetCaseInsensitive = selection.target.operatingSystem == "windows",
+                                          .allowSymlinks = allowSymlinks,
+                                          .providerIntegrityRequired = providerIntegrityRequired,
+                                          .allowNonHermeticProviders = allowNonHermeticProviders});
+            loaded.diagnostics.insert(loaded.diagnostics.end(), resolution.diagnostics.begin(),
+                                      resolution.diagnostics.end());
             loaded.graph = std::move(resolution.graph);
             loaded.cmake = std::move(resolution.cmakeIntegrations);
-            if (loaded.graph) for (const auto &package : loaded.graph->Data().packages)
-                if (const auto found = localRoots.find(package.coordinate.name); found != localRoots.end())
-                    loaded.packageRoots.emplace(package.identity, found->second);
+            if (loaded.graph)
+                for (const auto &package : loaded.graph->Data().packages)
+                    if (const auto found =
+                            localRoots.find(package.coordinate.name + '@' + package.coordinate.exactVersion);
+                        found != localRoots.end())
+                        loaded.packageRoots.emplace(package.identity, found->second);
+
+            if (loaded.graph)
+            {
+                const auto contexts = DependencyContextsForCommand(command);
+                for (const auto &dependency : projectDependencies)
+                {
+                    const auto *reference = std::get_if<ProjectDependencyRequest>(&dependency);
+                    if (reference == nullptr || !contexts.contains(reference->context)) continue;
+                    fs::path referencedPath{};
+                    if (reference->path.has_value())
+                        referencedPath = fs::weakly_canonical(projectPath.parent_path() / reference->path->value);
+                    else if (const auto discovered = workspaceProjects.find(reference->name);
+                             discovered != workspaceProjects.end())
+                        referencedPath = fs::weakly_canonical(discovered->second);
+                    else
+                    {
+                        loaded.diagnostics.push_back(ManifestDiagnostic{
+                            .code = "NGIN3005",
+                            .message = "Project dependency '" + reference->name + "' needs Path or workspace discovery",
+                            .source = reference->source});
+                        continue;
+                    }
+                    if (!fs::is_regular_file(referencedPath))
+                    {
+                        loaded.diagnostics.push_back(ManifestDiagnostic{
+                            .code = "NGIN3005",
+                            .message = "Project dependency manifest is missing: " + referencedPath.string(),
+                            .source = reference->source});
+                        continue;
+                    }
+                    if (std::ranges::find(ancestry, referencedPath) != ancestry.end())
+                    {
+                        loaded.diagnostics.push_back(
+                            ManifestDiagnostic{.code = "NGIN3006",
+                                               .message = "Project dependency cycle reaches '" + reference->name + "'",
+                                               .source = reference->source});
+                        continue;
+                    }
+                    auto childAncestry = ancestry;
+                    childAncestry.push_back(referencedPath);
+                    auto child = std::make_unique<LoadedComposition>(
+                        ResolveImpl(referencedPath, arguments, command, std::move(childAncestry)));
+                    loaded.diagnostics.insert(loaded.diagnostics.end(), child->diagnostics.begin(),
+                                              child->diagnostics.end());
+                    if (!child->graph) continue;
+                    if (child->graph->Data().product.name != reference->name)
+                    {
+                        loaded.diagnostics.push_back(
+                            ManifestDiagnostic{.code = "NGIN3005",
+                                               .message = "Project dependency Name '" + reference->name +
+                                                          "' does not match referenced Project '" +
+                                                          child->graph->Data().product.name + "'",
+                                               .source = reference->source});
+                        continue;
+                    }
+                    if (reference->context == DependencyContext::Target &&
+                        child->graph->Data().product.type != ProductType::Library)
+                    {
+                        loaded.diagnostics.push_back(ManifestDiagnostic{
+                            .code = "NGIN3005",
+                            .message = "target Project dependency '" + reference->name + "' must produce a Library",
+                            .source = reference->source});
+                        continue;
+                    }
+                    loaded.projectReferences.push_back(LoadedProjectReference{.name = reference->name,
+                                                                              .context = reference->context,
+                                                                              .path = referencedPath,
+                                                                              .composition = std::move(child)});
+                }
+                if (!loaded.projectReferences.empty())
+                {
+                    auto graphData = loaded.graph->Data();
+                    for (const auto &reference : loaded.projectReferences)
+                        for (auto &edge : graphData.edges)
+                            if (edge.kind == "ProjectDependency" && edge.to == "Project:" + reference.name)
+                                edge.to += '@' + reference.composition->graph->CompositionIdentity();
+                    loaded.graph.emplace(std::move(graphData));
+                }
+            }
             return loaded;
+        }
+
+        [[nodiscard]] auto Resolve(const fs::path &projectPath, const CliArguments &arguments,
+                                   const std::string_view command = "inspect") -> LoadedComposition
+        {
+            const auto canonical = fs::weakly_canonical(projectPath);
+            return ResolveImpl(canonical, arguments, command, {canonical});
+        }
+
+        auto CollectDependencyLockEntries(const LoadedComposition &composition,
+                                          std::map<std::string, DependencyLockEntry, std::less<>> &entries) -> void
+        {
+            if (composition.graph)
+                for (const auto &entry : CreateDependencyLock(*composition.graph).Data().packages)
+                    entries.emplace(entry.packageInstance, entry);
+            for (const auto &reference : composition.projectReferences)
+                CollectDependencyLockEntries(*reference.composition, entries);
+        }
+
+        [[nodiscard]] auto CreateCompositionDependencyLock(const LoadedComposition &composition)
+            -> ResolvedDependencyLock
+        {
+            std::map<std::string, DependencyLockEntry, std::less<>> entries{};
+            CollectDependencyLockEntries(composition, entries);
+            DependencyLockData data{};
+            for (auto &[_, entry] : entries) data.packages.push_back(std::move(entry));
+            return ResolvedDependencyLock{std::move(data)};
         }
 
         [[nodiscard]] auto QuoteProcessArgument(const fs::path &value) -> std::string
@@ -612,19 +824,19 @@ namespace NGIN::CLI
             STARTUPINFOW startup{};
             startup.cb = sizeof(startup);
             PROCESS_INFORMATION process{};
-            const auto created = CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, TRUE, 0, nullptr,
-                                                workingDirectory.has_value() ? wideDirectory.c_str() : nullptr,
-                                                &startup, &process);
+            const auto created =
+                CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, TRUE, 0, nullptr,
+                               workingDirectory.has_value() ? wideDirectory.c_str() : nullptr, &startup, &process);
             const auto createError = created ? ERROR_SUCCESS : GetLastError();
             restoreEnvironment();
             if (!created)
                 throw std::runtime_error("failed to start process '" + executable + "' (Win32 " +
                                          std::to_string(createError) + ")");
 
-            const auto timeout = timeoutSeconds.has_value()
-                                     ? static_cast<DWORD>(std::min<std::int64_t>(*timeoutSeconds * 1000,
-                                                                                 INFINITE - 1ULL))
-                                     : INFINITE;
+            const auto timeout =
+                timeoutSeconds.has_value()
+                    ? static_cast<DWORD>(std::min<std::int64_t>(*timeoutSeconds * 1000, INFINITE - 1ULL))
+                    : INFINITE;
             const auto waited = WaitForSingleObject(process.hProcess, timeout);
             if (waited == WAIT_TIMEOUT)
             {
@@ -660,10 +872,10 @@ namespace NGIN::CLI
             }
 
             int status = 0;
-            const auto deadline = timeoutSeconds.has_value()
-                                      ? std::optional{std::chrono::steady_clock::now() +
-                                                      std::chrono::seconds(*timeoutSeconds)}
-                                      : std::nullopt;
+            const auto deadline =
+                timeoutSeconds.has_value()
+                    ? std::optional{std::chrono::steady_clock::now() + std::chrono::seconds(*timeoutSeconds)}
+                    : std::nullopt;
             while (waitpid(child, &status, WNOHANG) == 0)
             {
                 if (deadline.has_value() && std::chrono::steady_clock::now() >= *deadline)
@@ -688,7 +900,201 @@ namespace NGIN::CLI
             fs::path output{};
             fs::path generated{};
             fs::path binary{};
+            std::vector<std::unique_ptr<PreparedBuild>> projectDependencies{};
         };
+
+        [[nodiscard]] auto SafePathComponent(std::string value) -> std::string
+        {
+            for (auto &character : value)
+                if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
+                    character = '_';
+            return value;
+        }
+
+        [[nodiscard]] auto PlannedProductArtifact(const BuildPlan &plan, const fs::path &binary) -> fs::path
+        {
+            auto artifact = binary / plan.targetName;
+#if defined(_WIN32)
+            if (plan.targetKind == "Executable")
+                artifact += ".exe";
+            else if (plan.targetKind == "StaticLibrary")
+                artifact = binary / (plan.targetName + ".lib");
+            else if (plan.targetKind == "SharedLibrary" || plan.targetKind == "ModuleLibrary")
+                artifact += ".dll";
+#else
+            if (plan.targetKind == "StaticLibrary")
+                artifact = binary / ("lib" + plan.targetName + ".a");
+            else if (plan.targetKind == "SharedLibrary")
+                artifact = binary / ("lib" + plan.targetName + ".so");
+#endif
+            return artifact;
+        }
+
+        [[nodiscard]] auto PlannedLinkArtifact(const BuildPlan &plan, const fs::path &binary) -> fs::path
+        {
+#if defined(_WIN32)
+            if (plan.targetKind == "StaticLibrary" || plan.targetKind == "SharedLibrary")
+                return binary / (plan.targetName + ".lib");
+#else
+            if (plan.targetKind == "StaticLibrary") return binary / ("lib" + plan.targetName + ".a");
+            if (plan.targetKind == "SharedLibrary") return binary / ("lib" + plan.targetName + ".so");
+#endif
+            return {};
+        }
+
+        [[nodiscard]] auto FilesHaveIdenticalBytes(const fs::path &left, const fs::path &right) -> bool
+        {
+            std::error_code error{};
+            const auto leftSize = fs::file_size(left, error);
+            if (error) return false;
+            const auto rightSize = fs::file_size(right, error);
+            if (error || leftSize != rightSize) return false;
+            std::ifstream leftStream(left, std::ios::binary);
+            std::ifstream rightStream(right, std::ios::binary);
+            return leftStream && rightStream &&
+                   std::equal(std::istreambuf_iterator<char>{leftStream}, std::istreambuf_iterator<char>{},
+                              std::istreambuf_iterator<char>{rightStream});
+        }
+
+        [[nodiscard]] auto DerivePreparedBuild(LoadedComposition composition, const fs::path &projectPath,
+                                               const std::string_view command, const fs::path &output) -> PreparedBuild
+        {
+            const auto actionOutput = output / "actions";
+            const auto actionContexts = output / "action-contexts";
+            const auto host = HostTarget();
+            const auto &selected = composition.graph->Data().selection;
+            const auto crossCompiling = selected.targetOperatingSystem != host.operatingSystem ||
+                                        selected.targetArchitecture != host.architecture;
+            if (crossCompiling && !selected.toolchainFile.has_value())
+                throw std::runtime_error("cross-compiling Target '" + selected.targetOperatingSystem + '-' +
+                                         selected.targetArchitecture +
+                                         "' requires a ToolchainFile in the selected Toolchain");
+            auto plans = DeriveCMakePlans(*composition.graph, composition.cmake,
+                                          CMakeAdapterContext{.generator = "Ninja",
+                                                              .crossCompiling = crossCompiling,
+                                                              .projectRoot = projectPath.parent_path().generic_string(),
+                                                              .buildRoot = (output / "cmake").generic_string(),
+                                                              .actionOutputRoot = actionOutput.generic_string(),
+                                                              .actionContextRoot = actionContexts.generic_string(),
+                                                              .actionKinds = ActionKindsForCommand(command)});
+            if (PrintDiagnostics(plans.diagnostics, projectPath) != 0 || !plans.Succeeded())
+                throw std::runtime_error("CMake plan derivation failed");
+
+            auto references = std::move(composition.projectReferences);
+            composition.projectReferences.clear();
+            PreparedBuild prepared{.composition = std::move(composition),
+                                   .build = std::move(*plans.build),
+                                   .actions = std::move(*plans.actions),
+                                   .output = output,
+                                   .generated = output / "generated",
+                                   .binary = output / "cmake"};
+            for (auto &reference : references)
+            {
+                const auto childOutput = output / "projects" / SafePathComponent(reference.name);
+                auto child = std::make_unique<PreparedBuild>(
+                    DerivePreparedBuild(std::move(*reference.composition), reference.path, command, childOutput));
+                if (reference.context == DependencyContext::Target)
+                {
+                    const auto edge =
+                        std::ranges::find_if(prepared.composition.graph->Data().edges, [&](const GraphEdge &candidate) {
+                            return candidate.kind == "ProjectDependency" &&
+                                   candidate.to.starts_with("Project:" + reference.name + '@');
+                        });
+                    const auto linkArtifact = PlannedLinkArtifact(child->build, child->binary);
+                    if (!linkArtifact.empty())
+                        prepared.build.links.push_back(BuildPlanLink{
+                            .identity = "CMakeProjectLink:" + reference.name,
+                            .graphIdentity = edge == prepared.composition.graph->Data().edges.end()
+                                                 ? "Project:" + reference.name
+                                                 : edge->identity,
+                            .targetName = linkArtifact.generic_string(),
+                            .visibility = "Private",
+                            .provenance = edge == prepared.composition.graph->Data().edges.end() ? GraphProvenance{}
+                                                                                                 : edge->provenance});
+                    for (const auto &item : child->build.items)
+                    {
+                        if (item.visibility == "Private" ||
+                            (item.operation != "IncludeDirectory" && item.operation != "Define" &&
+                             item.operation != "CompileOption" && item.operation != "LinkOption" &&
+                             item.operation != "PrecompiledHeader"))
+                            continue;
+                        auto propagated = item;
+                        propagated.identity = "ProjectUsage:" + reference.name + ':' + item.identity;
+                        propagated.visibility = "Private";
+                        prepared.build.items.push_back(std::move(propagated));
+                    }
+                }
+                prepared.projectDependencies.push_back(std::move(child));
+            }
+            std::ranges::sort(prepared.build.links, {}, &BuildPlanLink::identity);
+            std::ranges::sort(prepared.build.items, {}, &BuildPlanItem::identity);
+            prepared.build.plan.identity = FingerprintBuildPlan(prepared.build);
+            return prepared;
+        }
+
+        auto AuthorizeActions(PreparedBuild &prepared, const bool locked, const CliArguments &arguments,
+                              const fs::path &projectPath) -> void
+        {
+            for (const auto &step : prepared.actions.steps)
+            {
+                const auto action = std::ranges::find(prepared.composition.graph->Data().actions, step.graphIdentity,
+                                                      &GraphAction::identity);
+                if (action == prepared.composition.graph->Data().actions.end())
+                    throw std::runtime_error("ActionPlan references an unknown graph Action");
+                const auto package = std::ranges::find(prepared.composition.graph->Data().packages,
+                                                       action->packageInstance, &GraphPackageInstance::identity);
+                if (package == prepared.composition.graph->Data().packages.end())
+                    throw std::runtime_error("Action references an unknown host PackageInstance");
+                PackageProviderResult provider{.coordinate = package->coordinate,
+                                               .providerKind = package->providerKind,
+                                               .nativeIdentity = package->providerIdentity,
+                                               .nativeVersion = package->providerVersion,
+                                               .revision = package->revision,
+                                               .integrity = package->integrity,
+                                               .artifactIdentity = package->artifactIdentity,
+                                               .context = package->context,
+                                               .hermetic = package->hermetic,
+                                               .trust = package->trust,
+                                               .signature = package->signature};
+                if (const auto rootPath = prepared.composition.packageRoots.find(package->identity);
+                    rootPath != prepared.composition.packageRoots.end())
+                    provider.root = rootPath->second;
+                ResolvedAction trustAction{.qualifiedAction = action->identity,
+                                           .kind = action->kind,
+                                           .hostInstance = PackageInstance{.providerResult = std::move(provider),
+                                                                           .context = package->context,
+                                                                           .compatibility = package->compatibility,
+                                                                           .artifactOptions = package->artifactOptions,
+                                                                           .identity = package->identity},
+                                           .actionExport = action->actionExport,
+                                           .toolExport = action->toolExport,
+                                           .source = {}};
+                ActionExecutionContext execution{.locked = locked, .nonInteractive = arguments.quiet};
+                if (!trustAction.hostInstance.providerResult.root.empty())
+                    execution.executableOrigin =
+                        PortablePath{.value = trustAction.hostInstance.providerResult.root.generic_string(),
+                                     .base = PortablePathBase::Workspace};
+                auto explanation = EvaluateActionTrust(trustAction, prepared.composition.actionTrustPolicy, execution);
+                if (PrintDiagnostics(explanation.diagnostics, projectPath) != 0)
+                    throw std::runtime_error("Action trust validation failed for '" + action->identity + "'");
+                if (explanation.decision == ActionTrustDecision::Confirm)
+                {
+                    std::cout << "Run Action " << action->identity << " from " << package->providerIdentity
+                              << "? [y/N] " << std::flush;
+                    std::string answer{};
+                    std::getline(std::cin, answer);
+                    if (answer != "y" && answer != "Y" && answer != "yes" && answer != "YES")
+                        throw std::runtime_error("Action execution was not authorized");
+                }
+                else if (!explanation.Allowed())
+                    throw std::runtime_error("Action execution denied for '" + action->identity +
+                                             "': " + explanation.reason);
+                if (!arguments.quiet)
+                    std::cout << "Authorized Action " << action->identity << ": " << explanation.reason << '\n';
+            }
+            for (auto &child : prepared.projectDependencies)
+                AuthorizeActions(*child, locked, arguments, child->composition.projectDirectory);
+        }
 
         [[nodiscard]] auto PrepareBuild(const fs::path &root, const CliArguments &arguments,
                                         const std::string_view command) -> PreparedBuild
@@ -702,28 +1108,16 @@ namespace NGIN::CLI
                                    composition.graph->Data().selection.compiler;
             const auto output = arguments.outputPath ? fs::weakly_canonical(*arguments.outputPath)
                                                      : projectPath.parent_path() / ".ngin/build" / selection;
-            const auto actionOutput = output / "actions";
-            const auto actionContexts = output / "action-contexts";
-            auto plans = DeriveCMakePlans(*composition.graph, composition.cmake,
-                                          CMakeAdapterContext{.generator = "Ninja",
-                                                              .projectRoot = projectPath.parent_path().generic_string(),
-                                                              .buildRoot = (output / "cmake").generic_string(),
-                                                              .actionOutputRoot = actionOutput.generic_string(),
-                                                              .actionContextRoot = actionContexts.generic_string(),
-                                                              .actionKinds = ActionKindsForCommand(command)});
-            if (PrintDiagnostics(plans.diagnostics, projectPath) != 0 || !plans.Succeeded())
-                throw std::runtime_error("CMake plan derivation failed");
             bool locked = false;
-            const auto lockPath = arguments.lockPath.has_value()
-                                      ? fs::path{*arguments.lockPath}
-                                      : projectPath.parent_path() / "ngin.lock";
+            const auto lockPath = arguments.lockPath.has_value() ? fs::path{*arguments.lockPath}
+                                                                 : projectPath.parent_path() / "ngin.lock";
             if (fs::is_regular_file(lockPath))
             {
                 const auto parsed = ParseDependencyLock(ReadText(lockPath));
                 if (PrintDiagnostics(parsed.diagnostics, lockPath) != 0 || !parsed.Succeeded())
                     throw std::runtime_error("dependency lock is invalid");
-                const auto verification = VerifyDependencyLock(*parsed.lock,
-                                                                CreateDependencyLock(*composition.graph));
+                const auto verification =
+                    VerifyDependencyLock(*parsed.lock, CreateCompositionDependencyLock(composition));
                 if (!verification.reusable)
                 {
                     for (const auto &item : verification.invalidations)
@@ -732,101 +1126,42 @@ namespace NGIN::CLI
                 }
                 locked = true;
             }
-
-            for (const auto &step : plans.actions->steps)
-            {
-                const auto action = std::ranges::find(composition.graph->Data().actions, step.graphIdentity,
-                                                      &GraphAction::identity);
-                if (action == composition.graph->Data().actions.end())
-                    throw std::runtime_error("ActionPlan references an unknown graph Action");
-                const auto package = std::ranges::find(composition.graph->Data().packages,
-                                                       action->packageInstance,
-                                                       &GraphPackageInstance::identity);
-                if (package == composition.graph->Data().packages.end())
-                    throw std::runtime_error("Action references an unknown host PackageInstance");
-                PackageProviderResult provider{.coordinate = package->coordinate,
-                                               .providerKind = package->providerKind,
-                                               .nativeIdentity = package->providerIdentity,
-                                               .nativeVersion = package->providerVersion,
-                                               .revision = package->revision,
-                                               .integrity = package->integrity,
-                                               .artifactIdentity = package->artifactIdentity,
-                                               .context = package->context,
-                                               .hermetic = package->hermetic,
-                                               .trust = package->trust,
-                                               .signature = package->signature};
-                if (const auto rootPath = composition.packageRoots.find(package->identity);
-                    rootPath != composition.packageRoots.end())
-                    provider.root = rootPath->second;
-                ResolvedAction trustAction{.qualifiedAction = action->identity,
-                                           .kind = action->kind,
-                                           .hostInstance = PackageInstance{.providerResult = std::move(provider),
-                                                                           .context = package->context,
-                                                                           .compatibility = package->compatibility,
-                                                                           .artifactOptions = package->artifactOptions,
-                                                                           .identity = package->identity},
-                                           .actionExport = action->actionExport,
-                                           .toolExport = action->toolExport,
-                                           .source = {}};
-                ActionExecutionContext execution{.locked = locked,
-                                                 .nonInteractive = arguments.quiet};
-                if (!trustAction.hostInstance.providerResult.root.empty())
-                    execution.executableOrigin = PortablePath{
-                        .value = trustAction.hostInstance.providerResult.root.generic_string(),
-                        .base = PortablePathBase::Workspace};
-                auto explanation = EvaluateActionTrust(trustAction, composition.actionTrustPolicy, execution);
-                if (PrintDiagnostics(explanation.diagnostics, projectPath) != 0)
-                    throw std::runtime_error("Action trust validation failed for '" + action->identity + "'");
-                if (explanation.decision == ActionTrustDecision::Confirm)
-                {
-                    std::cout << "Run Action " << action->identity << " from " << package->providerIdentity
-                              << "? [y/N] " << std::flush;
-                    std::string answer{};
-                    std::getline(std::cin, answer);
-                    if (answer != "y" && answer != "Y" && answer != "yes" && answer != "YES")
-                        throw std::runtime_error("Action execution was not authorized");
-                }
-                else if (!explanation.Allowed())
-                    throw std::runtime_error("Action execution denied for '" + action->identity + "': " +
-                                             explanation.reason);
-                if (!arguments.quiet)
-                    std::cout << "Authorized Action " << action->identity << ": " << explanation.reason << '\n';
-            }
-            return PreparedBuild{.composition = std::move(composition),
-                                 .build = std::move(*plans.build),
-                                 .actions = std::move(*plans.actions),
-                                 .output = output,
-                                 .generated = output / "generated",
-                                 .binary = output / "cmake"};
+            else if (composition.providerLockRequired &&
+                     !CreateCompositionDependencyLock(composition).Data().packages.empty())
+                throw std::runtime_error("workspace PackageProvider policy requires a "
+                                         "dependency lock; run 'ngin package lock'");
+            auto prepared = DerivePreparedBuild(std::move(composition), projectPath, command, output);
+            AuthorizeActions(prepared, locked, arguments, projectPath);
+            return prepared;
         }
 
-        [[nodiscard]] auto GenerateActionContext(const PreparedBuild &prepared,
-                                                 const ActionPlanStep &step) -> std::string
+        [[nodiscard]] auto GenerateActionContext(const PreparedBuild &prepared, const ActionPlanStep &step)
+            -> std::string
         {
             std::ostringstream out{};
             const auto &selection = prepared.composition.graph->Data().selection;
             out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                << "<GeneratorContext Version=\"1\" Generator=\"" << EscapeXml(step.graphIdentity)
-                << "\" Project=\"" << EscapeXml(prepared.composition.graph->Data().product.name)
-                << "\" Configuration=\"" << EscapeXml(selection.configuration)
-                << "\" OperatingSystem=\"" << EscapeXml(selection.targetOperatingSystem)
-                << "\" Architecture=\"" << EscapeXml(selection.targetArchitecture)
-                << "\" ProjectDir=\"" << EscapeXml(prepared.composition.projectDirectory.generic_string())
-                << "\" OutputDir=\"" << EscapeXml(prepared.output.generic_string())
-                << "\" GeneratedDir=\"" << EscapeXml((prepared.output / "actions").generic_string()) << "\">\n";
+                << "<GeneratorContext Version=\"1\" Generator=\"" << EscapeXml(step.graphIdentity) << "\" Project=\""
+                << EscapeXml(prepared.composition.graph->Data().product.name) << "\" Configuration=\""
+                << EscapeXml(selection.configuration) << "\" OperatingSystem=\""
+                << EscapeXml(selection.targetOperatingSystem) << "\" Architecture=\""
+                << EscapeXml(selection.targetArchitecture) << "\" ProjectDir=\""
+                << EscapeXml(prepared.composition.projectDirectory.generic_string()) << "\" OutputDir=\""
+                << EscapeXml(prepared.output.generic_string()) << "\" GeneratedDir=\""
+                << EscapeXml((prepared.output / "actions").generic_string()) << "\">\n";
             out << "  <Sources>\n";
             for (const auto &input : step.inputs)
             {
                 const auto extension = fs::path{input}.extension().string();
-                const auto role = extension == ".h" || extension == ".hh" || extension == ".hpp" ||
-                                          extension == ".hxx"
+                const auto role = extension == ".h" || extension == ".hh" || extension == ".hpp" || extension == ".hxx"
                                       ? "Header"
                                       : "Source";
                 out << "    <File Path=\"" << EscapeXml(input) << "\" Role=\"" << role << "\" />\n";
             }
             out << "  </Sources>\n  <IncludeDirectories>\n";
             std::set<std::string, std::less<>> includeDirectories{};
-            for (const auto &input : step.inputs) includeDirectories.insert(fs::path{input}.parent_path().generic_string());
+            for (const auto &input : step.inputs)
+                includeDirectories.insert(fs::path{input}.parent_path().generic_string());
             for (const auto &directory : includeDirectories)
                 out << "    <IncludeDirectory Path=\"" << EscapeXml(directory) << "\" />\n";
             out << "  </IncludeDirectories>\n  <Arguments>\n";
@@ -842,8 +1177,27 @@ namespace NGIN::CLI
             return out.str();
         }
 
+        auto PrepareIsolatedPackages(const PreparedBuild &prepared) -> void
+        {
+            for (const auto &package : prepared.build.packages)
+            {
+                if (package.kind != CMakeIntegrationKind::Isolated) continue;
+                const auto binary = prepared.binary / package.binaryDirectory;
+                const auto install = prepared.binary / package.installedPrefix;
+                auto configure = "cmake -S " + QuoteProcessArgument(package.source) + " -B " +
+                                 QuoteProcessArgument(binary) +
+                                 " -G Ninja -DCMAKE_BUILD_TYPE=" + QuoteProcessArgument(prepared.build.configuration) +
+                                 " -DCMAKE_INSTALL_PREFIX=" + QuoteProcessArgument(install);
+                for (const auto &cache : package.cache)
+                    configure += " -D" + cache.name + ':' + cache.type + '=' + QuoteProcessArgument(cache.value);
+                Execute(configure);
+                Execute("cmake --build " + QuoteProcessArgument(binary) + " --target install");
+            }
+        }
+
         auto Configure(PreparedBuild &prepared) -> void
         {
+            PrepareIsolatedPackages(prepared);
             fs::create_directories(prepared.generated);
             for (const auto &action : prepared.actions.steps)
             {
@@ -853,19 +1207,37 @@ namespace NGIN::CLI
             }
             WriteText(prepared.generated / "CMakeLists.txt", GenerateCMakeProject(prepared.build, prepared.actions));
             auto command = "cmake -S " + QuoteProcessArgument(prepared.generated) + " -B " +
-                           QuoteProcessArgument(prepared.binary) + " -G Ninja -DCMAKE_BUILD_TYPE=" +
-                           QuoteProcessArgument(prepared.build.configuration) +
+                           QuoteProcessArgument(prepared.binary) +
+                           " -G Ninja -DCMAKE_BUILD_TYPE=" + QuoteProcessArgument(prepared.build.configuration) +
                            " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON";
             if (std::ranges::none_of(prepared.build.items,
                                      [](const BuildPlanItem &item) { return item.operation == "CxxModule"; }))
                 command += " -DCMAKE_CXX_SCAN_FOR_MODULES=OFF";
             if (prepared.build.toolchainFile.has_value())
                 command += " -DCMAKE_TOOLCHAIN_FILE=" + QuoteProcessArgument(*prepared.build.toolchainFile);
+            else if (!prepared.build.compiler.empty() && prepared.build.compiler != "default")
+            {
+                auto compiler = prepared.build.compiler;
+                if (compiler == "MSVC" || compiler == "msvc")
+                    compiler = "cl";
+                else if (compiler == "Clang" || compiler == "clang")
+                    compiler = "clang++";
+                else if (compiler == "GCC" || compiler == "gcc")
+                    compiler = "g++";
+                command += " -DCMAKE_CXX_COMPILER=" + QuoteProcessArgument(compiler);
+            }
             Execute(command);
+        }
+
+        auto ConfigureTree(PreparedBuild &prepared) -> void
+        {
+            for (auto &child : prepared.projectDependencies) ConfigureTree(*child);
+            Configure(prepared);
         }
 
         auto Build(PreparedBuild &prepared) -> void
         {
+            for (auto &child : prepared.projectDependencies) Build(*child);
             Configure(prepared);
             Execute("cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
                     QuoteProcessArgument(prepared.build.targetName));
@@ -873,16 +1245,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ProductArtifact(const PreparedBuild &prepared) -> fs::path
         {
-            auto artifact = prepared.binary / prepared.build.targetName;
-#if defined(_WIN32)
-            if (prepared.build.targetKind == "Executable") artifact += ".exe";
-            else if (prepared.build.targetKind == "StaticLibrary") artifact = prepared.binary / (prepared.build.targetName + ".lib");
-            else if (prepared.build.targetKind == "SharedLibrary" || prepared.build.targetKind == "ModuleLibrary") artifact += ".dll";
-#else
-            if (prepared.build.targetKind == "StaticLibrary") artifact = prepared.binary / ("lib" + prepared.build.targetName + ".a");
-            else if (prepared.build.targetKind == "SharedLibrary") artifact = prepared.binary / ("lib" + prepared.build.targetName + ".so");
-#endif
-            return artifact;
+            return PlannedProductArtifact(prepared.build, prepared.binary);
         }
 
         struct PreparedStage
@@ -892,23 +1255,75 @@ namespace NGIN::CLI
             StagePlan plan{};
         };
 
+        auto AppendReferencedStageItems(const PreparedBuild &prepared, const fs::path &stageRoot, StagePlan &combined)
+            -> void
+        {
+            for (const auto &child : prepared.projectDependencies)
+            {
+                StagePlanBindings bindings{.projectRoot = child->composition.projectDirectory,
+                                           .stageRoot = stageRoot,
+                                           .packageRoots = child->composition.packageRoots,
+                                           .targetCaseInsensitive =
+                                               child->composition.graph->Data().selection.targetOperatingSystem ==
+                                               "windows",
+                                           .allowSymlinks = child->composition.allowSymlinks};
+                const auto artifact = ProductArtifact(*child);
+                if (fs::exists(artifact))
+                    bindings.productArtifacts.emplace(child->composition.graph->Data().product.identity, artifact);
+                auto stage = DeriveStagePlan(*child->composition.graph, bindings);
+                if (PrintDiagnostics(stage.diagnostics, child->composition.projectDirectory) != 0 || !stage.Succeeded())
+                    throw std::runtime_error("referenced Project StagePlan derivation failed");
+                combined.items.insert(combined.items.end(), stage.plan->items.begin(), stage.plan->items.end());
+                AppendReferencedStageItems(*child, stageRoot, combined);
+            }
+        }
+
         [[nodiscard]] auto Stage(PreparedBuild prepared) -> PreparedStage
         {
             Build(prepared);
             StagePlanBindings bindings{.projectRoot = prepared.composition.projectDirectory,
                                        .stageRoot = prepared.output / "stage",
-                                       .packageRoots = prepared.composition.packageRoots};
+                                       .packageRoots = prepared.composition.packageRoots,
+                                       .targetCaseInsensitive =
+                                           prepared.composition.graph->Data().selection.targetOperatingSystem ==
+                                           "windows",
+                                       .allowSymlinks = prepared.composition.allowSymlinks};
             const auto artifact = ProductArtifact(prepared);
-            if (fs::exists(artifact)) bindings.productArtifacts.emplace(prepared.composition.graph->Data().product.identity, artifact);
+            if (fs::exists(artifact))
+                bindings.productArtifacts.emplace(prepared.composition.graph->Data().product.identity, artifact);
             auto stage = DeriveStagePlan(*prepared.composition.graph, bindings);
             if (PrintDiagnostics(stage.diagnostics, prepared.composition.projectDirectory) != 0 || !stage.Succeeded())
                 throw std::runtime_error("StagePlan derivation failed");
+            AppendReferencedStageItems(prepared, bindings.stageRoot, *stage.plan);
+            std::map<std::string, StagePlanItem, std::less<>> destinations{};
+            for (const auto &item : stage.plan->items)
+            {
+                auto key = item.destination;
+                if (bindings.targetCaseInsensitive)
+                    std::ranges::transform(key, key.begin(), [](const unsigned char value) {
+                        return static_cast<char>(std::tolower(value));
+                    });
+                const auto existing = destinations.find(key);
+                if (existing != destinations.end() && existing->second.source != item.source)
+                {
+                    if (prepared.composition.stageCollision != WorkspaceStageCollisionPolicy::IdenticalBytes ||
+                        !FilesHaveIdenticalBytes(existing->second.source, item.source))
+                        throw std::runtime_error("StagePlan collision at '" + item.destination + "' between '" +
+                                                 existing->second.owner + "' and '" + item.owner + "'");
+                }
+                destinations.try_emplace(std::move(key), item);
+            }
+            stage.plan->items.clear();
+            for (auto &[_, item] : destinations) stage.plan->items.push_back(std::move(item));
+            std::ranges::sort(stage.plan->items, {}, &StagePlanItem::identity);
+            stage.plan->plan.identity = FingerprintStagePlan(*stage.plan);
             const auto executed = ExecuteStagePlan(*stage.plan);
             if (PrintDiagnostics(executed.diagnostics, prepared.composition.projectDirectory) != 0)
                 throw std::runtime_error("staging failed");
-            return PreparedStage{.build = std::move(prepared), .bindings = std::move(bindings), .plan = std::move(*stage.plan)};
+            return PreparedStage{
+                .build = std::move(prepared), .bindings = std::move(bindings), .plan = std::move(*stage.plan)};
         }
-    }
+    } // namespace
 
     auto ParseCliArguments(const int argc, char **argv, const int first) -> CliArguments
     {
@@ -920,29 +1335,55 @@ namespace NGIN::CLI
         for (int index = first; index < argc; ++index)
         {
             const std::string argument = argv[index];
-            if (argument == "--") { for (++index; index < argc; ++index) result.trailing.emplace_back(argv[index]); break; }
-            if (argument == "--project") result.projectPath = value(index, argument);
-            else if (argument == "--workspace") result.workspacePath = value(index, argument);
-            else if (argument == "--output") result.outputPath = value(index, argument);
-            else if (argument == "--lock") result.lockPath = value(index, argument);
-            else if (argument == "--against") result.againstPath = value(index, argument);
-            else if (argument == "--format") result.format = value(index, argument);
-            else if (argument == "--configuration") result.configuration = value(index, argument);
-            else if (argument == "--target") result.target = value(index, argument);
-            else if (argument == "--toolchain") result.toolchain = value(index, argument);
-            else if (argument == "--preset") result.preset = value(index, argument);
-            else if (argument == "--exact") result.exactVersion = value(index, argument);
-            else if (argument == "--compatible") result.compatibleVersion = value(index, argument);
-            else if (argument == "--at-least") result.atLeastVersion = value(index, argument);
-            else if (argument == "--after") result.afterVersion = value(index, argument);
-            else if (argument == "--at-most") result.atMostVersion = value(index, argument);
-            else if (argument == "--before") result.beforeVersion = value(index, argument);
-            else if (argument == "--use") result.exportUses.push_back(value(index, argument));
-            else if (argument == "--option") result.optionAssignments.push_back(value(index, argument));
-            else if (argument == "--kind") result.actionKind = value(index, argument);
-            else if (argument == "--quiet" || argument == "-q") result.quiet = true;
-            else if (argument.starts_with('-')) throw std::runtime_error("unknown option: " + argument);
-            else result.positional.push_back(argument);
+            if (argument == "--")
+            {
+                for (++index; index < argc; ++index) result.trailing.emplace_back(argv[index]);
+                break;
+            }
+            if (argument == "--project")
+                result.projectPath = value(index, argument);
+            else if (argument == "--workspace")
+                result.workspacePath = value(index, argument);
+            else if (argument == "--output")
+                result.outputPath = value(index, argument);
+            else if (argument == "--lock")
+                result.lockPath = value(index, argument);
+            else if (argument == "--against")
+                result.againstPath = value(index, argument);
+            else if (argument == "--format")
+                result.format = value(index, argument);
+            else if (argument == "--configuration")
+                result.configuration = value(index, argument);
+            else if (argument == "--target")
+                result.target = value(index, argument);
+            else if (argument == "--toolchain")
+                result.toolchain = value(index, argument);
+            else if (argument == "--preset")
+                result.preset = value(index, argument);
+            else if (argument == "--exact")
+                result.exactVersion = value(index, argument);
+            else if (argument == "--compatible")
+                result.compatibleVersion = value(index, argument);
+            else if (argument == "--at-least")
+                result.atLeastVersion = value(index, argument);
+            else if (argument == "--after")
+                result.afterVersion = value(index, argument);
+            else if (argument == "--at-most")
+                result.atMostVersion = value(index, argument);
+            else if (argument == "--before")
+                result.beforeVersion = value(index, argument);
+            else if (argument == "--use")
+                result.exportUses.push_back(value(index, argument));
+            else if (argument == "--option")
+                result.optionAssignments.push_back(value(index, argument));
+            else if (argument == "--kind")
+                result.actionKind = value(index, argument);
+            else if (argument == "--quiet" || argument == "-q")
+                result.quiet = true;
+            else if (argument.starts_with('-'))
+                throw std::runtime_error("unknown option: " + argument);
+            else
+                result.positional.push_back(argument);
         }
         return result;
     }
@@ -959,23 +1400,25 @@ namespace NGIN::CLI
 
     auto NewProject(const fs::path &root, const std::string_view kind, const std::string_view name) -> int
     {
-        const std::map<std::string_view, std::string_view> kinds{{"app", "Application"}, {"lib", "Library"},
-            {"tool", "Tool"}, {"test", "Test"}, {"benchmark", "Benchmark"}, {"plugin", "Plugin"},
-            {"external", "External"}};
+        const std::map<std::string_view, std::string_view> kinds{
+            {"app", "Application"},     {"lib", "Library"},   {"tool", "Tool"},        {"test", "Test"},
+            {"benchmark", "Benchmark"}, {"plugin", "Plugin"}, {"external", "External"}};
         const auto found = kinds.find(kind);
         if (found == kinds.end()) throw std::runtime_error("unknown project kind");
         const auto directory = root / name;
         if (fs::exists(directory)) throw std::runtime_error(directory.string() + ": already exists");
-        const auto build = found->second == "External" ? std::string{} : "  <Build><Source Include=\"src/**/*.cpp\" /></Build>\n";
+        const auto build =
+            found->second == "External" ? std::string{} : "  <Build><Source Include=\"src/**/*.cpp\" /></Build>\n";
         WriteText(directory / (std::string{name} + ".nginproj"),
-                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Project Name=\"" + EscapeXml(name) +
-                  "\" Type=\"" + std::string{found->second} + "\">\n" + build + "</Project>\n");
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Project Name=\"" + EscapeXml(name) + "\" Type=\"" +
+                      std::string{found->second} + "\">\n" + build + "</Project>\n");
         if (found->second == "Library")
         {
             WriteText(directory / "include" / (std::string{name} + ".hpp"), "#pragma once\n");
             WriteText(directory / "src" / (std::string{name} + ".cpp"), "#include \"" + std::string{name} + ".hpp\"\n");
         }
-        else if (found->second != "External") WriteText(directory / "src/main.cpp", "int main() { return 0; }\n");
+        else if (found->second != "External")
+            WriteText(directory / "src/main.cpp", "int main() { return 0; }\n");
         std::cout << "Created " << found->second << " project at " << directory << '\n';
         return 0;
     }
@@ -983,21 +1426,43 @@ namespace NGIN::CLI
     auto ValidateManifest(const fs::path &root, const CliArguments &arguments) -> int
     {
         fs::path path{};
-        if (arguments.projectPath) path = fs::weakly_canonical(*arguments.projectPath);
-        else if (arguments.workspacePath) path = fs::weakly_canonical(*arguments.workspacePath);
-        else if (fs::is_regular_file(root / "NGIN.ngin")) path = fs::weakly_canonical(root / "NGIN.ngin");
-        else path = FindProject(root, arguments);
+        if (arguments.projectPath)
+            path = fs::weakly_canonical(*arguments.projectPath);
+        else if (arguments.workspacePath)
+            path = fs::weakly_canonical(*arguments.workspacePath);
+        else if (fs::is_regular_file(root / "NGIN.ngin"))
+            path = fs::weakly_canonical(root / "NGIN.ngin");
+        else
+            path = FindProject(root, arguments);
         const auto authored = ParseAuthoredManifest(path);
         auto diagnostics = authored.diagnostics;
         std::string kind = "Manifest";
         std::string name = path.filename().string();
-        if (authored.value) std::visit([&](const auto &manifest) {
-            name = manifest.name;
-            using T = std::decay_t<decltype(manifest)>;
-            if constexpr (std::is_same_v<T, AuthoredProjectManifest>) { kind = "Project"; const auto value = ParseSemanticProject(manifest); diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end()); }
-            else if constexpr (std::is_same_v<T, AuthoredPackageManifest>) { kind = "Package"; const auto value = ParseSemanticPackage(manifest); diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end()); }
-            else { kind = "Workspace"; const auto value = ParseSemanticWorkspace(manifest); diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end()); }
-        }, *authored.value);
+        if (authored.value)
+            std::visit(
+                [&](const auto &manifest) {
+                    name = manifest.name;
+                    using T = std::decay_t<decltype(manifest)>;
+                    if constexpr (std::is_same_v<T, AuthoredProjectManifest>)
+                    {
+                        kind = "Project";
+                        const auto value = ParseSemanticProject(manifest);
+                        diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
+                    }
+                    else if constexpr (std::is_same_v<T, AuthoredPackageManifest>)
+                    {
+                        kind = "Package";
+                        const auto value = ParseSemanticPackage(manifest);
+                        diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
+                    }
+                    else
+                    {
+                        kind = "Workspace";
+                        const auto value = ParseSemanticWorkspace(manifest);
+                        diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
+                    }
+                },
+                *authored.value);
         if (PrintDiagnostics(diagnostics, path) != 0) return 1;
         if (!arguments.quiet) std::cout << "Validation passed: " << kind << ' ' << name << '\n';
         return 0;
@@ -1005,7 +1470,8 @@ namespace NGIN::CLI
 
     auto FormatManifest(const fs::path &root, const CliArguments &arguments) -> int
     {
-        const auto path = arguments.projectPath ? fs::weakly_canonical(*arguments.projectPath) : FindProject(root, arguments);
+        const auto path =
+            arguments.projectPath ? fs::weakly_canonical(*arguments.projectPath) : FindProject(root, arguments);
         WriteText(path, FormatManifestFile(path));
         std::cout << "Formatted " << path << '\n';
         return 0;
@@ -1013,7 +1479,8 @@ namespace NGIN::CLI
 
     auto PrintSchema(const CliArguments &arguments) -> int
     {
-        if (arguments.format && *arguments.format != "json") throw std::runtime_error("schema supports only JSON metadata");
+        if (arguments.format && *arguments.format != "json")
+            throw std::runtime_error("schema supports only JSON metadata");
         std::cout << GenerateManifestArtifacts().at("manifest-editor-metadata.json");
         return 0;
     }
@@ -1036,14 +1503,21 @@ namespace NGIN::CLI
         const auto *package = FindPackage(project, *arguments.packageName);
         if (!package) throw std::runtime_error("package is not declared");
         auto effective = arguments;
-        if (effective.exportUses.empty()) for (const auto &child : package->children)
-            if (child.specId == "project.dependencies.use") for (const auto *kind : {"Library", "Tool", "Plugin", "Action", "Asset"})
-                if (const auto *value = child.Attribute(kind)) effective.exportUses.push_back(std::string{kind} + ':' + value->value);
-        if (effective.optionAssignments.empty()) for (const auto &child : package->children)
-            if (child.specId == "project.dependencies.option") effective.optionAssignments.push_back(child.Attribute("Name")->value + '=' + child.Attribute("Value")->value);
+        if (effective.exportUses.empty())
+            for (const auto &child : package->children)
+                if (child.specId == "project.dependencies.use")
+                    for (const auto *kind : {"Library", "Tool", "Plugin", "Action", "Asset"})
+                        if (const auto *value = child.Attribute(kind))
+                            effective.exportUses.push_back(std::string{kind} + ':' + value->value);
+        if (effective.optionAssignments.empty())
+            for (const auto &child : package->children)
+                if (child.specId == "project.dependencies.option")
+                    effective.optionAssignments.push_back(child.Attribute("Name")->value + '=' +
+                                                          child.Attribute("Value")->value);
         auto text = ReadText(path);
         auto replacement = PackageMarkup(effective);
-        text.replace(package->source.begin.offset, package->source.end.offset - package->source.begin.offset, replacement.substr(4));
+        text.replace(package->source.begin.offset, package->source.end.offset - package->source.begin.offset,
+                     replacement.substr(4));
         WriteText(path, FormatManifestXml(text));
         return 0;
     }
@@ -1068,7 +1542,8 @@ namespace NGIN::CLI
         const auto project = LoadProject(path);
         const auto relative = arguments.positional.front();
         const auto referenced = LoadProject(fs::weakly_canonical(path.parent_path() / relative));
-        const auto declaration = "    <Project Name=\"" + EscapeXml(referenced.name) + "\" Path=\"" + EscapeXml(relative) + "\" />\n";
+        const auto declaration =
+            "    <Project Name=\"" + EscapeXml(referenced.name) + "\" Path=\"" + EscapeXml(relative) + "\" />\n";
         WriteText(path, FormatManifestXml(InsertDependency(ReadText(path), project, declaration)));
         return 0;
     }
@@ -1090,10 +1565,12 @@ namespace NGIN::CLI
             text.replace(slash, end - slash + 1, ">\n</Project>");
             close = text.rfind("</Project>");
         }
-        if (kind == "Generate") text.insert(close, "  <Generate Action=\"" + EscapeXml(qualified) + "\" />\n");
+        if (kind == "Generate")
+            text.insert(close, "  <Generate Action=\"" + EscapeXml(qualified) + "\" />\n");
         else
         {
-            if (kind != "Analyze" && kind != "Format" && kind != "Validate" && kind != "Custom") throw std::runtime_error("invalid Action kind");
+            if (kind != "Analyze" && kind != "Format" && kind != "Validate" && kind != "Custom")
+                throw std::runtime_error("invalid Action kind");
             text.insert(close, "  <Tooling><" + kind + " Action=\"" + EscapeXml(qualified) + "\" /></Tooling>\n");
         }
         WriteText(path, FormatManifestXml(text));
@@ -1113,9 +1590,12 @@ namespace NGIN::CLI
     {
         const auto beforePath = FindProject(root, arguments);
         fs::path afterPath{};
-        if (arguments.againstPath.has_value()) afterPath = fs::weakly_canonical(*arguments.againstPath);
-        else if (!arguments.positional.empty()) afterPath = fs::weakly_canonical(arguments.positional.front());
-        else throw std::runtime_error("diff requires --against <project.nginproj>");
+        if (arguments.againstPath.has_value())
+            afterPath = fs::weakly_canonical(*arguments.againstPath);
+        else if (!arguments.positional.empty())
+            afterPath = fs::weakly_canonical(arguments.positional.front());
+        else
+            throw std::runtime_error("diff requires --against <project.nginproj>");
 
         auto before = Resolve(beforePath, arguments, "diff");
         auto afterArguments = arguments;
@@ -1134,13 +1614,10 @@ namespace NGIN::CLI
             {
                 const auto &item = differences[index];
                 if (index != 0) std::cout << ',';
-                std::cout << "{\"category\":\"" << EscapeJson(item.category)
-                          << "\",\"identity\":\"" << EscapeJson(item.identity)
-                          << "\",\"change\":\"" << EscapeJson(item.change) << '"';
-                if (item.before.has_value())
-                    std::cout << ",\"before\":\"" << EscapeJson(*item.before) << '"';
-                if (item.after.has_value())
-                    std::cout << ",\"after\":\"" << EscapeJson(*item.after) << '"';
+                std::cout << "{\"category\":\"" << EscapeJson(item.category) << "\",\"identity\":\""
+                          << EscapeJson(item.identity) << "\",\"change\":\"" << EscapeJson(item.change) << '"';
+                if (item.before.has_value()) std::cout << ",\"before\":\"" << EscapeJson(*item.before) << '"';
+                if (item.after.has_value()) std::cout << ",\"after\":\"" << EscapeJson(*item.after) << '"';
                 std::cout << '}';
             }
             std::cout << "]\n";
@@ -1166,38 +1643,34 @@ namespace NGIN::CLI
 
         if (arguments.format.value_or("text") == "json")
         {
-            std::cout << "{\"identity\":\"" << EscapeJson(explanation->identity)
-                      << "\",\"category\":\"" << EscapeJson(explanation->category)
-                      << "\",\"value\":\"" << EscapeJson(explanation->value) << "\",\"provenance\":[";
+            std::cout << "{\"identity\":\"" << EscapeJson(explanation->identity) << "\",\"category\":\""
+                      << EscapeJson(explanation->category) << "\",\"value\":\"" << EscapeJson(explanation->value)
+                      << "\",\"provenance\":[";
             for (std::size_t index = 0; index < explanation->provenance.size(); ++index)
             {
                 const auto &source = explanation->provenance[index];
                 if (index != 0) std::cout << ',';
-                std::cout << "{\"kind\":\"" << EscapeJson(source.kind)
-                          << "\",\"owner\":\"" << EscapeJson(source.owner)
-                          << "\",\"document\":\"" << EscapeJson(source.document)
-                          << "\",\"line\":" << source.line << ",\"column\":" << source.column
-                          << ",\"reason\":\"" << EscapeJson(source.reason) << "\"}";
+                std::cout << "{\"kind\":\"" << EscapeJson(source.kind) << "\",\"owner\":\"" << EscapeJson(source.owner)
+                          << "\",\"document\":\"" << EscapeJson(source.document) << "\",\"line\":" << source.line
+                          << ",\"column\":" << source.column << ",\"reason\":\"" << EscapeJson(source.reason) << "\"}";
             }
             std::cout << "],\"edges\":[";
             for (std::size_t index = 0; index < explanation->edges.size(); ++index)
             {
                 const auto &edge = explanation->edges[index];
                 if (index != 0) std::cout << ',';
-                std::cout << "{\"identity\":\"" << EscapeJson(edge.identity)
-                          << "\",\"from\":\"" << EscapeJson(edge.from)
-                          << "\",\"to\":\"" << EscapeJson(edge.to)
-                          << "\",\"kind\":\"" << EscapeJson(edge.kind) << "\"}";
+                std::cout << "{\"identity\":\"" << EscapeJson(edge.identity) << "\",\"from\":\""
+                          << EscapeJson(edge.from) << "\",\"to\":\"" << EscapeJson(edge.to) << "\",\"kind\":\""
+                          << EscapeJson(edge.kind) << "\"}";
             }
             std::cout << "]}\n";
         }
         else
         {
-            std::cout << explanation->category << ' ' << explanation->identity << "\n  "
-                      << explanation->value << '\n';
+            std::cout << explanation->category << ' ' << explanation->identity << "\n  " << explanation->value << '\n';
             for (const auto &source : explanation->provenance)
-                std::cout << "  from " << source.document << ':' << source.line << ':' << source.column
-                          << " (" << source.reason << ")\n";
+                std::cout << "  from " << source.document << ':' << source.line << ':' << source.column << " ("
+                          << source.reason << ")\n";
             for (const auto &edge : explanation->edges)
                 std::cout << "  " << edge.kind << ": " << edge.from << " -> " << edge.to << '\n';
         }
@@ -1207,7 +1680,7 @@ namespace NGIN::CLI
     auto ConfigureProject(const fs::path &root, const CliArguments &arguments) -> int
     {
         auto prepared = PrepareBuild(root, arguments, "configure");
-        Configure(prepared);
+        ConfigureTree(prepared);
         std::cout << "Configured " << prepared.build.targetName << " in " << prepared.binary << '\n';
         return 0;
     }
@@ -1234,7 +1707,8 @@ namespace NGIN::CLI
         if (PrintDiagnostics(launch.diagnostics, staged.build.composition.projectDirectory) != 0 || !launch.Succeeded())
             throw std::runtime_error("LaunchPlan derivation failed");
         if (!launch.plan->secretReferences.empty())
-            throw std::runtime_error("LaunchPlan requires an external secret provider, but none is configured");
+            throw std::runtime_error("LaunchPlan requires an external secret provider, "
+                                     "but none is configured");
         auto processArguments = launch.plan->arguments;
         processArguments.insert(processArguments.end(), arguments.trailing.begin(), arguments.trailing.end());
         ExecuteProcess(launch.plan->executable, processArguments, fs::path{launch.plan->workingDirectory},
@@ -1264,7 +1738,8 @@ namespace NGIN::CLI
                               : arguments.positional.front();
         if (name.empty()) throw std::runtime_error("select a Publish name");
         auto publish = DerivePublishPlan(*staged.build.composition.graph, staged.plan, name);
-        if (PrintDiagnostics(publish.diagnostics, staged.build.composition.projectDirectory) != 0 || !publish.Succeeded())
+        if (PrintDiagnostics(publish.diagnostics, staged.build.composition.projectDirectory) != 0 ||
+            !publish.Succeeded())
             throw std::runtime_error("PublishPlan derivation failed");
         const auto configuration = staged.build.output / ("CPack-" + name + ".cmake");
         WriteText(configuration, GenerateCPackConfiguration(*publish.plan));
@@ -1272,24 +1747,33 @@ namespace NGIN::CLI
         return 0;
     }
 
-    auto ExecuteProjectActions(const fs::path &root, const CliArguments &arguments,
-                               const std::string_view command) -> int
+    auto ExecuteProjectActions(const fs::path &root, const CliArguments &arguments, const std::string_view command)
+        -> int
     {
         if (command != "analyze" && command != "format")
             throw std::runtime_error("unsupported Action command '" + std::string(command) + "'");
         auto prepared = PrepareBuild(root, arguments, command);
-        if (prepared.actions.steps.empty())
+        const auto actionCount = [](const auto &self, const PreparedBuild &build) -> std::size_t {
+            auto count = build.actions.steps.size();
+            for (const auto &child : build.projectDependencies) count += self(self, *child);
+            return count;
+        };
+        if (actionCount(actionCount, prepared) == 0)
             throw std::runtime_error("project selects no " + std::string(command) + " Actions");
-        Configure(prepared);
-        for (const auto &step : prepared.actions.steps)
-        {
-            auto target = std::string{"ngin_action_"} + step.graphIdentity;
-            for (auto &character : target)
-                if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
-                    character = '_';
-            Execute("cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
-                    QuoteProcessArgument(target));
-        }
+        const auto execute = [](const auto &self, PreparedBuild &build) -> void {
+            for (auto &child : build.projectDependencies) self(self, *child);
+            Configure(build);
+            for (const auto &step : build.actions.steps)
+            {
+                auto target = std::string{"ngin_action_"} + step.graphIdentity;
+                for (auto &character : target)
+                    if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
+                        character = '_';
+                Execute("cmake --build " + QuoteProcessArgument(build.binary) + " --target " +
+                        QuoteProcessArgument(target));
+            }
+        };
+        execute(execute, prepared);
         return 0;
     }
 
@@ -1298,10 +1782,11 @@ namespace NGIN::CLI
         const auto project = FindProject(root, arguments);
         auto resolved = Resolve(project, arguments);
         if (PrintDiagnostics(resolved.diagnostics, project) != 0 || !resolved.graph) return 1;
-        std::cout << "Resolved " << resolved.graph->Data().packages.size() << " exact PackageInstances\n";
-        for (const auto &package : resolved.graph->Data().packages)
-            std::cout << "  " << package.coordinate.name << '@' << package.coordinate.exactVersion
-                      << " [" << package.providerKind << "]\n";
+        const auto lock = CreateCompositionDependencyLock(resolved);
+        std::cout << "Resolved " << lock.Data().packages.size() << " exact PackageInstances\n";
+        for (const auto &package : lock.Data().packages)
+            std::cout << "  " << package.coordinate.name << '@' << package.coordinate.exactVersion << " ["
+                      << package.providerKind << "]\n";
         return 0;
     }
 
@@ -1310,7 +1795,7 @@ namespace NGIN::CLI
         const auto project = FindProject(root, arguments);
         auto resolved = Resolve(project, arguments);
         if (PrintDiagnostics(resolved.diagnostics, project) != 0 || !resolved.graph) return 1;
-        const auto lock = CreateDependencyLock(*resolved.graph);
+        const auto lock = CreateCompositionDependencyLock(resolved);
         const auto path = arguments.outputPath ? fs::path{*arguments.outputPath} : project.parent_path() / "ngin.lock";
         WriteText(path, lock.CanonicalSerialization() + '\n');
         std::cout << "Wrote dependency lock " << path << "\n  fingerprint: " << lock.Fingerprint() << '\n';
@@ -1325,11 +1810,15 @@ namespace NGIN::CLI
         if (PrintDiagnostics(parsed.diagnostics, path) != 0 || !parsed.Succeeded()) return 1;
         auto resolved = Resolve(project, arguments);
         if (PrintDiagnostics(resolved.diagnostics, project) != 0 || !resolved.graph) return 1;
-        const auto actual = CreateDependencyLock(*resolved.graph);
+        const auto actual = CreateCompositionDependencyLock(resolved);
         const auto verification = VerifyDependencyLock(*parsed.lock, actual);
-        if (verification.reusable) { std::cout << "Dependency lock verified\n"; return 0; }
+        if (verification.reusable)
+        {
+            std::cout << "Dependency lock verified\n";
+            return 0;
+        }
         for (const auto &item : verification.invalidations)
             std::cout << "error: " << item.package << ' ' << item.field << ": " << item.reason << '\n';
         return 1;
     }
-}
+} // namespace NGIN::CLI

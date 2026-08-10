@@ -51,7 +51,7 @@ namespace NGIN::CLI
         std::set<std::string, std::less<>> allowedKinds{};
         bool integrityRequired{false};
         bool locked{false};
-        bool allowNonHermetic{false};
+        bool allowNonHermetic{true};
     };
 
     struct WorkspacePathPolicy
@@ -99,6 +99,5 @@ namespace NGIN::CLI
         [[nodiscard]] auto Succeeded() const -> bool;
     };
 
-    [[nodiscard]] auto ParseSemanticWorkspace(const AuthoredWorkspaceManifest &workspace)
-        -> SemanticWorkspaceResult;
-}
+    [[nodiscard]] auto ParseSemanticWorkspace(const AuthoredWorkspaceManifest &workspace) -> SemanticWorkspaceResult;
+} // namespace NGIN::CLI

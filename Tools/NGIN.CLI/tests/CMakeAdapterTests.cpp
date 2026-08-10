@@ -6,17 +6,15 @@
 #include <type_traits>
 #include <utility>
 
-static_assert(std::is_const_v<std::remove_reference_t<decltype(
-              std::declval<const ResolvedCMakeIntegrationBindings &>().Data())>>);
+static_assert(std::is_const_v<
+              std::remove_reference_t<decltype(std::declval<const ResolvedCMakeIntegrationBindings &>().Data())>>);
 
 namespace
 {
     [[nodiscard]] auto Selection() -> SelectionFacts
     {
         return SelectionFacts{.configuration = Configuration{.name = "Debug"},
-                              .target = Target{.name = "linux-x64",
-                                               .operatingSystem = "linux",
-                                               .architecture = "x64"},
+                              .target = Target{.name = "linux-x64", .operatingSystem = "linux", .architecture = "x64"},
                               .toolchain = Toolchain{.name = "clang",
                                                      .compiler = "clang",
                                                      .compilerVersion = "19",
@@ -33,31 +31,30 @@ namespace
         return *semantic.value;
     }
 
-    [[nodiscard]] auto Resolve(const fs::path &root, const fs::path &projectPath,
-                               const fs::path &packagePath, const std::string &name) -> SemanticResolutionResult
+    [[nodiscard]] auto Resolve(const fs::path &root, const fs::path &projectPath, const fs::path &packagePath,
+                               const std::string &name) -> SemanticResolutionResult
     {
-        DirectoryPackageProvider provider{
-            "local", {DirectoryPackageRelease{.name = name,
-                                               .manifest = packagePath,
-                                               .root = packagePath.parent_path(),
-                                               .nativeIdentity = "local/" + name + "@1.0.0",
-                                               .revision = "revision-1.0.0",
-                                               .integrity = "sha256:" + name}}};
+        DirectoryPackageProvider provider{"local",
+                                          {DirectoryPackageRelease{.name = name,
+                                                                   .manifest = packagePath,
+                                                                   .root = packagePath.parent_path(),
+                                                                   .nativeIdentity = "local/" + name + "@1.0.0",
+                                                                   .revision = "revision-1.0.0",
+                                                                   .integrity = "sha256:" + name}}};
         auto host = Selection();
         host.target.name = "host";
         return ResolveComposition(SemanticResolutionRequest{.project = ParseProject(projectPath),
-                                                             .projectDirectory = root,
-                                                             .workspaceRoot = root,
-                                                             .targetSelection = Selection(),
-                                                             .hostSelection = host,
-                                                             .packageProviders = {&provider}});
+                                                            .projectDirectory = root,
+                                                            .workspaceRoot = root,
+                                                            .targetSelection = Selection(),
+                                                            .hostSelection = host,
+                                                            .packageProviders = {&provider}});
     }
 
     [[nodiscard]] auto Diagnostics(const SemanticResolutionResult &result) -> std::string
     {
         std::string text{};
-        for (const auto &diagnostic : result.diagnostics)
-            text += diagnostic.code + ": " + diagnostic.message + "\n";
+        for (const auto &diagnostic : result.diagnostics) text += diagnostic.code + ": " + diagnostic.message + "\n";
         return text;
     }
 }
@@ -92,11 +89,10 @@ TEST_CASE("CMake AddSubdirectory bindings stay outside the semantic graph and de
     REQUIRE(resolved.graph->CanonicalSerialization().find("CMake") == std::string::npos);
     REQUIRE(resolved.graph->CanonicalSerialization().find("Example::Core") == std::string::npos);
 
-    const auto plans = DeriveCMakePlans(
-        *resolved.graph, resolved.cmakeIntegrations,
-        CMakeAdapterContext{.generator = "Ninja",
-                            .toolchainFile = "cmake/toolchains/linux-clang.cmake",
-                            .crossCompiling = true});
+    const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations,
+                                        CMakeAdapterContext{.generator = "Ninja",
+                                                            .toolchainFile = "cmake/toolchains/linux-clang.cmake",
+                                                            .crossCompiling = true});
     INFO((plans.diagnostics.empty() ? std::string{} : plans.diagnostics[0].code + ": " + plans.diagnostics[0].message));
     REQUIRE(plans.Succeeded());
     REQUIRE(plans.build->plan.identity.starts_with("sha256:"));
@@ -122,7 +118,9 @@ TEST_CASE("CMake FindPackage integration maps exact semantic Exports")
     WriteFile(temp.path() / "src/main.cpp", "");
     const auto projectPath = temp.path() / "FindApp.nginproj";
     const auto packagePath = temp.path() / "Crypto.nginpkg";
-    WriteFile(projectPath, R"xml(<Project Name="FindApp" Type="Application"><Dependencies><Package Name="Crypto" Exact="1.0.0" /></Dependencies></Project>)xml");
+    WriteFile(
+        projectPath,
+        R"xml(<Project Name="FindApp" Type="Application"><Dependencies><Package Name="Crypto" Exact="1.0.0" /></Dependencies></Project>)xml");
     WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Crypto" Version="1.0.0">
   <Exports><Library Name="TLS" Default="true" /></Exports>
   <Integrations><cmake:FindPackage Name="OpenSSL" Config="false" Required="true" Version="3.0.0">
@@ -150,7 +148,9 @@ TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapte
         WriteFile(temp.path() / "CMakeLists.txt", "add_library(Manual::Core INTERFACE IMPORTED GLOBAL)\n");
         const auto projectPath = temp.path() / "ManualApp.nginproj";
         const auto packagePath = temp.path() / "Manual.nginpkg";
-        WriteFile(projectPath, R"xml(<Project Name="ManualApp" Type="Application"><Dependencies><Package Name="Manual" Exact="1.0.0" /></Dependencies></Project>)xml");
+        WriteFile(
+            projectPath,
+            R"xml(<Project Name="ManualApp" Type="Application"><Dependencies><Package Name="Manual" Exact="1.0.0" /></Dependencies></Project>)xml");
         WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Manual" Version="1.0.0">
   <Exports><Library Name="Core" Default="true" /></Exports>
   <Integrations><cmake:Manual Source="."><cmake:Target Export="Core" Name="Manual::Core" />
@@ -171,11 +171,14 @@ TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapte
     {
         TempDir temp{};
         WriteFile(temp.path() / "src/main.cpp", "");
-        WriteFile(temp.path() / "CMakeLists.txt", "add_library(IsolatedCore STATIC empty.cpp)\ninstall(TARGETS IsolatedCore EXPORT IsolatedTargets)\n");
+        WriteFile(temp.path() / "CMakeLists.txt",
+                  "add_library(IsolatedCore STATIC empty.cpp)\ninstall(TARGETS IsolatedCore EXPORT IsolatedTargets)\n");
         WriteFile(temp.path() / "empty.cpp", "");
         const auto projectPath = temp.path() / "IsolatedApp.nginproj";
         const auto packagePath = temp.path() / "Isolated.nginpkg";
-        WriteFile(projectPath, R"xml(<Project Name="IsolatedApp" Type="Application"><Dependencies><Package Name="Isolated" Exact="1.0.0" /></Dependencies></Project>)xml");
+        WriteFile(
+            projectPath,
+            R"xml(<Project Name="IsolatedApp" Type="Application"><Dependencies><Package Name="Isolated" Exact="1.0.0" /></Dependencies></Project>)xml");
         WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Isolated" Version="1.0.0">
   <Exports><Library Name="Core" Default="true" /></Exports>
   <Integrations><cmake:Isolated Source="."><cmake:Install /><cmake:FindPackage Name="Isolated" Config="true">
@@ -191,6 +194,7 @@ TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapte
         const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations);
         REQUIRE(plans.Succeeded());
         REQUIRE(plans.build->packages[0].installBeforeUse);
+        REQUIRE(plans.build->packages[0].binaryDirectory.size() < 32);
         const auto generated = GenerateCMakeProject(*plans.build, *plans.actions);
         REQUIRE_THAT(generated, ContainsSubstring("list(PREPEND CMAKE_PREFIX_PATH"));
         REQUIRE_THAT(generated, ContainsSubstring("find_package(Isolated CONFIG REQUIRED)"));
@@ -218,8 +222,8 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
     INFO(Diagnostics(resolved));
     REQUIRE(resolved.Succeeded());
     const auto packageIdentity = resolved.cmakeIntegrations.Data()[0].packageInstance;
-    const auto package = std::ranges::find(resolved.graph->Data().packages, packageIdentity,
-                                           &GraphPackageInstance::identity);
+    const auto package =
+        std::ranges::find(resolved.graph->Data().packages, packageIdentity, &GraphPackageInstance::identity);
     REQUIRE(package != resolved.graph->Data().packages.end());
     REQUIRE(package->context == PackageInstanceContext::Host);
     const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations,
@@ -231,13 +235,11 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
     REQUIRE(plans.Succeeded());
     REQUIRE(plans.actions->steps.size() == 1);
     REQUIRE(plans.actions->steps[0].toolTarget == "MetaGen");
-    REQUIRE(plans.actions->steps[0].outputs ==
-            std::vector<std::string>{"/workspace/actions/generated/meta.cpp"});
+    REQUIRE(plans.actions->steps[0].outputs == std::vector<std::string>{"/workspace/actions/generated/meta.cpp"});
     REQUIRE(plans.actions->steps[0].arguments[0] == "/workspace/project");
     REQUIRE(plans.actions->steps[0].arguments[1] == "/workspace/contexts/Meta__Generate.xml");
     const auto generated = GenerateCMakeProject(*plans.build, *plans.actions);
-    REQUIRE_THAT(generated,
-                 ContainsSubstring("add_custom_command(OUTPUT \"/workspace/actions/generated/meta.cpp\""));
+    REQUIRE_THAT(generated, ContainsSubstring("add_custom_command(OUTPUT \"/workspace/actions/generated/meta.cpp\""));
     REQUIRE_THAT(generated, ContainsSubstring("DEPENDS MetaGen"));
     REQUIRE_THAT(generated, ContainsSubstring("add_dependencies(Generated ngin_action_Meta__Generate)"));
 }
@@ -245,23 +247,21 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
 TEST_CASE("CMake adapter rejects unsupported semantic capabilities explicitly")
 {
     CompositionGraphData data{};
-    data.product = GraphProduct{.identity = "Modules", .name = "Modules", .type = ProductType::Library,
-                                .linkage = LibraryLinkage::Static};
-    data.buildItems.push_back(GraphBuildItem{.identity = "CxxModule:src/core.cppm",
-                                             .kind = "CxxModule",
-                                             .path = "src/core.cppm",
-                                             .visibility = "Public"});
+    data.product = GraphProduct{
+        .identity = "Modules", .name = "Modules", .type = ProductType::Library, .linkage = LibraryLinkage::Static};
+    data.buildItems.push_back(GraphBuildItem{
+        .identity = "CxxModule:src/core.cppm", .kind = "CxxModule", .path = "src/core.cppm", .visibility = "Public"});
     const ResolvedCompositionGraph graph{std::move(data)};
-    const auto plans = DeriveCMakePlans(
-        graph, ResolvedCMakeIntegrationBindings{},
-        CMakeAdapterContext{.capabilities = CMakeAdapterCapabilities{.cxxModules = false}});
+    const auto plans =
+        DeriveCMakePlans(graph, ResolvedCMakeIntegrationBindings{},
+                         CMakeAdapterContext{.capabilities = CMakeAdapterCapabilities{.cxxModules = false}});
     REQUIRE_FALSE(plans.Succeeded());
     REQUIRE_THAT(plans.diagnostics[0].message, ContainsSubstring("cannot represent C++ module"));
 
-    const auto crossPlans = DeriveCMakePlans(
-        graph, ResolvedCMakeIntegrationBindings{},
-        CMakeAdapterContext{.capabilities = CMakeAdapterCapabilities{.crossCompilation = false},
-                            .crossCompiling = true});
+    const auto crossPlans =
+        DeriveCMakePlans(graph, ResolvedCMakeIntegrationBindings{},
+                         CMakeAdapterContext{.capabilities = CMakeAdapterCapabilities{.crossCompilation = false},
+                                             .crossCompiling = true});
     REQUIRE_FALSE(crossPlans.Succeeded());
     REQUIRE(std::ranges::any_of(crossPlans.diagnostics, [](const ManifestDiagnostic &diagnostic) {
         return diagnostic.message.find("cross compilation") != std::string::npos;

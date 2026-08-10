@@ -21,9 +21,9 @@ namespace NGIN::CLI
                 .severity = ManifestDiagnosticSeverity::Error,
                 .code = std::move(code),
                 .message = std::move(message),
-                .source = ManifestSourceRange{.path = provenance.document,
-                                              .begin = ManifestSourcePosition{.line = provenance.line,
-                                                                              .column = provenance.column}}});
+                .source = ManifestSourceRange{
+                    .path = provenance.document,
+                    .begin = ManifestSourcePosition{.line = provenance.line, .column = provenance.column}}});
         }
 
         [[nodiscard]] auto ProvenanceValue(const GraphProvenance &value) -> CanonicalValue
@@ -105,8 +105,9 @@ namespace NGIN::CLI
         [[nodiscard]] auto RelativeTail(const std::string &source, const std::string &pattern) -> std::string
         {
             const auto wildcard = pattern.find_first_of("*?[");
-            auto prefix = wildcard == std::string::npos ? std::filesystem::path(pattern).parent_path()
-                                                        : std::filesystem::path(pattern.substr(0, wildcard)).parent_path();
+            auto prefix = wildcard == std::string::npos
+                              ? std::filesystem::path(pattern).parent_path()
+                              : std::filesystem::path(pattern.substr(0, wildcard)).parent_path();
             auto tail = std::filesystem::path(source).lexically_relative(prefix);
             if (tail.empty() || tail == ".") tail = std::filesystem::path(source).filename();
             return tail.generic_string();
@@ -135,8 +136,8 @@ namespace NGIN::CLI
                     return;
                 }
                 AddError(diagnostics, "NGIN7202",
-                         "stage destination collision at '" + item.destination + "' between owners '" +
-                             previous.owner + "' and '" + item.owner + "'",
+                         "stage destination collision at '" + item.destination + "' between owners '" + previous.owner +
+                             "' and '" + item.owner + "'",
                          item.provenance);
                 return;
             }
@@ -157,8 +158,9 @@ namespace NGIN::CLI
         {
             auto filename = std::filesystem::path(source).filename().generic_string();
             if (filename.empty() || source.starts_with("artifact:")) filename = product.name;
-            return (product.type == ProductType::Library ? "lib/" : product.type == ProductType::Plugin ? "plugins/"
-                                                                                                         : "bin/") +
+            return (product.type == ProductType::Library  ? "lib/"
+                    : product.type == ProductType::Plugin ? "plugins/"
+                                                          : "bin/") +
                    filename;
         }
 
@@ -181,10 +183,12 @@ namespace NGIN::CLI
             return CanonicalFingerprint(kind, {{"plan", serialize(plan)}});
         }
 
-        [[nodiscard]] auto ProductArtifact(const StagePlan &stage) -> const StagePlanItem *
+        [[nodiscard]] auto ProductArtifact(const StagePlan &stage, const std::string_view owner)
+            -> const StagePlanItem *
         {
-            const auto found = std::ranges::find(stage.items, StagePlanItemKind::ProductArtifact,
-                                                 &StagePlanItem::kind);
+            const auto found = std::ranges::find_if(stage.items, [&](const StagePlanItem &item) {
+                return item.kind == StagePlanItemKind::ProductArtifact && item.owner == owner;
+            });
             return found == stage.items.end() ? nullptr : &*found;
         }
 
@@ -210,7 +214,7 @@ namespace NGIN::CLI
             if (kind == StagePlanItemKind::Symbol) return "Symbol";
             return "Project";
         }
-    }
+    } // namespace
 
     auto DeriveStagePlan(const ResolvedCompositionGraph &graph, const StagePlanBindings &bindings)
         -> DeploymentPlanResult<StagePlan>
@@ -245,15 +249,16 @@ namespace NGIN::CLI
         }
         for (const auto &plugin : data.plugins)
         {
-            const auto [source, symbolic] = ArtifactSource(bindings.pluginArtifacts, plugin.identity,
-                                                           "artifact:plugin:" + plugin.identity);
+            const auto [source, symbolic] =
+                ArtifactSource(bindings.pluginArtifacts, plugin.identity, "artifact:plugin:" + plugin.identity);
             auto filename = std::filesystem::path(source).filename().generic_string();
             if (filename.empty() || symbolic) filename = plugin.exportName;
             AddStageItem(plan, destinations, result.diagnostics,
                          StagePlanItem{.identity = "Stage:Plugin:" + plugin.identity,
                                        .kind = StagePlanItemKind::PluginArtifact,
                                        .owner = plugin.identity,
-                                       .reason = "active Plugin deployment artifact; loading remains application-owned",
+                                       .reason = "active Plugin deployment artifact; "
+                                                 "loading remains application-owned",
                                        .source = source,
                                        .destination = "plugins/" + filename,
                                        .symbolicArtifact = symbolic,
@@ -266,7 +271,8 @@ namespace NGIN::CLI
                 const auto filename = symbol.filename().generic_string();
                 if (filename.empty())
                 {
-                    AddError(result.diagnostics, "NGIN7201", "symbol artifact has no filename for owner '" + owner + "'");
+                    AddError(result.diagnostics, "NGIN7201",
+                             "symbol artifact has no filename for owner '" + owner + "'");
                     continue;
                 }
                 AddStageItem(plan, destinations, result.diagnostics,
@@ -283,13 +289,14 @@ namespace NGIN::CLI
             const auto projectOwned = contribution.owner == data.product.identity;
             const auto packageOwner = PackageOwner(contribution.owner);
             const auto packageRoot = bindings.packageRoots.find(packageOwner);
-            const auto root = projectOwned ? bindings.projectRoot
-                                           : packageRoot == bindings.packageRoots.end() ? std::filesystem::path{}
-                                                                                         : packageRoot->second;
+            const auto root = projectOwned                                 ? bindings.projectRoot
+                              : packageRoot == bindings.packageRoots.end() ? std::filesystem::path{}
+                                                                           : packageRoot->second;
             if (root.empty())
             {
-                AddError(result.diagnostics, "NGIN7201", "no source root binding for stage owner '" +
-                                                             contribution.owner + "'", contribution.provenance);
+                AddError(result.diagnostics, "NGIN7201",
+                         "no source root binding for stage owner '" + contribution.owner + "'",
+                         contribution.provenance);
                 continue;
             }
             const auto directoryContribution = contribution.kind.ends_with("Directory");
@@ -300,23 +307,27 @@ namespace NGIN::CLI
                 std::error_code error{};
                 if (!std::filesystem::is_directory(directory, error))
                 {
-                    AddError(result.diagnostics, "NGIN7201", "stage directory source is missing: " +
-                                                                 directory.generic_string(), contribution.provenance);
+                    AddError(result.diagnostics, "NGIN7201",
+                             "stage directory source is missing: " + directory.generic_string(),
+                             contribution.provenance);
                     continue;
                 }
-                auto expanded = ExpandPortableGlob(root, contribution.include + "/**",
-                                                   bindings.targetCaseInsensitive);
-                result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(), expanded.diagnostics.end());
+                auto expanded = ExpandPortableGlob(root, contribution.include + "/**", bindings.targetCaseInsensitive,
+                                                   {}, bindings.allowSymlinks);
+                result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
+                                          expanded.diagnostics.end());
                 matches = std::move(expanded.matches);
             }
             else if (HasGlob(contribution.include))
             {
-                auto expanded = ExpandPortableGlob(root, contribution.include, bindings.targetCaseInsensitive);
-                result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(), expanded.diagnostics.end());
+                auto expanded = ExpandPortableGlob(root, contribution.include, bindings.targetCaseInsensitive, {},
+                                                   bindings.allowSymlinks);
+                result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
+                                          expanded.diagnostics.end());
                 matches = std::move(expanded.matches);
                 if (matches.empty() && expanded.diagnostics.empty())
-                    AddError(result.diagnostics, "NGIN7201", "stage file pattern matched no files: " +
-                                                                 contribution.include, contribution.provenance);
+                    AddError(result.diagnostics, "NGIN7201",
+                             "stage file pattern matched no files: " + contribution.include, contribution.provenance);
             }
             else
             {
@@ -324,8 +335,8 @@ namespace NGIN::CLI
                 std::error_code error{};
                 if (!std::filesystem::is_regular_file(source, error))
                 {
-                    AddError(result.diagnostics, "NGIN7201", "stage file source is missing: " +
-                                                                 source.generic_string(), contribution.provenance);
+                    AddError(result.diagnostics, "NGIN7201", "stage file source is missing: " + source.generic_string(),
+                             contribution.provenance);
                     continue;
                 }
                 matches.push_back(PortablePath{.value = contribution.include});
@@ -336,15 +347,17 @@ namespace NGIN::CLI
                 auto destination = contribution.destination;
                 if (directoryContribution || HasGlob(contribution.include) || packageStyleDestination)
                     destination += "/" + RelativeTail(match.value, contribution.include);
-                AddStageItem(plan, destinations, result.diagnostics,
-                             StagePlanItem{.identity = "Stage:Contribution:" + contribution.identity + ":" + match.value,
-                                           .kind = ContributionKind(contribution),
-                                           .owner = contribution.owner,
-                                           .reason = contribution.provenance.reason,
-                                           .source = (root / std::filesystem::path(match.value)).lexically_normal().generic_string(),
-                                           .destination = destination,
-                                           .provenance = contribution.provenance},
-                             bindings);
+                AddStageItem(
+                    plan, destinations, result.diagnostics,
+                    StagePlanItem{.identity = "Stage:Contribution:" + contribution.identity + ":" + match.value,
+                                  .kind = ContributionKind(contribution),
+                                  .owner = contribution.owner,
+                                  .reason = contribution.provenance.reason,
+                                  .source =
+                                      (root / std::filesystem::path(match.value)).lexically_normal().generic_string(),
+                                  .destination = destination,
+                                  .provenance = contribution.provenance},
+                    bindings);
             }
         }
         if (!result.diagnostics.empty()) return result;
@@ -378,8 +391,9 @@ namespace NGIN::CLI
         }
         if (selected == nullptr)
         {
-            AddError(result.diagnostics, "NGIN7210", launchName.has_value() ? "unknown Launch '" + *launchName + "'"
-                                                                            : "multiple Launch definitions require a name or Default");
+            AddError(result.diagnostics, "NGIN7210",
+                     launchName.has_value() ? "unknown Launch '" + *launchName + "'"
+                                            : "multiple Launch definitions require a name or Default");
             return result;
         }
         LaunchPlan plan{.plan = PlanIdentity{.kind = "LaunchPlan",
@@ -387,8 +401,10 @@ namespace NGIN::CLI
                                              .adapter = "NGIN.Process",
                                              .adapterVersion = "1"},
                         .name = selected->name,
-                        .workingDirectory = (std::filesystem::path(stage.stageRoot) /
-                                             std::filesystem::path(selected->workingDirectory)).lexically_normal().generic_string(),
+                        .workingDirectory =
+                            (std::filesystem::path(stage.stageRoot) / std::filesystem::path(selected->workingDirectory))
+                                .lexically_normal()
+                                .generic_string(),
                         .arguments = selected->arguments,
                         .environment = selected->environment,
                         .secretReferences = selected->secrets};
@@ -402,18 +418,20 @@ namespace NGIN::CLI
         {
             if (selected->executable != graph.Data().product.name)
             {
-                AddError(result.diagnostics, "NGIN7210", "Launch selects unknown Product '" + selected->executable + "'",
-                         selected->provenance);
+                AddError(result.diagnostics, "NGIN7210",
+                         "Launch selects unknown Product '" + selected->executable + "'", selected->provenance);
                 return result;
             }
-            const auto *artifact = ProductArtifact(stage);
+            const auto *artifact = ProductArtifact(stage, graph.Data().product.identity);
             if (artifact == nullptr)
                 AddError(result.diagnostics, "NGIN7210", "Launch product has no staged artifact", selected->provenance);
             else
             {
-                plan.executable = artifact->symbolicArtifact ? artifact->source
-                                                             : (std::filesystem::path(stage.stageRoot) /
-                                                                artifact->destination).lexically_normal().generic_string();
+                plan.executable = artifact->symbolicArtifact
+                                      ? artifact->source
+                                      : (std::filesystem::path(stage.stageRoot) / artifact->destination)
+                                            .lexically_normal()
+                                            .generic_string();
                 plan.symbolicExecutable = artifact->symbolicArtifact;
                 plan.prerequisites.push_back(artifact->identity);
             }
@@ -421,18 +439,21 @@ namespace NGIN::CLI
         else
         {
             const auto separator = selected->executable.rfind("::");
-            const auto active = separator == std::string::npos ? graph.Data().exports.end()
-                : std::ranges::find_if(graph.Data().exports, [&](const GraphExport &candidate) {
-                      const auto package = std::ranges::find(graph.Data().packages, candidate.packageInstance,
-                                                             &GraphPackageInstance::identity);
-                      return package != graph.Data().packages.end() && candidate.kind == ExportUseKind::Tool &&
-                             package->coordinate.name == selected->executable.substr(0, separator) &&
-                             candidate.name == selected->executable.substr(separator + 2);
-                  });
+            const auto active =
+                separator == std::string::npos
+                    ? graph.Data().exports.end()
+                    : std::ranges::find_if(graph.Data().exports, [&](const GraphExport &candidate) {
+                          const auto package = std::ranges::find(graph.Data().packages, candidate.packageInstance,
+                                                                 &GraphPackageInstance::identity);
+                          return package != graph.Data().packages.end() && candidate.kind == ExportUseKind::Tool &&
+                                 package->coordinate.name == selected->executable.substr(0, separator) &&
+                                 candidate.name == selected->executable.substr(separator + 2);
+                      });
             if (active == graph.Data().exports.end())
             {
-                AddError(result.diagnostics, "NGIN7210", "Launch Tool is not an active Tool Export: '" +
-                                                             selected->executable + "'", selected->provenance);
+                AddError(result.diagnostics, "NGIN7210",
+                         "Launch Tool is not an active Tool Export: '" + selected->executable + "'",
+                         selected->provenance);
                 return result;
             }
             const auto found = bindings.toolArtifacts.find(selected->executable);
@@ -443,8 +464,10 @@ namespace NGIN::CLI
         const auto variable = RuntimeVariable(graph.Data().selection.targetOperatingSystem);
         const auto libraryPath = (std::filesystem::path(stage.stageRoot) / "lib").lexically_normal().generic_string();
         if (const auto current = plan.environment.find(variable); current != plan.environment.end())
-            current->second = libraryPath + RuntimeSeparator(graph.Data().selection.targetOperatingSystem) + current->second;
-        else plan.environment.emplace(variable, libraryPath);
+            current->second =
+                libraryPath + RuntimeSeparator(graph.Data().selection.targetOperatingSystem) + current->second;
+        else
+            plan.environment.emplace(variable, libraryPath);
         if (!result.diagnostics.empty()) return result;
         std::ranges::sort(plan.prerequisites);
         plan.plan.identity = FingerprintLaunchPlan(plan);
@@ -452,8 +475,7 @@ namespace NGIN::CLI
         return result;
     }
 
-    auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage)
-        -> DeploymentPlanResult<TestPlan>
+    auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage) -> DeploymentPlanResult<TestPlan>
     {
         DeploymentPlanResult<TestPlan> result{};
         if (!graph.Data().testing.has_value())
@@ -461,7 +483,7 @@ namespace NGIN::CLI
             AddError(result.diagnostics, "NGIN7220", "project has no Testing intent and is not a Test product");
             return result;
         }
-        const auto *artifact = ProductArtifact(stage);
+        const auto *artifact = ProductArtifact(stage, graph.Data().product.identity);
         if (artifact == nullptr)
         {
             AddError(result.diagnostics, "NGIN7220", "TestPlan requires a product artifact");
@@ -471,9 +493,11 @@ namespace NGIN::CLI
                                            .compositionIdentity = graph.CompositionIdentity(),
                                            .adapter = "NGIN.Test",
                                            .adapterVersion = "1"},
-                      .executable = artifact->symbolicArtifact ? artifact->source
-                                                               : (std::filesystem::path(stage.stageRoot) /
-                                                                  artifact->destination).lexically_normal().generic_string(),
+                      .executable = artifact->symbolicArtifact
+                                        ? artifact->source
+                                        : (std::filesystem::path(stage.stageRoot) / artifact->destination)
+                                              .lexically_normal()
+                                              .generic_string(),
                       .symbolicExecutable = artifact->symbolicArtifact,
                       .arguments = graph.Data().testing->arguments,
                       .timeoutSeconds = graph.Data().testing->timeoutSeconds};
@@ -578,7 +602,7 @@ namespace NGIN::CLI
                                                          {"symbolicExecutable", plan.symbolicExecutable},
                                                          {"timeoutSeconds", plan.timeoutSeconds.has_value()
                                                                                 ? CanonicalValue{*plan.timeoutSeconds}
-                                                                                : CanonicalValue{nullptr}}} );
+                                                                                : CanonicalValue{nullptr}}});
     }
 
     auto SerializePublishPlan(const PublishPlan &plan) -> std::string
@@ -651,7 +675,8 @@ namespace NGIN::CLI
                 AddError(result.diagnostics, "NGIN7240", "stage source is missing: " + item.source, item.provenance);
                 continue;
             }
-            const auto destination = std::filesystem::weakly_canonical(root / std::filesystem::path(item.destination), error);
+            const auto destination =
+                std::filesystem::weakly_canonical(root / std::filesystem::path(item.destination), error);
             if (error)
             {
                 error.clear();
@@ -663,7 +688,8 @@ namespace NGIN::CLI
                     const auto relative = target.lexically_relative(root);
                     if (!relative.empty() && !relative.is_absolute() && *relative.begin() != "..")
                     {
-                        std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, error);
+                        std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing,
+                                                   error);
                         if (!error) result.written.push_back(target);
                     }
                 }
@@ -671,12 +697,14 @@ namespace NGIN::CLI
             else
             {
                 const auto relative = destination.lexically_relative(root);
-                if (relative.empty() || relative.is_absolute() || *relative.begin() == "..") error = std::make_error_code(std::errc::permission_denied);
+                if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
+                    error = std::make_error_code(std::errc::permission_denied);
                 else
                 {
                     std::filesystem::create_directories(destination.parent_path(), error);
-                    if (!error) std::filesystem::copy_file(source, destination,
-                                                           std::filesystem::copy_options::overwrite_existing, error);
+                    if (!error)
+                        std::filesystem::copy_file(source, destination,
+                                                   std::filesystem::copy_options::overwrite_existing, error);
                     if (!error) result.written.push_back(destination);
                 }
             }
@@ -693,15 +721,18 @@ namespace NGIN::CLI
 
     auto GenerateCPackConfiguration(const PublishPlan &plan) -> std::string
     {
-        const auto generator = plan.outputKind == "Archive" ? plan.format == "zip" ? "ZIP" : "TGZ"
+        const auto generator = plan.outputKind == "Archive"     ? plan.format == "zip" ? "ZIP" : "TGZ"
                                : plan.outputKind == "Installer" ? plan.format == "msi" ? "WIX" : "DEB"
-                                                                 : "External";
+                                                                : "External";
         std::ostringstream out{};
         out << "# Generated exclusively from NGIN.PublishPlan " << plan.plan.identity << "\n";
         out << "set(CPACK_GENERATOR \"" << generator << "\")\n";
-        out << "set(CPACK_PACKAGE_FILE_NAME \"" << std::filesystem::path(plan.output).stem().generic_string() << "\")\n";
-        out << "set(CPACK_PACKAGE_DIRECTORY \"" << std::filesystem::path(plan.output).parent_path().generic_string() << "\")\n";
-        if (plan.license.has_value()) out << "set(CPACK_PACKAGE_DESCRIPTION_SUMMARY \"License: " << *plan.license << "\")\n";
+        out << "set(CPACK_PACKAGE_FILE_NAME \"" << std::filesystem::path(plan.output).stem().generic_string()
+            << "\")\n";
+        out << "set(CPACK_PACKAGE_DIRECTORY \"" << std::filesystem::path(plan.output).parent_path().generic_string()
+            << "\")\n";
+        if (plan.license.has_value())
+            out << "set(CPACK_PACKAGE_DESCRIPTION_SUMMARY \"License: " << *plan.license << "\")\n";
         for (const auto &input : plan.inputs)
         {
             const auto destination = std::filesystem::path(input.destination);
@@ -712,4 +743,4 @@ namespace NGIN::CLI
         out << "include(CPack)\n";
         return out.str();
     }
-}
+} // namespace NGIN::CLI

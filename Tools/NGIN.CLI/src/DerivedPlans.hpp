@@ -54,6 +54,10 @@ namespace NGIN::CLI
         std::string targetName{};
         std::string targetKind{};
         std::string configuration{};
+        std::string compiler{};
+        std::string optimization{"Off"};
+        bool debugSymbols{false};
+        bool linkTimeOptimization{false};
         std::string languageStandard{"C++23"};
         bool languageExtensions{false};
         bool languageRequired{true};
@@ -95,4 +99,4 @@ namespace NGIN::CLI
     [[nodiscard]] auto SerializeActionPlan(const ActionPlan &plan) -> std::string;
     [[nodiscard]] auto FingerprintBuildPlan(const BuildPlan &plan) -> std::string;
     [[nodiscard]] auto FingerprintActionPlan(const ActionPlan &plan) -> std::string;
-}
+} // namespace NGIN::CLI

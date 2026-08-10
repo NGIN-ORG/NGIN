@@ -50,10 +50,10 @@ namespace NGIN::CLI
                       const ManifestSourceRange &source, std::vector<ManifestSourceRange> related = {}) -> void
         {
             diagnostics.push_back(ManifestDiagnostic{.severity = ManifestDiagnosticSeverity::Error,
-                                                       .code = std::move(code),
-                                                       .message = std::move(message),
-                                                       .source = source,
-                                                       .relatedSources = std::move(related)});
+                                                     .code = std::move(code),
+                                                     .message = std::move(message),
+                                                     .source = source,
+                                                     .relatedSources = std::move(related)});
         }
 
         [[nodiscard]] auto ParseProductType(const std::string_view value) -> ProductType
@@ -147,8 +147,10 @@ namespace NGIN::CLI
                             const auto kind = UseKind(child);
                             if (kind.has_value())
                             {
-                                const auto name = child.attributes.empty() ? std::string{} : child.attributes.front().value;
-                                request.exports.push_back(ExportUse{.kind = *kind, .name = name, .source = child.source});
+                                const auto name =
+                                    child.attributes.empty() ? std::string{} : child.attributes.front().value;
+                                request.exports.push_back(
+                                    ExportUse{.kind = *kind, .name = name, .source = child.source});
                             }
                         }
                         else if (child.name == "Option")
@@ -172,8 +174,11 @@ namespace NGIN::CLI
                     if (const auto path = AttributeValue(node, "Path"); !path.empty())
                     {
                         const auto normalized = NormalizePortablePath(path, PortablePathBase::Manifest, node.source);
-                        if (normalized.Succeeded()) request.path = *normalized.value;
-                        else diagnostics.insert(diagnostics.end(), normalized.diagnostics.begin(), normalized.diagnostics.end());
+                        if (normalized.Succeeded())
+                            request.path = *normalized.value;
+                        else
+                            diagnostics.insert(diagnostics.end(), normalized.diagnostics.begin(),
+                                               normalized.diagnostics.end());
                     }
                     project.dependencies.emplace_back(std::move(request));
                 }
@@ -210,9 +215,10 @@ namespace NGIN::CLI
                 }
                 if (node.name == "UnityBuild")
                 {
-                    project.build.unityBuild = UnityBuildSetting{.enabled = BoolAttributeValue(node, "Enabled"),
-                                                                 .batchSize = ParseInteger(AttributeValue(node, "BatchSize")),
-                                                                 .source = node.source};
+                    project.build.unityBuild =
+                        UnityBuildSetting{.enabled = BoolAttributeValue(node, "Enabled"),
+                                          .batchSize = ParseInteger(AttributeValue(node, "BatchSize")),
+                                          .source = node.source};
                     continue;
                 }
                 if (node.name == "Convention")
@@ -244,14 +250,19 @@ namespace NGIN::CLI
                     declaration.pattern = AttributeValue(node, "Name");
                 else
                     declaration.pattern = AttributeValue(node, "Value");
-                if (const auto exclude = AttributeValue(node, "Exclude"); !exclude.empty()) declaration.exclude = exclude;
+                if (const auto exclude = AttributeValue(node, "Exclude"); !exclude.empty())
+                    declaration.exclude = exclude;
                 if (const auto into = AttributeValue(node, "Into"); !into.empty())
                 {
                     const auto destination = NormalizeStageDestination(into, node.source);
-                    if (destination.Succeeded()) declaration.destination = *destination.value;
-                    else diagnostics.insert(diagnostics.end(), destination.diagnostics.begin(), destination.diagnostics.end());
+                    if (destination.Succeeded())
+                        declaration.destination = *destination.value;
+                    else
+                        diagnostics.insert(diagnostics.end(), destination.diagnostics.begin(),
+                                           destination.diagnostics.end());
                 }
-                if (HasAttribute(node, "Visibility")) declaration.visibility = ParseVisibility(AttributeValue(node, "Visibility"));
+                if (HasAttribute(node, "Visibility"))
+                    declaration.visibility = ParseVisibility(AttributeValue(node, "Visibility"));
                 if (HasAttribute(node, "Generated")) declaration.generated = BoolAttributeValue(node, "Generated");
                 if (HasAttribute(node, "System")) declaration.system = BoolAttributeValue(node, "System");
                 declaration.allowEmpty = BoolAttributeValue(node, "AllowEmpty");
@@ -260,6 +271,169 @@ namespace NGIN::CLI
                     declaration.value = AttributeValue(node, "Value");
                 project.build.declarations.push_back(std::move(declaration));
             }
+        }
+
+        auto ParseStage(const AuthoredElement &stage, const std::string_view directorySpecId,
+                        std::vector<ProjectStageInput> &result, std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            for (const auto &node : stage.children)
+            {
+                const auto include =
+                    NormalizePortablePath(AttributeValue(node, "Include"), PortablePathBase::Manifest, node.source);
+                const auto destination = NormalizeStageDestination(AttributeValue(node, "Into"), node.source);
+                diagnostics.insert(diagnostics.end(), include.diagnostics.begin(), include.diagnostics.end());
+                diagnostics.insert(diagnostics.end(), destination.diagnostics.begin(), destination.diagnostics.end());
+                if (include.Succeeded() && destination.Succeeded())
+                    result.push_back(ProjectStageInput{
+                        .kind = node.specId == directorySpecId ? StageInputKind::Directory : StageInputKind::File,
+                        .include = *include.value,
+                        .destination = *destination.value,
+                        .source = node.source});
+            }
+        }
+
+        [[nodiscard]] auto BuildDeclarationIdentity(const BuildItemDeclaration &declaration) -> std::string
+        {
+            return std::to_string(static_cast<int>(declaration.kind)) + ":" + declaration.pattern;
+        }
+
+        [[nodiscard]] auto CanonicalBuildDeclaration(const BuildItemDeclaration &declaration) -> CanonicalValue
+        {
+            CanonicalValue::Object value{
+                {"allowEmpty", declaration.allowEmpty},
+                {"detail", declaration.detail},
+                {"kind", static_cast<std::int64_t>(declaration.kind)},
+                {"operation", static_cast<std::int64_t>(declaration.operation)},
+                {"pattern", declaration.pattern},
+            };
+            if (declaration.destination.has_value()) value["destination"] = declaration.destination->value;
+            if (declaration.visibility.has_value())
+                value["visibility"] = static_cast<std::int64_t>(*declaration.visibility);
+            if (declaration.value.has_value()) value["value"] = *declaration.value;
+            if (declaration.generated.has_value()) value["generated"] = *declaration.generated;
+            if (declaration.system.has_value()) value["system"] = *declaration.system;
+            if (declaration.exclude.has_value()) value["exclude"] = *declaration.exclude;
+            return value;
+        }
+
+        auto AddRefinementAssignment(ProjectRefinement &refinement, std::string category, std::string identity,
+                                     CanonicalValue value, const ManifestSourceRange &source) -> void
+        {
+            refinement.semantic.assignments.push_back(RefinementAssignment{.category = std::move(category),
+                                                                           .identity = std::move(identity),
+                                                                           .value = std::move(value),
+                                                                           .source = source});
+        }
+
+        auto ParseProjectRefinement(const AuthoredElement &authored, const SemanticProject &project,
+                                    const DependencyContext rootContext, ProjectRefinement &refinement,
+                                    std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            refinement.semantic.source = authored.source;
+            const auto *select = Child(authored, "project.refinement.select");
+            if (select == nullptr) return;
+            if (const auto *configuration = Child(*select, "project.refinement.select.configuration"))
+                refinement.semantic.selector.configuration = AttributeValue(*configuration, "Name");
+            if (const auto *target = Child(*select, "project.refinement.select.target"))
+            {
+                if (HasAttribute(*target, "Name"))
+                    refinement.semantic.selector.targetName = AttributeValue(*target, "Name");
+                if (HasAttribute(*target, "OS"))
+                    refinement.semantic.selector.targetOperatingSystem = AttributeValue(*target, "OS");
+                if (HasAttribute(*target, "Architecture"))
+                    refinement.semantic.selector.targetArchitecture = AttributeValue(*target, "Architecture");
+            }
+            if (const auto *toolchain = Child(*select, "project.refinement.select.toolchain"))
+            {
+                if (HasAttribute(*toolchain, "Name"))
+                    refinement.semantic.selector.toolchainName = AttributeValue(*toolchain, "Name");
+                if (HasAttribute(*toolchain, "Compiler"))
+                    refinement.semantic.selector.compiler = AttributeValue(*toolchain, "Compiler");
+            }
+            for (const auto *option : Children(*select, "project.refinement.select.option"))
+            {
+                const auto name = AttributeValue(*option, "Name");
+                const auto definition = project.options.find(name);
+                if (definition == project.options.end())
+                {
+                    AddError(diagnostics, "NGIN2006", "Refinement selects undeclared Option '" + name + "'",
+                             option->source);
+                    continue;
+                }
+                const auto value =
+                    ParseOptionValue(definition->second, AttributeValue(*option, "Value"), option->source);
+                diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
+                if (value.Succeeded()) refinement.semantic.selector.options.emplace(name, *value.value);
+            }
+            const auto &selector = refinement.semantic.selector;
+            if (!selector.configuration.has_value() && !selector.targetName.has_value() &&
+                !selector.targetOperatingSystem.has_value() && !selector.targetArchitecture.has_value() &&
+                !selector.toolchainName.has_value() && !selector.compiler.has_value() && selector.options.empty())
+                AddError(diagnostics, "NGIN2006", "Refinement Select must contain at least one selection fact",
+                         select->source);
+
+            if (const auto *build = Child(authored, "project.refinement.build"))
+            {
+                SemanticProject parsed{.type = project.type};
+                ParseBuild(*build, parsed, diagnostics);
+                if (HasAttribute(*build, "Conventions"))
+                {
+                    refinement.build.conventions = SourcedAssignment<bool>{.value = parsed.build.conventions,
+                                                                           .authority = AssignmentAuthority::Refinement,
+                                                                           .source = build->source,
+                                                                           .description = "matched project Refinement"};
+                    AddRefinementAssignment(refinement, "BuildScalar", "Conventions", parsed.build.conventions,
+                                            build->source);
+                }
+                if (const auto *language = Child(*build, "project.refinement.build.language"))
+                {
+                    refinement.build.language = parsed.build.language;
+                    AddRefinementAssignment(refinement, "BuildScalar", "Language",
+                                            CanonicalValue::Object{{"extensions", parsed.build.language.extensions},
+                                                                   {"required", parsed.build.language.required},
+                                                                   {"standard", parsed.build.language.standard}},
+                                            language->source);
+                }
+                if (const auto *unity = Child(*build, "project.refinement.build.unity-build"))
+                {
+                    refinement.build.unityBuild = parsed.build.unityBuild;
+                    CanonicalValue::Object value{{"enabled", parsed.build.unityBuild->enabled}};
+                    if (parsed.build.unityBuild->batchSize.has_value())
+                        value["batchSize"] = *parsed.build.unityBuild->batchSize;
+                    AddRefinementAssignment(refinement, "BuildScalar", "UnityBuild", std::move(value), unity->source);
+                }
+                for (const auto &node : build->children)
+                    if (node.name == "Convention")
+                    {
+                        const auto name = AttributeValue(node, "Name");
+                        const auto enabled = BoolAttributeValue(node, "Enabled");
+                        refinement.build.namedConventions[name] =
+                            SourcedAssignment<bool>{.value = enabled,
+                                                    .authority = AssignmentAuthority::Refinement,
+                                                    .source = node.source,
+                                                    .description = "matched project Refinement"};
+                        AddRefinementAssignment(refinement, "BuildConvention", name, enabled, node.source);
+                    }
+                refinement.build.declarations = std::move(parsed.build.declarations);
+                for (const auto &declaration : refinement.build.declarations)
+                    AddRefinementAssignment(refinement, "BuildItem", BuildDeclarationIdentity(declaration),
+                                            CanonicalBuildDeclaration(declaration), declaration.source);
+            }
+            if (const auto *dependencies = Child(authored, "project.refinement.dependencies"))
+            {
+                SemanticProject parsed{};
+                ParseDependencies(*dependencies, rootContext, std::nullopt, parsed, diagnostics);
+                refinement.dependencies = std::move(parsed.dependencies);
+            }
+            if (const auto *stage = Child(authored, "project.refinement.stage"))
+                ParseStage(*stage, "project.refinement.stage.directory", refinement.stage, diagnostics);
+        }
+
+        [[nodiscard]] auto SameSource(const ManifestSourceRange &left, const ManifestSourceRange &right) -> bool
+        {
+            return left.path == right.path && left.begin.line == right.begin.line &&
+                   left.begin.column == right.begin.column && left.end.line == right.end.line &&
+                   left.end.column == right.end.column;
         }
 
         [[nodiscard]] auto KindName(const BuildItemKind kind) -> std::string_view
@@ -279,7 +453,8 @@ namespace NGIN::CLI
             return "Unknown";
         }
 
-        [[nodiscard]] auto DefaultVisibility(const SemanticProject &project, const BuildItemKind kind) -> BuildVisibility
+        [[nodiscard]] auto DefaultVisibility(const SemanticProject &project, const BuildItemKind kind)
+            -> BuildVisibility
         {
             return project.type == ProductType::Library && kind == BuildItemKind::Header ? BuildVisibility::Public
                                                                                          : BuildVisibility::Private;
@@ -337,7 +512,7 @@ namespace NGIN::CLI
                    (HasMagic(declaration.pattern) ? GlobMatchesPortable(declaration.pattern, item.path.value)
                                                   : declaration.pattern == item.path.value);
         }
-    }
+    } // namespace
 
     auto ResolvedProjectBuild::Succeeded() const -> bool { return diagnostics.empty(); }
     auto SemanticProjectResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
@@ -360,14 +535,14 @@ namespace NGIN::CLI
     auto ParseSemanticProject(const AuthoredProjectManifest &project) -> SemanticProjectResult
     {
         SemanticProjectResult result{};
-        SemanticProject semantic{.manifest = project.manifest,
-                                 .name = project.name,
-                                 .type = ParseProductType(project.type)};
+        SemanticProject semantic{
+            .manifest = project.manifest, .name = project.name, .type = ParseProductType(project.type)};
         if (project.version.has_value()) semantic.version = ParseSemanticVersion(*project.version);
         if (semantic.type == ProductType::Library)
             semantic.linkage = ParseLinkage(AttributeValue(project.root, "Linkage", "Static"));
         else if (HasAttribute(project.root, "Linkage"))
-            AddError(result.diagnostics, "NGIN3000", "Linkage is valid only for a Library product", project.root.source);
+            AddError(result.diagnostics, "NGIN3000", "Linkage is valid only for a Library product",
+                     project.root.source);
 
         if (const auto *metadata = Child(project.root, "project.metadata"))
         {
@@ -380,11 +555,14 @@ namespace NGIN::CLI
             semantic.metadata.homepage = text("project.metadata.homepage");
             semantic.metadata.vendor = text("project.metadata.vendor");
         }
-        if (const auto *options = Child(project.root, "project.options")) ParseOptions(*options, semantic, result.diagnostics);
+        if (const auto *options = Child(project.root, "project.options"))
+            ParseOptions(*options, semantic, result.diagnostics);
 
         DependencyContext rootContext = DependencyContext::Target;
-        if (semantic.type == ProductType::Test) rootContext = DependencyContext::Test;
-        else if (semantic.type == ProductType::Benchmark) rootContext = DependencyContext::Benchmark;
+        if (semantic.type == ProductType::Test)
+            rootContext = DependencyContext::Test;
+        else if (semantic.type == ProductType::Benchmark)
+            rootContext = DependencyContext::Benchmark;
         if (const auto *dependencies = Child(project.root, "project.dependencies"))
             ParseDependencies(*dependencies, rootContext, std::nullopt, semantic, result.diagnostics);
 
@@ -402,7 +580,8 @@ namespace NGIN::CLI
             {
                 if (child.name == "Input")
                 {
-                    if (!HasAttribute(child, "Include") || HasAttribute(child, "Remove") || HasAttribute(child, "Update"))
+                    if (!HasAttribute(child, "Include") || HasAttribute(child, "Remove") ||
+                        HasAttribute(child, "Update"))
                         AddError(result.diagnostics, "NGIN5005",
                                  "Generate Input requires Include and cannot Remove or Update", child.source);
                     else
@@ -423,7 +602,8 @@ namespace NGIN::CLI
                         AddError(result.diagnostics, "NGIN5005", "conflicting Generate Option '" + name + "'",
                                  child.source);
                 }
-                else if (child.name == "Argument") selection.arguments.push_back(child.text);
+                else if (child.name == "Argument")
+                    selection.arguments.push_back(child.text);
             }
             ValidateQualifiedAction(selection, result.diagnostics);
             semantic.actions.push_back(std::move(selection));
@@ -438,23 +618,7 @@ namespace NGIN::CLI
                 semantic.actions.push_back(std::move(selection));
             }
         if (const auto *stage = Child(project.root, "project.stage"))
-            for (const auto &node : stage->children)
-            {
-                const auto include = NormalizePortablePath(AttributeValue(node, "Include"),
-                                                           PortablePathBase::Manifest, node.source);
-                const auto destination = NormalizeStageDestination(AttributeValue(node, "Into"), node.source);
-                if (!include.Succeeded())
-                    result.diagnostics.insert(result.diagnostics.end(), include.diagnostics.begin(), include.diagnostics.end());
-                if (!destination.Succeeded())
-                    result.diagnostics.insert(result.diagnostics.end(), destination.diagnostics.begin(), destination.diagnostics.end());
-                if (include.Succeeded() && destination.Succeeded())
-                    semantic.stage.push_back(ProjectStageInput{.kind = node.specId == "project.stage.directory"
-                                                                           ? StageInputKind::Directory
-                                                                           : StageInputKind::File,
-                                                                .include = *include.value,
-                                                                .destination = *destination.value,
-                                                                .source = node.source});
-            }
+            ParseStage(*stage, "project.stage.directory", semantic.stage, result.diagnostics);
 
         std::optional<ManifestSourceRange> defaultLaunchSource{};
         for (const auto *launch : Children(project.root, "project.launch"))
@@ -468,42 +632,50 @@ namespace NGIN::CLI
                 const auto productName = AttributeValue(*executable, "Product");
                 const auto toolName = AttributeValue(*executable, "Tool");
                 if (!productName.empty() && !toolName.empty())
-                    AddError(result.diagnostics, "NGIN3012", "Launch Executable selects either Product or Tool, not both",
-                             executable->source);
+                    AddError(result.diagnostics, "NGIN3012",
+                             "Launch Executable selects either Product or Tool, not both", executable->source);
                 else if (!toolName.empty())
                 {
                     definition.product.reset();
                     definition.tool = toolName;
                 }
-                else if (!productName.empty()) definition.product = productName;
+                else if (!productName.empty())
+                    definition.product = productName;
             }
             if (const auto *working = Child(*launch, "project.launch.working-directory"))
             {
                 const auto path = AttributeValue(*working, "Path");
-                if (path == ".") definition.workingDirectory = PortablePath{.value = "."};
+                if (path == ".")
+                    definition.workingDirectory = PortablePath{.value = "."};
                 else
                 {
                     const auto normalized = NormalizeStageDestination(path, working->source);
-                    if (normalized.Succeeded()) definition.workingDirectory = *normalized.value;
-                    else result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(), normalized.diagnostics.end());
+                    if (normalized.Succeeded())
+                        definition.workingDirectory = *normalized.value;
+                    else
+                        result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
+                                                  normalized.diagnostics.end());
                 }
             }
             for (const auto &child : launch->children)
             {
-                if (child.specId == "project.launch.argument") definition.arguments.push_back(child.text);
+                if (child.specId == "project.launch.argument")
+                    definition.arguments.push_back(child.text);
                 else if (child.specId == "project.launch.environment")
                 {
                     const auto name = AttributeValue(child, "Name");
                     if (definition.secrets.contains(name) ||
                         !definition.environment.emplace(name, AttributeValue(child, "Value")).second)
-                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch Environment '" + name + "'", child.source);
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch Environment '" + name + "'",
+                                 child.source);
                 }
                 else if (child.specId == "project.launch.secret")
                 {
                     const auto name = AttributeValue(child, "Name");
                     if (definition.environment.contains(name) ||
                         !definition.secrets.emplace(name, AttributeValue(child, "From")).second)
-                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch environment/Secret '" + name + "'", child.source);
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch environment/Secret '" + name + "'",
+                                 child.source);
                 }
             }
             if (definition.defaultLaunch)
@@ -511,7 +683,8 @@ namespace NGIN::CLI
                 if (defaultLaunchSource.has_value())
                     AddError(result.diagnostics, "NGIN3012", "only one Launch may be Default", launch->source,
                              {*defaultLaunchSource});
-                else defaultLaunchSource = launch->source;
+                else
+                    defaultLaunchSource = launch->source;
             }
             semantic.launches.push_back(std::move(definition));
         }
@@ -520,7 +693,8 @@ namespace NGIN::CLI
             ProjectTestingDefinition definition{.source = testing->source};
             for (const auto &child : testing->children)
             {
-                if (child.specId == "project.testing.argument") definition.arguments.push_back(child.text);
+                if (child.specId == "project.testing.argument")
+                    definition.arguments.push_back(child.text);
                 else if (child.specId == "project.testing.timeout")
                 {
                     definition.timeoutSeconds = ParseInteger(AttributeValue(child, "Seconds"));
@@ -533,8 +707,9 @@ namespace NGIN::CLI
             if (const auto *dependencies = Child(*testing, "project.testing.dependencies"))
             {
                 if (semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark)
-                    AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
-                                                              " products declare test dependencies at the root",
+                    AddError(result.diagnostics, "NGIN3000",
+                             std::string(ProductTypeName(semantic.type)) +
+                                 " products declare test dependencies at the root",
                              dependencies->source);
                 ParseDependencies(*dependencies, DependencyContext::Test, std::nullopt, semantic, result.diagnostics);
             }
@@ -544,46 +719,121 @@ namespace NGIN::CLI
             const AuthoredElement *output = nullptr;
             for (const auto &child : publish->children)
                 if (child.specId == "project.publish.folder" || child.specId == "project.publish.archive" ||
-                    child.specId == "project.publish.installer") output = &child;
+                    child.specId == "project.publish.installer")
+                    output = &child;
             if (output != nullptr)
             {
                 const auto normalized = NormalizeStageDestination(AttributeValue(*output, "Output"), output->source);
                 if (normalized.Succeeded())
                     semantic.publishes.push_back(ProjectPublishDefinition{
                         .name = AttributeValue(*publish, "Name"),
-                        .kind = output->specId == "project.publish.archive" ? PublishOutputKind::Archive
-                              : output->specId == "project.publish.installer" ? PublishOutputKind::Installer
-                                                                              : PublishOutputKind::Folder,
+                        .kind = output->specId == "project.publish.archive"     ? PublishOutputKind::Archive
+                                : output->specId == "project.publish.installer" ? PublishOutputKind::Installer
+                                                                                : PublishOutputKind::Folder,
                         .format = AttributeValue(*output, "Format"),
                         .output = *normalized.value,
                         .source = publish->source});
-                else result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(), normalized.diagnostics.end());
+                else
+                    result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
+                                              normalized.diagnostics.end());
             }
             if (const auto *dependencies = Child(*publish, "project.publish.dependencies"))
                 ParseDependencies(*dependencies, DependencyContext::Publish, AttributeValue(*publish, "Name"), semantic,
                                   result.diagnostics);
         }
 
-        if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) && !semantic.launches.empty())
-            AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
-                                                          " products cannot declare Launch",
+        if (const auto *refinements = Child(project.root, "project.refinements"))
+            for (const auto *authored : Children(*refinements, "project.refinement"))
+            {
+                ProjectRefinement refinement{};
+                ParseProjectRefinement(*authored, semantic, rootContext, refinement, result.diagnostics);
+                semantic.refinements.push_back(std::move(refinement));
+            }
+
+        if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) &&
+            !semantic.launches.empty())
+            AddError(result.diagnostics, "NGIN3000",
+                     std::string(ProductTypeName(semantic.type)) + " products cannot declare Launch",
                      project.root.source);
         if (semantic.type == ProductType::External && semantic.hasBuildSection)
             AddError(result.diagnostics, "NGIN3000", "External products cannot declare core Build inputs",
                      project.root.source);
+        if (semantic.type == ProductType::External)
+            for (const auto &refinement : semantic.refinements)
+                if (!refinement.semantic.assignments.empty())
+                    AddError(result.diagnostics, "NGIN3000", "External products cannot refine core Build inputs",
+                             refinement.semantic.source);
         if (semantic.type != ProductType::Library)
         {
             for (const auto &declaration : semantic.build.declarations)
                 if (declaration.visibility.has_value() && *declaration.visibility != BuildVisibility::Private)
-                    AddError(result.diagnostics, "NGIN3000", "Public and Interface build visibility requires a Library product",
-                             declaration.source);
+                    AddError(result.diagnostics, "NGIN3000",
+                             "Public and Interface build visibility requires a Library product", declaration.source);
+            for (const auto &refinement : semantic.refinements)
+                for (const auto &declaration : refinement.build.declarations)
+                    if (declaration.visibility.has_value() && *declaration.visibility != BuildVisibility::Private)
+                        AddError(result.diagnostics, "NGIN3000",
+                                 "Public and Interface build visibility requires a Library "
+                                 "product",
+                                 declaration.source);
         }
         if (result.diagnostics.empty()) result.value = std::move(semantic);
         return result;
     }
 
-    auto ResolveProjectBuild(const SemanticProject &project, const std::filesystem::path &projectDirectory)
-        -> ResolvedProjectBuild
+    auto ApplyProjectRefinements(const SemanticProject &project, const SelectionFacts &selection)
+        -> SemanticProjectResult
+    {
+        SemanticProjectResult result{};
+        std::vector<SemanticRefinement> semantic{};
+        semantic.reserve(project.refinements.size());
+        for (const auto &refinement : project.refinements) semantic.push_back(refinement.semantic);
+        const auto resolved = ResolveRefinements(selection, semantic);
+        result.diagnostics = resolved.diagnostics;
+        if (!result.diagnostics.empty()) return result;
+
+        auto effective = project;
+        effective.refinements.clear();
+        const auto selected = [&](const RefinementAssignment &assignment) {
+            const auto key = assignment.category + "\x1f" + assignment.identity;
+            const auto found = resolved.assignments.find(key);
+            return found != resolved.assignments.end() && SameSource(found->second.source, assignment.source);
+        };
+        for (const auto &refinement : project.refinements)
+        {
+            if (!RefinementMatches(refinement.semantic.selector, selection)) continue;
+            effective.dependencies.insert(effective.dependencies.end(), refinement.dependencies.begin(),
+                                          refinement.dependencies.end());
+            effective.stage.insert(effective.stage.end(), refinement.stage.begin(), refinement.stage.end());
+            for (const auto &assignment : refinement.semantic.assignments)
+            {
+                if (!selected(assignment)) continue;
+                if (assignment.category == "BuildScalar" && assignment.identity == "Conventions")
+                    effective.build.conventions = refinement.build.conventions->value;
+                else if (assignment.category == "BuildScalar" && assignment.identity == "Language")
+                    effective.build.language = *refinement.build.language;
+                else if (assignment.category == "BuildScalar" && assignment.identity == "UnityBuild")
+                    effective.build.unityBuild = refinement.build.unityBuild;
+                else if (assignment.category == "BuildConvention")
+                    effective.build.namedConventions[assignment.identity] =
+                        refinement.build.namedConventions.at(assignment.identity).value;
+                else if (assignment.category == "BuildItem")
+                {
+                    const auto declaration =
+                        std::ranges::find_if(refinement.build.declarations, [&](const BuildItemDeclaration &candidate) {
+                            return SameSource(candidate.source, assignment.source);
+                        });
+                    if (declaration != refinement.build.declarations.end())
+                        effective.build.declarations.push_back(*declaration);
+                }
+            }
+        }
+        result.value = std::move(effective);
+        return result;
+    }
+
+    auto ResolveProjectBuild(const SemanticProject &project, const std::filesystem::path &projectDirectory,
+                             const bool targetCaseInsensitive, const bool allowSymlinks) -> ResolvedProjectBuild
     {
         ResolvedProjectBuild result{.language = project.build.language, .unityBuild = project.build.unityBuild};
         std::vector<std::pair<BuildItemDeclaration, BuildItemOriginKind>> includes{};
@@ -622,20 +872,27 @@ namespace NGIN::CLI
         for (const auto &[declaration, origin] : includes)
         {
             std::vector<PortablePath> paths{};
-            const auto fileKind = declaration.kind == BuildItemKind::Source || declaration.kind == BuildItemKind::Header ||
-                                  declaration.kind == BuildItemKind::CxxModule || declaration.kind == BuildItemKind::Resource;
+            const auto fileKind =
+                declaration.kind == BuildItemKind::Source || declaration.kind == BuildItemKind::Header ||
+                declaration.kind == BuildItemKind::CxxModule || declaration.kind == BuildItemKind::Resource;
             if (fileKind)
             {
                 if (declaration.generated.value_or(false) && !HasMagic(declaration.pattern))
                 {
-                    const auto path = NormalizePortablePath(declaration.pattern, PortablePathBase::Manifest, declaration.source);
-                    if (path.Succeeded()) paths.push_back(*path.value);
-                    else result.diagnostics.insert(result.diagnostics.end(), path.diagnostics.begin(), path.diagnostics.end());
+                    const auto path =
+                        NormalizePortablePath(declaration.pattern, PortablePathBase::Manifest, declaration.source);
+                    if (path.Succeeded())
+                        paths.push_back(*path.value);
+                    else
+                        result.diagnostics.insert(result.diagnostics.end(), path.diagnostics.begin(),
+                                                  path.diagnostics.end());
                 }
                 else
                 {
-                    const auto expanded = ExpandPortableGlob(projectDirectory, declaration.pattern, false, declaration.source);
-                    result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(), expanded.diagnostics.end());
+                    const auto expanded = ExpandPortableGlob(projectDirectory, declaration.pattern,
+                                                             targetCaseInsensitive, declaration.source, allowSymlinks);
+                    result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
+                                              expanded.diagnostics.end());
                     paths = expanded.matches;
                 }
                 std::erase_if(paths, [&](const PortablePath &path) {
@@ -645,36 +902,39 @@ namespace NGIN::CLI
             }
             else
             {
-                const auto normalized = declaration.kind == BuildItemKind::Define ||
-                                                declaration.kind == BuildItemKind::CompileOption ||
-                                                declaration.kind == BuildItemKind::LinkOption
-                                            ? PortablePathResult{.value = PortablePath{.value = declaration.pattern}}
-                                            : NormalizePortablePath(declaration.pattern, PortablePathBase::Manifest,
-                                                                    declaration.source);
-                if (normalized.Succeeded()) paths.push_back(*normalized.value);
-                else result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
-                                               normalized.diagnostics.end());
+                const auto normalized =
+                    declaration.kind == BuildItemKind::Define || declaration.kind == BuildItemKind::CompileOption ||
+                            declaration.kind == BuildItemKind::LinkOption
+                        ? PortablePathResult{.value = PortablePath{.value = declaration.pattern}}
+                        : NormalizePortablePath(declaration.pattern, PortablePathBase::Manifest, declaration.source);
+                if (normalized.Succeeded())
+                    paths.push_back(*normalized.value);
+                else
+                    result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
+                                              normalized.diagnostics.end());
             }
             if (paths.empty() && !declaration.allowEmpty)
-                AddError(result.diagnostics, "NGIN3003", std::string(KindName(declaration.kind)) + " Include '" +
-                                                              declaration.pattern + "' matched no items",
+                AddError(result.diagnostics, "NGIN3003",
+                         std::string(KindName(declaration.kind)) + " Include '" + declaration.pattern +
+                             "' matched no items",
                          declaration.source);
             const auto base = GlobBase(declaration.pattern);
             for (const auto &path : paths)
             {
-                ResolvedBuildItem item{.kind = declaration.kind,
-                                       .path = path,
-                                       .visibility = declaration.visibility.value_or(DefaultVisibility(project, declaration.kind)),
-                                       .detail = declaration.kind == BuildItemKind::Define ||
-                                                         declaration.kind == BuildItemKind::CompileOption ||
-                                                         declaration.kind == BuildItemKind::LinkOption
-                                                     ? declaration.pattern
-                                                     : declaration.detail,
-                                       .value = declaration.value,
-                                       .generated = declaration.generated.value_or(false),
-                                       .system = declaration.system.value_or(false),
-                                       .origin = origin,
-                                       .source = declaration.source};
+                ResolvedBuildItem item{
+                    .kind = declaration.kind,
+                    .path = path,
+                    .visibility = declaration.visibility.value_or(DefaultVisibility(project, declaration.kind)),
+                    .detail = declaration.kind == BuildItemKind::Define ||
+                                      declaration.kind == BuildItemKind::CompileOption ||
+                                      declaration.kind == BuildItemKind::LinkOption
+                                  ? declaration.pattern
+                                  : declaration.detail,
+                    .value = declaration.value,
+                    .generated = declaration.generated.value_or(false),
+                    .system = declaration.system.value_or(false),
+                    .origin = origin,
+                    .source = declaration.source};
                 if (declaration.destination.has_value())
                 {
                     auto relative = path.value;
@@ -704,8 +964,9 @@ namespace NGIN::CLI
             for (const auto &[identity, item] : items)
                 if (MatchesDeclaration(declaration, item)) matches.push_back(identity);
             if (matches.empty() && !declaration.allowEmpty)
-                AddError(result.diagnostics, "NGIN3003", std::string(KindName(declaration.kind)) + " operation '" +
-                                                              declaration.pattern + "' matched no existing items",
+                AddError(result.diagnostics, "NGIN3003",
+                         std::string(KindName(declaration.kind)) + " operation '" + declaration.pattern +
+                             "' matched no existing items",
                          declaration.source);
             if (declaration.operation == BuildItemOperation::Remove)
             {
@@ -746,4 +1007,4 @@ namespace NGIN::CLI
                      result.unityBuild->source);
         return result;
     }
-}
+} // namespace NGIN::CLI

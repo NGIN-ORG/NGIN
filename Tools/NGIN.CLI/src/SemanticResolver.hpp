@@ -1,7 +1,7 @@
 #pragma once
 
-#include "CompositionGraph.hpp"
 #include "CMakeIntegration.hpp"
+#include "CompositionGraph.hpp"
 #include "PackageModel.hpp"
 
 #include <map>
@@ -24,6 +24,10 @@ namespace NGIN::CLI
         std::map<std::string, std::vector<PackageOptionAssignment>, std::less<>> packageOptions{};
         std::set<DependencyContext> dependencyContexts{};
         std::set<ActionKind> actionKinds{ActionKind::Generate};
+        bool targetCaseInsensitive{false};
+        bool allowSymlinks{false};
+        bool providerIntegrityRequired{false};
+        bool allowNonHermeticProviders{true};
         bool platformAllowsSideBySidePackages{false};
     };
 
@@ -37,4 +41,4 @@ namespace NGIN::CLI
     };
 
     [[nodiscard]] auto ResolveComposition(const SemanticResolutionRequest &request) -> SemanticResolutionResult;
-}
+} // namespace NGIN::CLI

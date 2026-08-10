@@ -8,6 +8,24 @@
 #include "TestSupport.hpp"
 #include "WorkspaceModel.hpp"
 
+namespace
+{
+    class ScopedStreamCapture
+    {
+      public:
+        explicit ScopedStreamCapture(std::ostream &stream) : stream_(stream), previous_(stream.rdbuf(buffer_.rdbuf()))
+        {
+        }
+        ~ScopedStreamCapture() { stream_.rdbuf(previous_); }
+        [[nodiscard]] auto Text() const -> std::string { return buffer_.str(); }
+
+      private:
+        std::ostream &stream_;
+        std::streambuf *previous_{};
+        std::ostringstream buffer_{};
+    };
+} // namespace
+
 TEST_CASE("superseded manifest forms are rejected without compatibility parsing")
 {
     const std::vector<std::string> rejected{
@@ -61,7 +79,8 @@ TEST_CASE("formatter preserves comments in direct manifests")
     REQUIRE_THAT(formatted, ContainsSubstring(R"(<Source Include="src/**/*.cpp" />)"));
 }
 
-TEST_CASE("portable path and glob authoring is rooted deterministic and traversal-safe")
+TEST_CASE("portable path and glob authoring is rooted deterministic and "
+          "traversal-safe")
 {
     const auto current = NormalizePortablePath(".", PortablePathBase::Manifest);
     REQUIRE(current.Succeeded());
@@ -81,12 +100,11 @@ TEST_CASE("portable path and glob authoring is rooted deterministic and traversa
 
 TEST_CASE("presets expand concrete inputs without becoming a selection dimension")
 {
-    const Preset preset{.name = "release",
-                        .command = "build",
-                        .selection = SelectionRequest{.configuration = "Release",
-                                                      .target = "host",
-                                                      .toolchain = "default",
-                                                      .options = {{"Tracing", "false"}}}};
+    const Preset preset{
+        .name = "release",
+        .command = "build",
+        .selection = SelectionRequest{
+            .configuration = "Release", .target = "host", .toolchain = "default", .options = {{"Tracing", "false"}}}};
     const auto expanded = ExpandPreset(preset, "build", SelectionRequest{});
     REQUIRE(expanded.Succeeded());
     REQUIRE(expanded.value->configuration == "Release");
@@ -95,10 +113,74 @@ TEST_CASE("presets expand concrete inputs without becoming a selection dimension
     REQUIRE_FALSE(ExpandPreset(preset, "test", SelectionRequest{}).Succeeded());
 }
 
+TEST_CASE("project Refinements apply selected payloads with deterministic "
+          "specificity")
+{
+    const auto authored = ParseAuthoredManifest(RepoRoot() / "Examples/Hello.Native/Hello.Native.nginproj");
+    REQUIRE(authored.Succeeded());
+    const auto project = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
+    REQUIRE(project.Succeeded());
+
+    SelectionFacts selection{};
+    selection.configuration.name = "Debug";
+    auto refined = ApplyProjectRefinements(*project.value, selection);
+    REQUIRE(refined.Succeeded());
+    REQUIRE(std::ranges::any_of(refined.value->build.declarations, [](const BuildItemDeclaration &item) {
+        return item.kind == BuildItemKind::Define && item.pattern == "HELLO_NATIVE_LOCAL_DEBUG";
+    }));
+
+    selection.configuration.name = "Release";
+    refined = ApplyProjectRefinements(*project.value, selection);
+    REQUIRE(refined.Succeeded());
+    REQUIRE_FALSE(std::ranges::any_of(refined.value->build.declarations, [](const BuildItemDeclaration &item) {
+        return item.kind == BuildItemKind::Define && item.pattern == "HELLO_NATIVE_LOCAL_DEBUG";
+    }));
+}
+
+TEST_CASE("equal-specificity Refinement writes conflict and a more specific "
+          "write wins")
+{
+    const auto parseProject = [](const std::string_view source) {
+        const auto authored = ParseAuthoredManifestText(std::string(source), "refinements/App.nginproj");
+        REQUIRE(authored.Succeeded());
+        return ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
+    };
+    SelectionFacts selection{};
+    selection.configuration.name = "Debug";
+    selection.target.name = "host";
+    selection.target.operatingSystem = "windows";
+
+    const auto conflicting = parseProject(R"(<Project Name="App" Type="Application">
+  <Refinements>
+    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="one" /></Build></Refinement>
+    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="two" /></Build></Refinement>
+  </Refinements>
+</Project>)");
+    REQUIRE(conflicting.Succeeded());
+    const auto conflict = ApplyProjectRefinements(*conflicting.value, selection);
+    REQUIRE_FALSE(conflict.Succeeded());
+    REQUIRE(std::ranges::any_of(conflict.diagnostics,
+                                [](const ManifestDiagnostic &diagnostic) { return diagnostic.code == "NGIN2006"; }));
+
+    const auto specific = parseProject(R"(<Project Name="App" Type="Application">
+  <Refinements>
+    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="one" /></Build></Refinement>
+    <Refinement><Select><Configuration Name="Debug" /><Target OS="windows" /></Select><Build><Define Name="MODE" Value="two" /></Build></Refinement>
+  </Refinements>
+</Project>)");
+    REQUIRE(specific.Succeeded());
+    const auto winner = ApplyProjectRefinements(*specific.value, selection);
+    REQUIRE(winner.Succeeded());
+    const auto define = std::ranges::find_if(winner.value->build.declarations, [](const BuildItemDeclaration &item) {
+        return item.kind == BuildItemKind::Define && item.pattern == "MODE";
+    });
+    REQUIRE(define != winner.value->build.declarations.end());
+    REQUIRE(define->value == "two");
+}
+
 TEST_CASE("every checked-in authored manifest uses the direct grammar")
 {
-    std::vector<fs::path> manifests{RepoRoot() / "NGIN.ngin",
-                                    RepoRoot() / "Tools/NGIN.CLI/NGIN.CLI.nginproj"};
+    std::vector<fs::path> manifests{RepoRoot() / "NGIN.ngin", RepoRoot() / "Tools/NGIN.CLI/NGIN.CLI.nginproj"};
     for (const auto &relative : {"Examples", "Packages", "Tools/NGIN.CLI/tests/fixtures", "docs/examples"})
     {
         for (const auto &entry : fs::recursive_directory_iterator(RepoRoot() / relative))
@@ -117,14 +199,79 @@ TEST_CASE("every checked-in authored manifest uses the direct grammar")
         INFO(path.string());
         const auto authored = ParseAuthoredManifest(path);
         REQUIRE(authored.Succeeded());
-        std::visit([&](const auto &manifest) {
-            using T = std::decay_t<decltype(manifest)>;
-            if constexpr (std::is_same_v<T, AuthoredProjectManifest>)
-                REQUIRE(ParseSemanticProject(manifest).Succeeded());
-            else if constexpr (std::is_same_v<T, AuthoredPackageManifest>)
-                REQUIRE(ParseSemanticPackage(manifest).Succeeded());
-            else
-                REQUIRE(ParseSemanticWorkspace(manifest).Succeeded());
-        }, *authored.value);
+        std::visit(
+            [&](const auto &manifest) {
+                using T = std::decay_t<decltype(manifest)>;
+                if constexpr (std::is_same_v<T, AuthoredProjectManifest>)
+                    REQUIRE(ParseSemanticProject(manifest).Succeeded());
+                else if constexpr (std::is_same_v<T, AuthoredPackageManifest>)
+                    REQUIRE(ParseSemanticPackage(manifest).Succeeded());
+                else
+                    REQUIRE(ParseSemanticWorkspace(manifest).Succeeded());
+            },
+            *authored.value);
     }
+}
+
+TEST_CASE("project references contribute child composition identity and reject "
+          "cycles")
+{
+    SECTION("resolved child fingerprint")
+    {
+        CliArguments arguments{};
+        arguments.projectPath = (RepoRoot() / "Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/Root/"
+                                              "ProjectRef.Config.Root.nginproj")
+                                    .string();
+        arguments.format = "json";
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(InspectComposition(RepoRoot(), arguments) == 0);
+        REQUIRE_THAT(output.Text(), ContainsSubstring("Project:ProjectRef.Config.Library@sha256:"));
+    }
+
+    SECTION("cycle")
+    {
+        TempDir temp{};
+        const auto first = temp.path() / "First.nginproj";
+        const auto second = temp.path() / "Second.nginproj";
+        WriteFile(
+            first,
+            R"(<Project Name="First" Type="Library" Linkage="Static"><Dependencies><Project Name="Second" Path="Second.nginproj" /></Dependencies></Project>)");
+        WriteFile(
+            second,
+            R"(<Project Name="Second" Type="Library" Linkage="Static"><Dependencies><Project Name="First" Path="First.nginproj" /></Dependencies></Project>)");
+        CliArguments arguments{};
+        arguments.projectPath = first.string();
+        ScopedStreamCapture errors{std::cerr};
+        REQUIRE(InspectComposition(temp.path(), arguments) == 1);
+        REQUIRE_THAT(errors.Text(), ContainsSubstring("Project dependency cycle"));
+    }
+}
+
+TEST_CASE("Directory PackageProvider sources discover manifests and honor "
+          "workspace bindings")
+{
+    TempDir temp{};
+    const auto project = temp.path() / "App/App.nginproj";
+    const auto workspace = temp.path() / "Workspace.ngin";
+    WriteFile(
+        project,
+        R"(<Project Name="App" Type="Application"><Dependencies><Package Name="Example" Exact="1.2.3" /></Dependencies><Build><Source Include="src/**/*.cpp" /></Build></Project>)");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }");
+    WriteFile(temp.path() / "Packages/Example/CMakeLists.txt",
+              "add_library(Example::Core INTERFACE IMPORTED GLOBAL)\n");
+    WriteFile(
+        temp.path() / "Packages/Example/Example.nginpkg",
+        R"(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Example" Version="1.2.3"><Exports><Library Name="Core" Default="true" /></Exports><Integrations><cmake:Manual Source="."><cmake:Target Export="Core" Name="Example::Core" /></cmake:Manual></Integrations></Package>)");
+    WriteFile(
+        workspace,
+        R"(<Workspace Name="Fixture"><Projects><Project Path="App/App.nginproj" /></Projects><Packages><Source Name="local" Kind="Directory" Path="Packages" /><Binding Package="Example" Source="local" Coordinate="Example" /></Packages></Workspace>)");
+
+    CliArguments arguments{};
+    arguments.projectPath = project.string();
+    arguments.workspacePath = workspace.string();
+    arguments.format = "json";
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(InspectComposition(temp.path(), arguments) == 0);
+    REQUIRE_THAT(output.Text(), ContainsSubstring(R"("providerKind":"Directory")"));
+    REQUIRE_THAT(output.Text(), ContainsSubstring(R"("source":"local")"));
 }

@@ -51,6 +51,7 @@ namespace NGIN::CLI
         std::map<std::string, std::vector<std::filesystem::path>, std::less<>> symbolArtifacts{};
         std::map<std::string, std::string, std::less<>> allowedReplacements{};
         bool targetCaseInsensitive{false};
+        bool allowSymlinks{false};
     };
 
     struct LaunchPlan
@@ -98,8 +99,7 @@ namespace NGIN::CLI
         std::vector<std::string> dependencyInstances{};
     };
 
-    template <typename T>
-    struct DeploymentPlanResult
+    template <typename T> struct DeploymentPlanResult
     {
         std::optional<T> plan{};
         std::vector<ManifestDiagnostic> diagnostics{};
@@ -124,8 +124,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage)
         -> DeploymentPlanResult<TestPlan>;
     [[nodiscard]] auto DerivePublishPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
-                                         std::string_view publishName)
-        -> DeploymentPlanResult<PublishPlan>;
+                                         std::string_view publishName) -> DeploymentPlanResult<PublishPlan>;
 
     [[nodiscard]] auto SerializeStagePlan(const StagePlan &plan) -> std::string;
     [[nodiscard]] auto SerializeLaunchPlan(const LaunchPlan &plan) -> std::string;
@@ -138,4 +137,4 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ExecuteStagePlan(const StagePlan &plan) -> StageExecutionResult;
     [[nodiscard]] auto GenerateCPackConfiguration(const PublishPlan &plan) -> std::string;
-}
+} // namespace NGIN::CLI

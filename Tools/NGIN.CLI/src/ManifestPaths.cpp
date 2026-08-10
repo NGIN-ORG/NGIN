@@ -22,9 +22,9 @@ namespace NGIN::CLI
                           const ManifestSourceRange &source) -> void
         {
             diagnostics.push_back(ManifestDiagnostic{.severity = ManifestDiagnosticSeverity::Error,
-                                                       .code = std::move(code),
-                                                       .message = std::move(message),
-                                                       .source = source});
+                                                     .code = std::move(code),
+                                                     .message = std::move(message),
+                                                     .source = source});
         }
 
         [[nodiscard]] auto IsAbsolutePortable(const std::string_view value) -> bool
@@ -84,8 +84,8 @@ namespace NGIN::CLI
             while (start <= pattern.size())
             {
                 const auto slash = pattern.find('/', start);
-                segments.emplace_back(pattern.substr(start, slash == std::string_view::npos ? pattern.size() - start
-                                                                                           : slash - start));
+                segments.emplace_back(
+                    pattern.substr(start, slash == std::string_view::npos ? pattern.size() - start : slash - start));
                 if (slash == std::string_view::npos) break;
                 start = slash + 1;
             }
@@ -120,12 +120,11 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto AsciiCaseFold(std::string value) -> std::string
         {
-            std::ranges::transform(value, value.begin(), [](const unsigned char ch) {
-                return static_cast<char>(std::tolower(ch));
-            });
+            std::ranges::transform(value, value.begin(),
+                                   [](const unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
             return value;
         }
-    }
+    } // namespace
 
     auto PortablePathResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
     auto GlobResult::Succeeded() const -> bool { return diagnostics.empty(); }
@@ -163,8 +162,8 @@ namespace NGIN::CLI
         while (start <= authored.size())
         {
             const auto slash = authored.find('/', start);
-            const auto segment = authored.substr(start, slash == std::string_view::npos ? authored.size() - start
-                                                                                        : slash - start);
+            const auto segment =
+                authored.substr(start, slash == std::string_view::npos ? authored.size() - start : slash - start);
             if (segment.empty() || segment == ".")
             {
             }
@@ -217,7 +216,8 @@ namespace NGIN::CLI
         const auto canonicalRoot = std::filesystem::weakly_canonical(allowedRoot, error);
         if (error)
         {
-            AddPathError(result.diagnostics, "NGIN2007", "cannot resolve allowed path root: " + error.message(), source);
+            AddPathError(result.diagnostics, "NGIN2007", "cannot resolve allowed path root: " + error.message(),
+                         source);
             return result;
         }
         const auto candidate = std::filesystem::weakly_canonical(base / std::filesystem::path(path.value), error);
@@ -234,10 +234,10 @@ namespace NGIN::CLI
         const auto relative = Utf8Path(candidate.lexically_relative(canonicalRoot));
         std::error_code workspaceError{};
         const auto canonicalWorkspace = std::filesystem::weakly_canonical(workspaceRoot, workspaceError);
-        result.value = PortablePath{.value = relative,
-                                    .base = !workspaceError && canonicalRoot == canonicalWorkspace
-                                                ? PortablePathBase::Workspace
-                                                : PortablePathBase::Manifest};
+        result.value =
+            PortablePath{.value = relative,
+                         .base = !workspaceError && canonicalRoot == canonicalWorkspace ? PortablePathBase::Workspace
+                                                                                        : PortablePathBase::Manifest};
         return result;
     }
 
@@ -259,9 +259,8 @@ namespace NGIN::CLI
         return regex.has_value() && std::regex_match(portablePath.begin(), portablePath.end(), *regex);
     }
 
-    auto ValidateTargetPathCaseCollisions(const std::span<const PortablePath> paths,
-                                          const bool targetCaseInsensitive, const ManifestSourceRange &source)
-        -> std::vector<ManifestDiagnostic>
+    auto ValidateTargetPathCaseCollisions(const std::span<const PortablePath> paths, const bool targetCaseInsensitive,
+                                          const ManifestSourceRange &source) -> std::vector<ManifestDiagnostic>
     {
         std::vector<ManifestDiagnostic> diagnostics{};
         if (!targetCaseInsensitive) return diagnostics;
@@ -286,7 +285,8 @@ namespace NGIN::CLI
     }
 
     auto ExpandPortableGlob(const std::filesystem::path &root, const std::string_view pattern,
-                            const bool targetCaseInsensitive, const ManifestSourceRange &source) -> GlobResult
+                            const bool targetCaseInsensitive, const ManifestSourceRange &source,
+                            const bool allowSymlinks) -> GlobResult
     {
         GlobResult result{};
         const auto normalizedPattern = NormalizePortablePath(pattern, PortablePathBase::Manifest, source);
@@ -318,7 +318,8 @@ namespace NGIN::CLI
             const auto canonicalDirectory = std::filesystem::canonical(directory, localError);
             if (localError)
             {
-                AddPathError(result.diagnostics, "NGIN2008", "cannot resolve glob directory: " + localError.message(), source);
+                AddPathError(result.diagnostics, "NGIN2008", "cannot resolve glob directory: " + localError.message(),
+                             source);
                 return;
             }
             const auto directoryIdentity = Utf8Path(canonicalDirectory);
@@ -329,14 +330,15 @@ namespace NGIN::CLI
             }
 
             std::vector<std::filesystem::directory_entry> entries{};
-            for (std::filesystem::directory_iterator iterator(directory, localError), end; !localError && iterator != end;
-                 iterator.increment(localError))
+            for (std::filesystem::directory_iterator iterator(directory, localError), end;
+                 !localError && iterator != end; iterator.increment(localError))
             {
                 entries.push_back(*iterator);
             }
             if (localError)
             {
-                AddPathError(result.diagnostics, "NGIN2008", "cannot enumerate glob directory: " + localError.message(), source);
+                AddPathError(result.diagnostics, "NGIN2008", "cannot enumerate glob directory: " + localError.message(),
+                             source);
                 activeDirectories.erase(directoryIdentity);
                 return;
             }
@@ -345,10 +347,17 @@ namespace NGIN::CLI
             });
             for (const auto &entry : entries)
             {
+                if (entry.is_symlink(localError) && !allowSymlinks)
+                {
+                    AddPathError(result.diagnostics, "NGIN2008",
+                                 "symlink encountered while workspace policy disallows symlinks", source);
+                    continue;
+                }
                 const auto canonicalEntry = std::filesystem::canonical(entry.path(), localError);
                 if (localError)
                 {
-                    AddPathError(result.diagnostics, "NGIN2008", "cannot resolve glob entry: " + localError.message(), source);
+                    AddPathError(result.diagnostics, "NGIN2008", "cannot resolve glob entry: " + localError.message(),
+                                 source);
                     localError.clear();
                     continue;
                 }
@@ -393,4 +402,4 @@ namespace NGIN::CLI
         for (auto &[_, match] : matches) result.matches.push_back(std::move(match));
         return result;
     }
-}
+} // namespace NGIN::CLI

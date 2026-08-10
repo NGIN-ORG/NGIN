@@ -54,10 +54,10 @@ namespace NGIN::CLI
                       const ManifestSourceRange &source = {}, std::vector<ManifestSourceRange> related = {}) -> void
         {
             diagnostics.push_back(ManifestDiagnostic{.severity = ManifestDiagnosticSeverity::Error,
-                                                       .code = std::move(code),
-                                                       .message = std::move(message),
-                                                       .source = source,
-                                                       .relatedSources = std::move(related)});
+                                                     .code = std::move(code),
+                                                     .message = std::move(message),
+                                                     .source = source,
+                                                     .relatedSources = std::move(related)});
         }
 
         [[nodiscard]] auto ContextName(const PackageInstanceContext context) -> std::string
@@ -176,8 +176,8 @@ namespace NGIN::CLI
             return left.kind == right.kind && left.name == right.name;
         }
 
-        [[nodiscard]] auto SameConstraint(const SourcedVersionConstraint &left,
-                                          const SourcedVersionConstraint &right) -> bool
+        [[nodiscard]] auto SameConstraint(const SourcedVersionConstraint &left, const SourcedVersionConstraint &right)
+            -> bool
         {
             const auto sameBoundary = [](const std::optional<VersionBoundary> &a,
                                          const std::optional<VersionBoundary> &b) {
@@ -205,8 +205,7 @@ namespace NGIN::CLI
                 else
                     value.sourceBinding = sourceBinding;
             }
-            if (constraint.has_value() &&
-                std::ranges::none_of(value.constraints, [&](const auto &existing) {
+            if (constraint.has_value() && std::ranges::none_of(value.constraints, [&](const auto &existing) {
                     return SameConstraint(existing, *constraint);
                 }))
                 value.constraints.push_back(*constraint);
@@ -223,7 +222,8 @@ namespace NGIN::CLI
             if (std::ranges::none_of(value.origins, [&](const PendingOrigin &existing) {
                     return existing.from + "\n" + existing.kind + "\n" + existing.reason + "\n" +
                                existing.source.path.generic_string() + ":" +
-                               std::to_string(existing.source.begin.line) == originIdentity;
+                               std::to_string(existing.source.begin.line) ==
+                           originIdentity;
                 }))
                 value.origins.push_back(std::move(origin));
         }
@@ -252,8 +252,7 @@ namespace NGIN::CLI
                     return SerializeCanonical(left) < SerializeCanonical(right);
                 });
                 CanonicalValue::Array exports{};
-                for (const auto &use : request.exports)
-                    exports.push_back(ExportKindName(use.kind) + ":" + use.name);
+                for (const auto &use : request.exports) exports.push_back(ExportKindName(use.kind) + ":" + use.name);
                 std::ranges::sort(exports, [](const auto &left, const auto &right) {
                     return SerializeCanonical(left) < SerializeCanonical(right);
                 });
@@ -267,11 +266,11 @@ namespace NGIN::CLI
                     options.emplace(name, optionValues);
                 }
                 values.push_back(CanonicalValue::Object{{"constraints", constraints},
-                                                       {"defaults", request.activateDefaults},
-                                                       {"exports", exports},
-                                                       {"key", key},
-                                                       {"options", options},
-                                                       {"source", request.sourceBinding.value_or("")}});
+                                                        {"defaults", request.activateDefaults},
+                                                        {"exports", exports},
+                                                        {"key", key},
+                                                        {"options", options},
+                                                        {"source", request.sourceBinding.value_or("")}});
             }
             return SerializeCanonical(values);
         }
@@ -307,8 +306,7 @@ namespace NGIN::CLI
 
         auto AddProjectRoots(const SemanticResolutionRequest &request,
                              std::map<std::string, PendingPackage, std::less<>> &pending,
-                             std::vector<GraphEdge> &projectEdges,
-                             std::vector<ManifestDiagnostic> &diagnostics) -> void
+                             std::vector<GraphEdge> &projectEdges, std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
             const auto contexts = EffectiveContexts(request);
             for (const auto &dependency : request.project.dependencies)
@@ -317,8 +315,8 @@ namespace NGIN::CLI
                 {
                     if (!contexts.contains(package->context)) continue;
                     if (package->exports.empty())
-                        AddPending(pending, package->name, PackageInstanceContext::Target, package->constraint, {}, true,
-                                   package->optionAssignments, package->sourceBinding,
+                        AddPending(pending, package->name, PackageInstanceContext::Target, package->constraint, {},
+                                   true, package->optionAssignments, package->sourceBinding,
                                    PendingOrigin{.from = request.project.name,
                                                  .kind = "ProjectDependency",
                                                  .source = package->source,
@@ -327,10 +325,9 @@ namespace NGIN::CLI
                                    diagnostics);
                     else
                         for (const auto &use : package->exports)
-                            AddPending(pending, package->name,
-                                       UseContext(use.kind, PackageInstanceContext::Target), package->constraint,
-                                       std::span<const ExportUse>{&use, 1}, false, package->optionAssignments,
-                                       package->sourceBinding,
+                            AddPending(pending, package->name, UseContext(use.kind, PackageInstanceContext::Target),
+                                       package->constraint, std::span<const ExportUse>{&use, 1}, false,
+                                       package->optionAssignments, package->sourceBinding,
                                        PendingOrigin{.from = request.project.name,
                                                      .kind = "ProjectDependency",
                                                      .source = package->source,
@@ -341,15 +338,15 @@ namespace NGIN::CLI
                 else if (const auto *project = std::get_if<ProjectDependencyRequest>(&dependency))
                 {
                     if (!contexts.contains(project->context)) continue;
-                    projectEdges.push_back(GraphEdge{.identity = request.project.name + "->Project:" + project->name,
-                                                     .from = request.project.name,
-                                                     .to = "Project:" + project->name,
-                                                     .kind = "ProjectDependency",
-                                                     .context = DependencyContextName(project->context),
-                                                     .scope = project->owner.value_or(""),
-                                                     .provenance = Provenance(project->source, request.workspaceRoot,
-                                                                              "ProjectDependency", project->name,
-                                                                              DependencyContextName(project->context))});
+                    projectEdges.push_back(
+                        GraphEdge{.identity = request.project.name + "->Project:" + project->name,
+                                  .from = request.project.name,
+                                  .to = "Project:" + project->name,
+                                  .kind = "ProjectDependency",
+                                  .context = DependencyContextName(project->context),
+                                  .scope = project->owner.value_or(""),
+                                  .provenance = Provenance(project->source, request.workspaceRoot, "ProjectDependency",
+                                                           project->name, DependencyContextName(project->context))});
                 }
             }
             for (const auto &action : request.project.actions)
@@ -382,11 +379,13 @@ namespace NGIN::CLI
             for (const auto *provider : providers)
             {
                 const auto resolved = provider->Resolve(PackageProviderRequest{.name = pending.name,
-                                                                                .constraint = constraint,
-                                                                                .sourceBinding = pending.sourceBinding,
-                                                                                .context = pending.context});
-                if (resolved.Succeeded()) successes.push_back(*resolved.value);
-                else failures.insert(failures.end(), resolved.diagnostics.begin(), resolved.diagnostics.end());
+                                                                               .constraint = constraint,
+                                                                               .sourceBinding = pending.sourceBinding,
+                                                                               .context = pending.context});
+                if (resolved.Succeeded())
+                    successes.push_back(*resolved.value);
+                else
+                    failures.insert(failures.end(), resolved.diagnostics.begin(), resolved.diagnostics.end());
             }
             if (successes.empty())
             {
@@ -405,7 +404,8 @@ namespace NGIN::CLI
                 selected.artifactIdentity.empty())
             {
                 AddError(diagnostics, "NGIN6002",
-                         "PackageProviderResult must include provider kind, native coordinate/version, and artifact identity",
+                         "PackageProviderResult must include provider kind, native "
+                         "coordinate/version, and artifact identity",
                          pending.origins.empty() ? ManifestSourceRange{} : pending.origins.front().source);
                 return std::nullopt;
             }
@@ -448,7 +448,8 @@ namespace NGIN::CLI
             -> std::optional<ResolvedPackageState>
         {
             auto constraints = pending.constraints;
-            if (const auto central = request.centralVersions.find(pending.name); central != request.centralVersions.end())
+            if (const auto central = request.centralVersions.find(pending.name);
+                central != request.centralVersions.end())
                 constraints.insert(constraints.end(), central->second.begin(), central->second.end());
             std::optional<SourcedVersionConstraint> constraint{};
             if (!constraints.empty())
@@ -456,7 +457,8 @@ namespace NGIN::CLI
                 const auto intersection = IntersectVersionConstraints(pending.name, constraints);
                 if (!intersection.Succeeded())
                 {
-                    diagnostics.insert(diagnostics.end(), intersection.diagnostics.begin(), intersection.diagnostics.end());
+                    diagnostics.insert(diagnostics.end(), intersection.diagnostics.begin(),
+                                       intersection.diagnostics.end());
                     return std::nullopt;
                 }
                 constraint = intersection.value;
@@ -468,6 +470,18 @@ namespace NGIN::CLI
                     providerRequest.sourceBinding = binding->second;
             const auto provider = ResolveProvider(providerRequest, constraint, request.packageProviders, diagnostics);
             if (!provider.has_value()) return std::nullopt;
+            if (request.providerIntegrityRequired && provider->integrity.empty())
+            {
+                AddError(diagnostics, "NGIN6002",
+                         "PackageProviderResult for '" + pending.name + "' has no integrity identity");
+                return std::nullopt;
+            }
+            if (!request.allowNonHermeticProviders && !provider->hermetic)
+            {
+                AddError(diagnostics, "NGIN6002",
+                         "workspace policy rejects non-hermetic PackageProviderResult for '" + pending.name + "'");
+                return std::nullopt;
+            }
             const auto package = ParseProviderPackage(*provider, diagnostics);
             if (!package.has_value()) return std::nullopt;
             if (package->semantic.coordinate.name != provider->coordinate.name ||
@@ -477,21 +491,21 @@ namespace NGIN::CLI
                 return std::nullopt;
             }
             std::vector<PackageOptionAssignment> assignments{};
-            if (const auto configured = request.packageOptions.find(pending.name); configured != request.packageOptions.end())
+            if (const auto configured = request.packageOptions.find(pending.name);
+                configured != request.packageOptions.end())
                 assignments.insert(assignments.end(), configured->second.begin(), configured->second.end());
             for (const auto &[name, values] : pending.optionValues)
                 for (const auto &value : values)
-                    assignments.push_back(PackageOptionAssignment{.name = name,
-                                                                  .value = value,
-                                                                  .authority = AssignmentAuthority::Project});
+                    assignments.push_back(PackageOptionAssignment{
+                        .name = name, .value = value, .authority = AssignmentAuthority::Project});
             auto options = ResolvePackageOptions(package->semantic, assignments);
             if (!options.Succeeded())
             {
                 diagnostics.insert(diagnostics.end(), options.diagnostics.begin(), options.diagnostics.end());
                 return std::nullopt;
             }
-            auto selection = pending.context == PackageInstanceContext::Host ? request.hostSelection
-                                                                             : request.targetSelection;
+            auto selection =
+                pending.context == PackageInstanceContext::Host ? request.hostSelection : request.targetSelection;
             selection.options = options.values;
             auto compatibility = DeriveBinaryCompatibility(selection, "Default", package->semantic.options);
             auto providerForContext = *provider;
@@ -500,13 +514,11 @@ namespace NGIN::CLI
             auto exports = pending.exports;
             if (pending.activateDefaults)
                 for (const auto &[_, exportModel] : package->semantic.exports)
-                    if (exportModel.defaultExport &&
-                        std::ranges::none_of(exports, [&](const auto &existing) {
+                    if (exportModel.defaultExport && std::ranges::none_of(exports, [&](const auto &existing) {
                             return existing.kind == exportModel.kind && existing.name == exportModel.name;
                         }))
-                        exports.push_back(ExportUse{.kind = exportModel.kind,
-                                                    .name = exportModel.name,
-                                                    .source = exportModel.source});
+                        exports.push_back(ExportUse{
+                            .kind = exportModel.kind, .name = exportModel.name, .source = exportModel.source});
             const auto activation = ActivatePackageExports(
                 package->semantic, instance,
                 PackageActivationRequest{.exports = exports, .selection = selection, .options = options});
@@ -524,16 +536,18 @@ namespace NGIN::CLI
                                         .activation = activation};
         }
 
-    }
+    } // namespace
 
-    auto SemanticResolutionResult::Succeeded() const -> bool
-    {
-        return graph.has_value() && diagnostics.empty();
-    }
+    auto SemanticResolutionResult::Succeeded() const -> bool { return graph.has_value() && diagnostics.empty(); }
 
-    auto ResolveComposition(const SemanticResolutionRequest &request) -> SemanticResolutionResult
+    auto ResolveComposition(const SemanticResolutionRequest &inputRequest) -> SemanticResolutionResult
     {
         SemanticResolutionResult result{};
+        auto request = inputRequest;
+        const auto refined = ApplyProjectRefinements(inputRequest.project, inputRequest.targetSelection);
+        result.diagnostics = refined.diagnostics;
+        if (!refined.Succeeded()) return result;
+        request.project = *refined.value;
         std::map<std::string, PendingPackage, std::less<>> roots{};
         std::vector<GraphEdge> projectEdges{};
         AddProjectRoots(request, roots, projectEdges, result.diagnostics);
@@ -572,9 +586,8 @@ namespace NGIN::CLI
                     if (exportModel.kind != ExportUseKind::Action || !exportModel.action.has_value()) continue;
                     const auto tool = state.package.exports.find(exportModel.action->toolExport);
                     if (tool == state.package.exports.end()) continue;
-                    const ExportUse use{.kind = ExportUseKind::Tool,
-                                        .name = tool->second.name,
-                                        .source = exportModel.action->source};
+                    const ExportUse use{
+                        .kind = ExportUseKind::Tool, .name = tool->second.name, .source = exportModel.action->source};
                     AddPending(next, state.request.name, PackageInstanceContext::Host, std::nullopt,
                                std::span<const ExportUse>{&use, 1}, false, {}, state.request.sourceBinding,
                                PendingOrigin{.from = state.instance.identity + "::" + exportName,
@@ -648,8 +661,7 @@ namespace NGIN::CLI
                 converged = true;
                 resolvedCapabilityRequirements = capabilityRequirements;
                 resolvedCapabilityImplementations = implementations;
-                if (!capabilityResolution.Succeeded())
-                    result.diagnostics = capabilityResolution.diagnostics;
+                if (!capabilityResolution.Succeeded()) result.diagnostics = capabilityResolution.diagnostics;
                 break;
             }
             pending = std::move(next);
@@ -667,18 +679,19 @@ namespace NGIN::CLI
         {
             std::vector<std::string> activationPath{};
             for (const auto &origin : state.request.origins) activationPath.push_back(origin.from);
-            const auto source = state.request.origins.empty() ? ManifestSourceRange{} : state.request.origins.front().source;
-            coexistenceUses[state.package.coordinate.name].push_back(PackageInstanceUse{
-                .instance = state.instance,
-                .linkageClosure = request.project.name,
-                .activationPath = std::move(activationPath),
-                .source = source});
+            const auto source =
+                state.request.origins.empty() ? ManifestSourceRange{} : state.request.origins.front().source;
+            coexistenceUses[state.package.coordinate.name].push_back(
+                PackageInstanceUse{.instance = state.instance,
+                                   .linkageClosure = request.project.name,
+                                   .activationPath = std::move(activationPath),
+                                   .source = source});
             coexistencePolicies.emplace(state.package.coordinate.name, state.package.coexistence);
         }
         for (const auto &[name, uses] : coexistenceUses)
         {
-            const auto diagnostics = ValidatePackageInstanceCoexistence(
-                uses, coexistencePolicies.at(name), request.platformAllowsSideBySidePackages);
+            const auto diagnostics = ValidatePackageInstanceCoexistence(uses, coexistencePolicies.at(name),
+                                                                        request.platformAllowsSideBySidePackages);
             result.diagnostics.insert(result.diagnostics.end(), diagnostics.begin(), diagnostics.end());
         }
         if (!result.diagnostics.empty()) return result;
@@ -686,11 +699,12 @@ namespace NGIN::CLI
         std::vector<CMakeIntegrationBindings> cmakeIntegrations{};
         for (const auto &[_, state] : states)
         {
-            auto selection = state.request.context == PackageInstanceContext::Host ? request.hostSelection
-                                                                                   : request.targetSelection;
+            auto selection =
+                state.request.context == PackageInstanceContext::Host ? request.hostSelection : request.targetSelection;
             selection.options = state.options.values;
-            const auto integration = ResolveCMakeIntegration(state.authored, state.package, state.provider,
-                                                             state.instance, state.activation, selection, state.options);
+            const auto integration =
+                ResolveCMakeIntegration(state.authored, state.package, state.provider, state.instance, state.activation,
+                                        selection, state.options);
             result.diagnostics.insert(result.diagnostics.end(), integration.diagnostics.begin(),
                                       integration.diagnostics.end());
             if (integration.value.has_value()) cmakeIntegrations.push_back(*integration.value);
@@ -715,66 +729,65 @@ namespace NGIN::CLI
                                      .languageRequired = request.project.build.language.required,
                                      .provenance = Provenance(projectSource, request.workspaceRoot, "Project",
                                                               request.project.name, "primary product")};
-        graph.selection = GraphSelection{.configuration = request.targetSelection.configuration.name,
-                                         .targetOperatingSystem = request.targetSelection.target.operatingSystem,
-                                         .targetArchitecture = request.targetSelection.target.architecture,
-                                         .compiler = request.targetSelection.toolchain.compiler,
-                                         .compilerVersion = request.targetSelection.toolchain.compilerVersion,
-                                         .runtimeLibrary = request.targetSelection.toolchain.runtimeLibrary,
-                                         .optimization = request.targetSelection.configuration.optimization,
-                                         .debugSymbols = request.targetSelection.configuration.debugSymbols,
-                                         .linkTimeOptimization = request.targetSelection.configuration.linkTimeOptimization,
-                                         .toolchainFile = request.targetSelection.toolchain.toolchainFile.has_value()
-                                                              ? std::optional<std::string>{
-                                                                    (request.workspaceRoot /
-                                                                     request.targetSelection.toolchain.toolchainFile->value)
-                                                                        .lexically_normal().generic_string()}
-                                                              : std::nullopt,
-                                         .provenance = Provenance(projectSource, request.workspaceRoot,
-                                                                  "Selection", request.project.name,
-                                                                  "resolved target selection")};
+        graph.selection = GraphSelection{
+            .configuration = request.targetSelection.configuration.name,
+            .targetOperatingSystem = request.targetSelection.target.operatingSystem,
+            .targetArchitecture = request.targetSelection.target.architecture,
+            .compiler = request.targetSelection.toolchain.compiler,
+            .compilerVersion = request.targetSelection.toolchain.compilerVersion,
+            .runtimeLibrary = request.targetSelection.toolchain.runtimeLibrary,
+            .optimization = request.targetSelection.configuration.optimization,
+            .debugSymbols = request.targetSelection.configuration.debugSymbols,
+            .linkTimeOptimization = request.targetSelection.configuration.linkTimeOptimization,
+            .toolchainFile = request.targetSelection.toolchain.toolchainFile.has_value()
+                                 ? std::optional<std::string>{(request.workspaceRoot /
+                                                               request.targetSelection.toolchain.toolchainFile->value)
+                                                                  .lexically_normal()
+                                                                  .generic_string()}
+                                 : std::nullopt,
+            .provenance = Provenance(projectSource, request.workspaceRoot, "Selection", request.project.name,
+                                     "resolved target selection")};
         for (const auto &[name, definition] : request.project.options)
         {
             const auto selected = request.targetSelection.options.find(name);
-            const auto value = selected == request.targetSelection.options.end() ? definition.defaultValue
-                                                                                 : selected->second;
-            graph.options.push_back(GraphOption{.identity = request.project.name + ":Option:" + name,
-                                                .owner = request.project.name,
-                                                .name = name,
-                                                .value = CanonicalOptionValue(value),
-                                                .artifact = definition.artifact,
-                                                .provenance = Provenance(definition.source, request.workspaceRoot,
-                                                                         "ProjectOption", request.project.name,
-                                                                         selected == request.targetSelection.options.end()
-                                                                             ? "declared default"
-                                                                        : "resolved selection")});
+            const auto value =
+                selected == request.targetSelection.options.end() ? definition.defaultValue : selected->second;
+            graph.options.push_back(GraphOption{
+                .identity = request.project.name + ":Option:" + name,
+                .owner = request.project.name,
+                .name = name,
+                .value = CanonicalOptionValue(value),
+                .artifact = definition.artifact,
+                .provenance = Provenance(
+                    definition.source, request.workspaceRoot, "ProjectOption", request.project.name,
+                    selected == request.targetSelection.options.end() ? "declared default" : "resolved selection")});
         }
         for (const auto &stage : request.project.stage)
         {
             const auto kind = stage.kind == StageInputKind::Directory ? "ProjectDirectory" : "ProjectFile";
-            graph.contributions.push_back(GraphContribution{
-                .identity = request.project.name + ":Stage:" + kind + ":" + stage.destination.value + ":" +
-                            stage.include.value,
-                .owner = request.project.name,
-                .kind = kind,
-                .include = stage.include.value,
-                .destination = stage.destination.value,
-                .provenance = Provenance(stage.source, request.workspaceRoot, "ProjectStage", request.project.name,
-                                         "authored project stage input")});
+            graph.contributions.push_back(
+                GraphContribution{.identity = request.project.name + ":Stage:" + kind + ":" + stage.destination.value +
+                                              ":" + stage.include.value,
+                                  .owner = request.project.name,
+                                  .kind = kind,
+                                  .include = stage.include.value,
+                                  .destination = stage.destination.value,
+                                  .provenance = Provenance(stage.source, request.workspaceRoot, "ProjectStage",
+                                                           request.project.name, "authored project stage input")});
         }
         for (const auto &launch : request.project.launches)
-            graph.launches.push_back(GraphLaunch{
-                .identity = request.project.name + ":Launch:" + launch.name,
-                .name = launch.name,
-                .defaultLaunch = launch.defaultLaunch,
-                .executableKind = launch.tool.has_value() ? "Tool" : "Product",
-                .executable = launch.tool.value_or(launch.product.value_or(request.project.name)),
-                .workingDirectory = launch.workingDirectory.value,
-                .arguments = launch.arguments,
-                .environment = launch.environment,
-                .secrets = launch.secrets,
-                .provenance = Provenance(launch.source, request.workspaceRoot, "Launch", launch.name,
-                                         "authored process intent")});
+            graph.launches.push_back(
+                GraphLaunch{.identity = request.project.name + ":Launch:" + launch.name,
+                            .name = launch.name,
+                            .defaultLaunch = launch.defaultLaunch,
+                            .executableKind = launch.tool.has_value() ? "Tool" : "Product",
+                            .executable = launch.tool.value_or(launch.product.value_or(request.project.name)),
+                            .workingDirectory = launch.workingDirectory.value,
+                            .arguments = launch.arguments,
+                            .environment = launch.environment,
+                            .secrets = launch.secrets,
+                            .provenance = Provenance(launch.source, request.workspaceRoot, "Launch", launch.name,
+                                                     "authored process intent")});
         if (request.project.testing.has_value() || request.project.type == ProductType::Test ||
             request.project.type == ProductType::Benchmark)
         {
@@ -783,25 +796,26 @@ namespace NGIN::CLI
                 .identity = request.project.name + ":Testing",
                 .arguments = testing.has_value() ? testing->arguments : std::vector<std::string>{},
                 .timeoutSeconds = testing.has_value() ? testing->timeoutSeconds : std::nullopt,
-                .provenance = Provenance(testing.has_value() ? testing->source : projectSource,
-                                         request.workspaceRoot, "Testing", request.project.name,
+                .provenance = Provenance(testing.has_value() ? testing->source : projectSource, request.workspaceRoot,
+                                         "Testing", request.project.name,
                                          testing.has_value() ? "authored test intent" : "test product default")};
         }
         for (const auto &publish : request.project.publishes)
-            graph.publishes.push_back(GraphPublish{
-                .identity = request.project.name + ":Publish:" + publish.name,
-                .name = publish.name,
-                .outputKind = PublishKindName(publish.kind),
-                .format = publish.format,
-                .output = publish.output.value,
-                .provenance = Provenance(publish.source, request.workspaceRoot, "Publish", publish.name,
-                                         "authored backend-neutral publish intent")});
+            graph.publishes.push_back(
+                GraphPublish{.identity = request.project.name + ":Publish:" + publish.name,
+                             .name = publish.name,
+                             .outputKind = PublishKindName(publish.kind),
+                             .format = publish.format,
+                             .output = publish.output.value,
+                             .provenance = Provenance(publish.source, request.workspaceRoot, "Publish", publish.name,
+                                                      "authored backend-neutral publish intent")});
 
         std::map<std::string, const ResolvedPackageState *, std::less<>> statesByInstance{};
         for (const auto &[key, state] : states)
         {
             statesByInstance.emplace(state.instance.identity, &state);
-            const auto source = state.request.origins.empty() ? ManifestSourceRange{} : state.request.origins.front().source;
+            const auto source =
+                state.request.origins.empty() ? ManifestSourceRange{} : state.request.origins.front().source;
             graph.packages.push_back(GraphPackageInstance{
                 .identity = state.instance.identity,
                 .coordinate = state.provider.coordinate,
@@ -820,47 +834,47 @@ namespace NGIN::CLI
                 .provenance = Provenance(source, request.workspaceRoot, "PackageProviderResult",
                                          state.provider.coordinate.name, "resolved exact package instance")});
             for (const auto &[name, value] : state.options.values)
-                graph.options.push_back(GraphOption{
-                    .identity = state.instance.identity + ":Option:" + name,
-                    .owner = state.instance.identity,
-                    .name = name,
-                    .value = CanonicalOptionValue(value),
-                    .artifact = state.package.options.at(name).artifact,
-                    .provenance = Provenance(state.package.options.at(name).source, request.workspaceRoot,
-                                             "PackageOption", state.package.coordinate.name, "resolved package option")});
+                graph.options.push_back(
+                    GraphOption{.identity = state.instance.identity + ":Option:" + name,
+                                .owner = state.instance.identity,
+                                .name = name,
+                                .value = CanonicalOptionValue(value),
+                                .artifact = state.package.options.at(name).artifact,
+                                .provenance = Provenance(state.package.options.at(name).source, request.workspaceRoot,
+                                                         "PackageOption", state.package.coordinate.name,
+                                                         "resolved package option")});
             for (const auto &name : state.activation.exports)
             {
                 const auto &exportModel = state.package.exports.at(name);
                 const auto identity = state.instance.identity + "::" + name;
-                graph.exports.push_back(GraphExport{.identity = identity,
-                                                    .packageInstance = state.instance.identity,
-                                                    .name = name,
-                                                    .kind = exportModel.kind,
-                                                    .provenance = Provenance(exportModel.source, request.workspaceRoot,
-                                                                             "ExportActivation",
-                                                                             state.package.coordinate.name,
-                                                                             "activation closure")});
-                graph.edges.push_back(GraphEdge{.identity = state.instance.identity + "->" + identity,
-                                                .from = state.instance.identity,
-                                                .to = identity,
-                                                .kind = "ActivatesExport",
-                                                .context = ContextName(state.request.context),
-                                                .provenance = Provenance(exportModel.source, request.workspaceRoot,
-                                                                         "ExportActivation", name,
-                                                                         "selected or required export")});
+                graph.exports.push_back(
+                    GraphExport{.identity = identity,
+                                .packageInstance = state.instance.identity,
+                                .name = name,
+                                .kind = exportModel.kind,
+                                .provenance = Provenance(exportModel.source, request.workspaceRoot, "ExportActivation",
+                                                         state.package.coordinate.name, "activation closure")});
+                graph.edges.push_back(
+                    GraphEdge{.identity = state.instance.identity + "->" + identity,
+                              .from = state.instance.identity,
+                              .to = identity,
+                              .kind = "ActivatesExport",
+                              .context = ContextName(state.request.context),
+                              .provenance = Provenance(exportModel.source, request.workspaceRoot, "ExportActivation",
+                                                       name, "selected or required export")});
                 if (exportModel.kind == ExportUseKind::Plugin)
-                    graph.plugins.push_back(GraphPlugin{.identity = identity,
-                                                        .packageInstance = state.instance.identity,
-                                                        .exportName = name,
-                                                        .provenance = Provenance(exportModel.source,
-                                                                                 request.workspaceRoot, "Plugin", name,
-                                                                                 "deployable plugin artifact")});
+                    graph.plugins.push_back(
+                        GraphPlugin{.identity = identity,
+                                    .packageInstance = state.instance.identity,
+                                    .exportName = name,
+                                    .provenance = Provenance(exportModel.source, request.workspaceRoot, "Plugin", name,
+                                                             "deployable plugin artifact")});
             }
             for (const auto &contribution : state.activation.contributions)
             {
-                const auto identity = state.instance.identity + ":Contribution:" +
-                                      ContributionKindName(contribution.kind) + ":" + contribution.destination.value +
-                                      ":" + contribution.include.value;
+                const auto identity = state.instance.identity +
+                                      ":Contribution:" + ContributionKindName(contribution.kind) + ":" +
+                                      contribution.destination.value + ":" + contribution.include.value;
                 graph.contributions.push_back(GraphContribution{
                     .identity = identity,
                     .owner = state.instance.identity + "::" + contribution.owner,
@@ -878,8 +892,7 @@ namespace NGIN::CLI
                     .to = state.instance.identity,
                     .kind = origin.kind,
                     .visibility = RequirementVisibilityName(origin.visibility),
-                    .context = origin.kind == "ProjectDependency" ? origin.reason
-                                                                    : ContextName(state.request.context),
+                    .context = origin.kind == "ProjectDependency" ? origin.reason : ContextName(state.request.context),
                     .scope = origin.scope,
                     .provenance = Provenance(origin.source, request.workspaceRoot, origin.kind, state.request.name,
                                              origin.reason)});
@@ -890,18 +903,17 @@ namespace NGIN::CLI
         {
             const auto identity = binding.requirement + "->Capability:" + binding.capability + "->" +
                                   binding.packageInstance + "::" + binding.exportName;
-            const auto requirement = std::ranges::find_if(
-                resolvedCapabilityRequirements,
-                [&](const SemanticCapabilityRequirement &candidate) { return candidate.requester == binding.requirement; });
-            const auto implementation = std::ranges::find_if(
-                resolvedCapabilityImplementations,
-                [&](const CapabilityImplementation &candidate) {
+            const auto requirement = std::ranges::find_if(resolvedCapabilityRequirements,
+                                                          [&](const SemanticCapabilityRequirement &candidate) {
+                                                              return candidate.requester == binding.requirement;
+                                                          });
+            const auto implementation =
+                std::ranges::find_if(resolvedCapabilityImplementations, [&](const CapabilityImplementation &candidate) {
                     return candidate.packageInstance == binding.packageInstance &&
                            candidate.exportName == binding.exportName && candidate.name == binding.capability;
                 });
-            const auto requirementSource = requirement == resolvedCapabilityRequirements.end()
-                                               ? ManifestSourceRange{}
-                                               : requirement->source;
+            const auto requirementSource =
+                requirement == resolvedCapabilityRequirements.end() ? ManifestSourceRange{} : requirement->source;
             const auto implementationSource = implementation == resolvedCapabilityImplementations.end()
                                                   ? ManifestSourceRange{}
                                                   : implementation->source;
@@ -910,19 +922,17 @@ namespace NGIN::CLI
                 .binding = binding,
                 .provenance = Provenance(requirementSource, request.workspaceRoot, "CapabilityRequirement",
                                          binding.requirement, "unique compatible implementation")});
-            graph.edges.push_back(GraphEdge{.identity = identity,
-                                            .from = binding.requirement,
-                                            .to = binding.packageInstance + "::" + binding.exportName,
-                                            .kind = "CapabilityBinding",
-                                            .context = statesByInstance.at(binding.packageInstance)->request.context ==
-                                                               PackageInstanceContext::Host
-                                                           ? "Host"
-                                                           : "Target",
-                                            .provenance = Provenance(implementationSource, request.workspaceRoot,
-                                                                     "CapabilityImplementation",
-                                                                     binding.packageInstance + "::" +
-                                                                         binding.exportName,
-                                                                     binding.capability + "@" + binding.version)});
+            graph.edges.push_back(GraphEdge{
+                .identity = identity,
+                .from = binding.requirement,
+                .to = binding.packageInstance + "::" + binding.exportName,
+                .kind = "CapabilityBinding",
+                .context = statesByInstance.at(binding.packageInstance)->request.context == PackageInstanceContext::Host
+                               ? "Host"
+                               : "Target",
+                .provenance = Provenance(implementationSource, request.workspaceRoot, "CapabilityImplementation",
+                                         binding.packageInstance + "::" + binding.exportName,
+                                         binding.capability + "@" + binding.version)});
         }
 
         std::vector<ResolvedAction> resolvedActions{};
@@ -950,7 +960,8 @@ namespace NGIN::CLI
             std::vector<std::string> inputs{};
             const auto expandInput = [&](const std::string &include, const std::optional<std::string> &exclude,
                                          const ManifestSourceRange &source) {
-                const auto expanded = ExpandPortableGlob(request.projectDirectory, include, false, source);
+                const auto expanded = ExpandPortableGlob(request.projectDirectory, include,
+                                                         request.targetCaseInsensitive, source, request.allowSymlinks);
                 result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
                                           expanded.diagnostics.end());
                 for (const auto &match : expanded.matches)
@@ -986,21 +997,20 @@ namespace NGIN::CLI
                 .options = resolved.value->options,
                 .provenance = Provenance(selection.source, request.workspaceRoot, "ActionSelection",
                                          request.project.name, std::string(ActionKindName(selection.kind)))});
-            graph.edges.push_back(GraphEdge{.identity = selection.qualifiedAction + "->Tool:" +
-                                                        resolved.value->toolExport,
-                                            .from = selection.qualifiedAction,
-                                            .to = resolved.value->hostInstance.identity + "::" +
-                                                  resolved.value->toolExport,
-                                            .kind = "UsesHostTool",
-                                            .context = "Host",
-                                            .provenance = Provenance(selection.source, request.workspaceRoot,
-                                                                     "ActionSelection", selection.qualifiedAction,
-                                                                     "Action Tool export")});
+            graph.edges.push_back(
+                GraphEdge{.identity = selection.qualifiedAction + "->Tool:" + resolved.value->toolExport,
+                          .from = selection.qualifiedAction,
+                          .to = resolved.value->hostInstance.identity + "::" + resolved.value->toolExport,
+                          .kind = "UsesHostTool",
+                          .context = "Host",
+                          .provenance = Provenance(selection.source, request.workspaceRoot, "ActionSelection",
+                                                   selection.qualifiedAction, "Action Tool export")});
         }
         const auto actionCollisions = ValidateActionOutputCollisions(resolvedActions);
         result.diagnostics.insert(result.diagnostics.end(), actionCollisions.begin(), actionCollisions.end());
 
-        const auto build = ResolveProjectBuild(request.project, request.projectDirectory);
+        const auto build = ResolveProjectBuild(request.project, request.projectDirectory, request.targetCaseInsensitive,
+                                               request.allowSymlinks);
         result.diagnostics.insert(result.diagnostics.end(), build.diagnostics.begin(), build.diagnostics.end());
         for (const auto &item : build.items)
             graph.buildItems.push_back(GraphBuildItem{
@@ -1009,11 +1019,10 @@ namespace NGIN::CLI
                 .path = item.path.value,
                 .visibility = VisibilityName(item.visibility),
                 .generated = item.generated,
-                .provenance = Provenance(item.source, request.workspaceRoot,
-                                         item.origin == BuildItemOriginKind::Convention ? "Convention" : "BuildItem",
-                                         request.project.name,
-                                         item.origin == BuildItemOriginKind::Convention ? "project convention"
-                                                                                       : "authored build item")});
+                .provenance = Provenance(
+                    item.source, request.workspaceRoot,
+                    item.origin == BuildItemOriginKind::Convention ? "Convention" : "BuildItem", request.project.name,
+                    item.origin == BuildItemOriginKind::Convention ? "project convention" : "authored build item")});
         for (const auto &action : resolvedActions)
             for (const auto &item : action.generatedItems)
             {
@@ -1029,17 +1038,17 @@ namespace NGIN::CLI
                                  item.source);
                     continue;
                 }
-                graph.buildItems.push_back(GraphBuildItem{
-                    .identity = "ActionGenerated:" + kind + ":" + item.pattern,
-                    .kind = kind,
-                    .path = item.pattern,
-                    .visibility = "Private",
-                    .generated = true,
-                    .provenance = Provenance(item.source, request.workspaceRoot, "ActionOutput",
-                                             action.qualifiedAction, "declared generated build item")});
+                graph.buildItems.push_back(
+                    GraphBuildItem{.identity = "ActionGenerated:" + kind + ":" + item.pattern,
+                                   .kind = kind,
+                                   .path = item.pattern,
+                                   .visibility = "Private",
+                                   .generated = true,
+                                   .provenance = Provenance(item.source, request.workspaceRoot, "ActionOutput",
+                                                            action.qualifiedAction, "declared generated build item")});
             }
         if (!result.diagnostics.empty()) return result;
         result.graph.emplace(std::move(graph));
         return result;
     }
-}
+} // namespace NGIN::CLI

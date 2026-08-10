@@ -256,6 +256,23 @@ namespace NGIN::CLI
         ManifestSourceRange source{};
     };
 
+    struct ProjectBuildRefinement
+    {
+        std::optional<SourcedAssignment<bool>> conventions{};
+        std::optional<LanguageRequirement> language{};
+        std::optional<UnityBuildSetting> unityBuild{};
+        std::map<std::string, SourcedAssignment<bool>, std::less<>> namedConventions{};
+        std::vector<BuildItemDeclaration> declarations{};
+    };
+
+    struct ProjectRefinement
+    {
+        SemanticRefinement semantic{};
+        ProjectBuildRefinement build{};
+        std::vector<ProjectDependency> dependencies{};
+        std::vector<ProjectStageInput> stage{};
+    };
+
     struct SemanticProject
     {
         AuthoredManifestIdentity manifest{};
@@ -271,6 +288,7 @@ namespace NGIN::CLI
         std::vector<ProjectLaunchDefinition> launches{};
         std::optional<ProjectTestingDefinition> testing{};
         std::vector<ProjectPublishDefinition> publishes{};
+        std::vector<ProjectRefinement> refinements{};
         ProjectBuildModel build{};
         bool hasBuildSection{false};
     };
@@ -285,6 +303,10 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ProductTypeName(ProductType type) -> std::string_view;
     [[nodiscard]] auto ParseSemanticProject(const AuthoredProjectManifest &project) -> SemanticProjectResult;
+    [[nodiscard]] auto ApplyProjectRefinements(const SemanticProject &project, const SelectionFacts &selection)
+        -> SemanticProjectResult;
     [[nodiscard]] auto ResolveProjectBuild(const SemanticProject &project,
-                                           const std::filesystem::path &projectDirectory) -> ResolvedProjectBuild;
-}
+                                           const std::filesystem::path &projectDirectory,
+                                           bool targetCaseInsensitive = false, bool allowSymlinks = false)
+        -> ResolvedProjectBuild;
+} // namespace NGIN::CLI

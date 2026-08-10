@@ -106,7 +106,7 @@ add_custom_target(ngin.validate
   COMMAND $<TARGET_FILE:ngin_cli>
     validate
     --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
-    --profile Debug
+    --configuration Debug
   DEPENDS ngin_cli
   COMMENT "Validate the Hello.Hosted Debug configuration"
   VERBATIM
@@ -116,7 +116,7 @@ add_custom_target(ngin.graph.core
   COMMAND $<TARGET_FILE:ngin_cli>
     graph
     --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
-    --profile Debug
+    --configuration Debug
   DEPENDS ngin_cli
   COMMENT "Print the resolved package and module graph for Hello.Hosted"
   VERBATIM
@@ -127,7 +127,7 @@ add_custom_target(ngin.build.core
   COMMAND $<TARGET_FILE:ngin_cli>
     build
     --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
-    --profile Debug
+    --configuration Debug
     --output "${NGIN_HELLO_HOSTED_BUILD_OUTPUT}"
   DEPENDS ngin_cli
   COMMENT "Build the staged layout for Hello.Hosted"
@@ -142,59 +142,47 @@ add_custom_target(ngin.workflow
   COMMENT "Run the standard workspace validate, graph, and build flow"
 )
 
-add_test(NAME ngin.doctor
-  COMMAND $<TARGET_FILE:ngin_cli> workspace doctor
-)
-
-add_test(NAME ngin.package.list
-  COMMAND $<TARGET_FILE:ngin_cli> package list
-)
-
-add_test(NAME ngin.package.show.core
-  COMMAND $<TARGET_FILE:ngin_cli> package show NGIN.Core
-)
-
 add_test(NAME ngin.validate.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.validate.hello_native
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_NATIVE_PROJECT_PATH}" --profile Debug
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_NATIVE_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.validate.hello_hosted
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.validate.hello_reflection
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_REFLECTION_PROJECT_PATH}" --profile Debug
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_REFLECTION_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.validate.hello_analyzer
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.graph.hello_analyzer_tooling
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer --tooling-plan
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.validate.hello_formatter
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --profile Debug.Formatter
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.graph.hello_formatter_tooling
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --profile Debug.Formatter --tooling-plan
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --configuration Debug
 )
 
 add_test(NAME ngin.configure.hello_native
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_HELLO_NATIVE_PROJECT_PATH}
-    -DPROFILE=Debug
+    -DCONFIGURATION=Debug
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Native/Configure
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINConfigureCheck.cmake"
 )
@@ -203,7 +191,7 @@ add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_HELLO_HOSTED_PROJECT_PATH}
-    -DPROFILE=Debug
+    -DCONFIGURATION=Debug
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Hosted/Debug
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
@@ -212,7 +200,7 @@ add_test(NAME ngin.projectref.config.build
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_PROJECT_PATH}
-    -DPROFILE=Runtime
+    -DCONFIGURATION=Debug
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/ProjectRef.Config/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCheck.cmake"
 )
@@ -221,7 +209,8 @@ add_test(NAME ngin.projectref.config.collision
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH}
-    -DPROFILE=Runtime
+    -DCONFIGURATION=Debug
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/ProjectRef.Config/Collision
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCollisionCheck.cmake"
 )
 
@@ -236,7 +225,7 @@ add_test(NAME ngin.build.output.preserve
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_HELLO_HOSTED_PROJECT_PATH}
-    -DPROFILE=Debug
+    -DCONFIGURATION=Debug
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Hosted/Preserve
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINOutputPreserveCheck.cmake"
 )

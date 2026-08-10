@@ -50,7 +50,7 @@
     <Version Name="NGIN.UI.Hosting" Compatible="0.4" />
   </Packages>
   <Policies>
-    <PackageProviders IntegrityRequired="true" Locked="true">
+    <PackageProviders IntegrityRequired="true" Locked="false" AllowNonHermetic="true">
       <Allow Kind="Directory" />
     </PackageProviders>
     <Actions Default="Deny" RequireLocked="true" IntegrityRequired="true">

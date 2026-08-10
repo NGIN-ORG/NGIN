@@ -1,7 +1,7 @@
 #include "DerivedPlans.hpp"
 
-#include "Canonical.hpp"
 #include "CMakeIntegration.hpp"
+#include "Canonical.hpp"
 
 namespace NGIN::CLI
 {
@@ -30,10 +30,8 @@ namespace NGIN::CLI
         {
             CanonicalValue::Array result{};
             for (const auto &value : values)
-                result.push_back(CanonicalValue::Object{{"artifact", value.artifact},
-                                                        {"name", value.name},
-                                                        {"type", value.type},
-                                                        {"value", value.value}});
+                result.push_back(CanonicalValue::Object{
+                    {"artifact", value.artifact}, {"name", value.name}, {"type", value.type}, {"value", value.value}});
             return result;
         }
 
@@ -44,7 +42,7 @@ namespace NGIN::CLI
             for (const auto &[name, value] : values) result.emplace(name, value);
             return result;
         }
-    }
+    } // namespace
 
     auto SerializeBuildPlan(const BuildPlan &plan) -> std::string
     {
@@ -86,20 +84,24 @@ namespace NGIN::CLI
         CanonicalValue::Array actions{};
         for (const auto &action : plan.actionDependencies) actions.emplace_back(action);
         CanonicalValue::Object root{{"actionDependencies", actions},
+                                    {"compiler", plan.compiler},
                                     {"configuration", plan.configuration},
                                     {"crossCompiling", plan.crossCompiling},
+                                    {"debugSymbols", plan.debugSymbols},
                                     {"generator", plan.generator},
                                     {"languageExtensions", plan.languageExtensions},
                                     {"languageRequired", plan.languageRequired},
                                     {"languageStandard", plan.languageStandard},
-                                                         {"items", items},
-                                                         {"kind", "NGIN.BuildPlan"},
-                                                         {"links", links},
+                                    {"linkTimeOptimization", plan.linkTimeOptimization},
+                                    {"items", items},
+                                    {"kind", "NGIN.BuildPlan"},
+                                    {"links", links},
                                     {"multiConfiguration", plan.multiConfiguration},
-                                                         {"packages", packages},
-                                                         {"plan", IdentityValue(plan.plan)},
-                                                         {"product", plan.productGraphIdentity},
-                                                         {"targetKind", plan.targetKind},
+                                    {"packages", packages},
+                                    {"plan", IdentityValue(plan.plan)},
+                                    {"optimization", plan.optimization},
+                                    {"product", plan.productGraphIdentity},
+                                    {"targetKind", plan.targetKind},
                                     {"targetName", plan.targetName}};
         if (plan.toolchainFile.has_value()) root.emplace("toolchainFile", *plan.toolchainFile);
         return SerializeCanonical(root);
@@ -131,9 +133,8 @@ namespace NGIN::CLI
                                                    {"toolTarget", step.toolTarget},
                                                    {"workingDirectory", step.workingDirectory}});
         }
-        return SerializeCanonical(CanonicalValue::Object{{"kind", "NGIN.ActionPlan"},
-                                                         {"plan", IdentityValue(plan.plan)},
-                                                         {"steps", steps}});
+        return SerializeCanonical(
+            CanonicalValue::Object{{"kind", "NGIN.ActionPlan"}, {"plan", IdentityValue(plan.plan)}, {"steps", steps}});
     }
 
     auto FingerprintBuildPlan(const BuildPlan &plan) -> std::string
@@ -149,4 +150,4 @@ namespace NGIN::CLI
         canonical.plan.identity.clear();
         return CanonicalFingerprint("ActionPlanFingerprint", {{"plan", SerializeActionPlan(canonical)}});
     }
-}
+} // namespace NGIN::CLI
