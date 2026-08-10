@@ -437,23 +437,132 @@ namespace NGIN::CLI
                 ValidateQualifiedAction(selection, result.diagnostics);
                 semantic.actions.push_back(std::move(selection));
             }
-        semantic.hasLaunch = Child(project.root, "project.launch") != nullptr;
-        semantic.hasTesting = Child(project.root, "project.testing") != nullptr;
-        semantic.hasPublish = Child(project.root, "project.publish") != nullptr;
+        if (const auto *stage = Child(project.root, "project.stage"))
+            for (const auto &node : stage->children)
+            {
+                const auto include = NormalizePortablePath(AttributeValue(node, "Include"),
+                                                           PortablePathBase::Manifest, node.source);
+                const auto destination = NormalizeStageDestination(AttributeValue(node, "Into"), node.source);
+                if (!include.Succeeded())
+                    result.diagnostics.insert(result.diagnostics.end(), include.diagnostics.begin(), include.diagnostics.end());
+                if (!destination.Succeeded())
+                    result.diagnostics.insert(result.diagnostics.end(), destination.diagnostics.begin(), destination.diagnostics.end());
+                if (include.Succeeded() && destination.Succeeded())
+                    semantic.stage.push_back(ProjectStageInput{.kind = node.specId == "project.stage.directory"
+                                                                           ? StageInputKind::Directory
+                                                                           : StageInputKind::File,
+                                                                .include = *include.value,
+                                                                .destination = *destination.value,
+                                                                .source = node.source});
+            }
 
+        std::optional<ManifestSourceRange> defaultLaunchSource{};
+        for (const auto *launch : Children(project.root, "project.launch"))
+        {
+            ProjectLaunchDefinition definition{.name = AttributeValue(*launch, "Name"),
+                                               .defaultLaunch = BoolAttributeValue(*launch, "Default"),
+                                               .product = semantic.name,
+                                               .source = launch->source};
+            if (const auto *executable = Child(*launch, "project.launch.executable"))
+            {
+                const auto productName = AttributeValue(*executable, "Product");
+                const auto toolName = AttributeValue(*executable, "Tool");
+                if (!productName.empty() && !toolName.empty())
+                    AddError(result.diagnostics, "NGIN3012", "Launch Executable selects either Product or Tool, not both",
+                             executable->source);
+                else if (!toolName.empty())
+                {
+                    definition.product.reset();
+                    definition.tool = toolName;
+                }
+                else if (!productName.empty()) definition.product = productName;
+            }
+            if (const auto *working = Child(*launch, "project.launch.working-directory"))
+            {
+                const auto path = AttributeValue(*working, "Path");
+                if (path == ".") definition.workingDirectory = PortablePath{.value = "."};
+                else
+                {
+                    const auto normalized = NormalizeStageDestination(path, working->source);
+                    if (normalized.Succeeded()) definition.workingDirectory = *normalized.value;
+                    else result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(), normalized.diagnostics.end());
+                }
+            }
+            for (const auto &child : launch->children)
+            {
+                if (child.specId == "project.launch.argument") definition.arguments.push_back(child.text);
+                else if (child.specId == "project.launch.environment")
+                {
+                    const auto name = AttributeValue(child, "Name");
+                    if (definition.secrets.contains(name) ||
+                        !definition.environment.emplace(name, AttributeValue(child, "Value")).second)
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch Environment '" + name + "'", child.source);
+                }
+                else if (child.specId == "project.launch.secret")
+                {
+                    const auto name = AttributeValue(child, "Name");
+                    if (definition.environment.contains(name) ||
+                        !definition.secrets.emplace(name, AttributeValue(child, "From")).second)
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch environment/Secret '" + name + "'", child.source);
+                }
+            }
+            if (definition.defaultLaunch)
+            {
+                if (defaultLaunchSource.has_value())
+                    AddError(result.diagnostics, "NGIN3012", "only one Launch may be Default", launch->source,
+                             {*defaultLaunchSource});
+                else defaultLaunchSource = launch->source;
+            }
+            semantic.launches.push_back(std::move(definition));
+        }
         if (const auto *testing = Child(project.root, "project.testing"))
+        {
+            ProjectTestingDefinition definition{.source = testing->source};
+            for (const auto &child : testing->children)
+            {
+                if (child.specId == "project.testing.argument") definition.arguments.push_back(child.text);
+                else if (child.specId == "project.testing.timeout")
+                {
+                    definition.timeoutSeconds = ParseInteger(AttributeValue(child, "Seconds"));
+                    if (!definition.timeoutSeconds.has_value() || *definition.timeoutSeconds <= 0)
+                        AddError(result.diagnostics, "NGIN3013", "Testing Timeout Seconds must be greater than zero",
+                                 child.source);
+                }
+            }
+            semantic.testing = std::move(definition);
             if (const auto *dependencies = Child(*testing, "project.testing.dependencies"))
                 ParseDependencies(*dependencies, DependencyContext::Test, std::nullopt, semantic, result.diagnostics);
+        }
         for (const auto *publish : Children(project.root, "project.publish"))
+        {
+            const AuthoredElement *output = nullptr;
+            for (const auto &child : publish->children)
+                if (child.specId == "project.publish.folder" || child.specId == "project.publish.archive" ||
+                    child.specId == "project.publish.installer") output = &child;
+            if (output != nullptr)
+            {
+                const auto normalized = NormalizeStageDestination(AttributeValue(*output, "Output"), output->source);
+                if (normalized.Succeeded())
+                    semantic.publishes.push_back(ProjectPublishDefinition{
+                        .name = AttributeValue(*publish, "Name"),
+                        .kind = output->specId == "project.publish.archive" ? PublishOutputKind::Archive
+                              : output->specId == "project.publish.installer" ? PublishOutputKind::Installer
+                                                                              : PublishOutputKind::Folder,
+                        .format = AttributeValue(*output, "Format"),
+                        .output = *normalized.value,
+                        .source = publish->source});
+                else result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(), normalized.diagnostics.end());
+            }
             if (const auto *dependencies = Child(*publish, "project.publish.dependencies"))
                 ParseDependencies(*dependencies, DependencyContext::Publish, AttributeValue(*publish, "Name"), semantic,
                                   result.diagnostics);
+        }
 
-        if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) && semantic.hasLaunch)
+        if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) && !semantic.launches.empty())
             AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
                                                           " products cannot declare Launch",
                      project.root.source);
-        if ((semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark) && semantic.hasTesting)
+        if ((semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark) && semantic.testing.has_value())
             AddError(result.diagnostics, "NGIN3000", std::string(ProductTypeName(semantic.type)) +
                                                           " products declare test dependencies at the root",
                      project.root.source);

@@ -22,7 +22,8 @@ The resolver completes these decisions before constructing the graph:
 - active Exports and their transitive requirements;
 - Capability implementation bindings;
 - selected Actions and their host Tools;
-- selected Plugins, contributions, and generated build items; and
+- selected Plugins, contributions, and generated build items;
+- backend-neutral Launch, Testing, and Publish intent; and
 - dependency, activation, capability, and Tool-use edges.
 
 A successful graph therefore needs neither the authored XML tree nor a
@@ -38,8 +39,8 @@ view of the graph data.
 Package identity includes the exact PackageProvider result, host or target
 context, derived binary compatibility, and artifact-affecting Options. Host and
 target instances are separate even when their package name and version match.
-Export, Action, Plugin, contribution, build-item, and edge identities are based
-on their semantic owners rather than XML position.
+Export, Action, Plugin, contribution, build-item, Launch, Testing, Publish, and
+edge identities are based on their semantic owners rather than XML position.
 
 Equivalent target selections produce the same canonical graph. Incidental
 preset labels and checkout roots are not semantic facts and do not affect the
@@ -64,6 +65,9 @@ Canonical JSON has this top-level shape:
   "plugins": [],
   "contributions": [],
   "buildItems": [],
+  "launches": [],
+  "testing": null,
+  "publishes": [],
   "edges": []
 }
 ```
@@ -134,6 +138,16 @@ directories, defines, compile and link options, and precompiled headers.
 Conventional and authored inputs use the same node form. Action outputs become
 generated build items only after their Action and host Tool are resolved.
 
+### Deployment and process intent
+
+Project and package Stage inputs use contribution nodes with portable sources,
+destinations, ownership, and provenance. Launch nodes retain the selected
+Product or Tool Export, repeated arguments, working directory, ordinary
+environment values, and external secret references. Secret contents never enter
+the graph. Testing records arguments and timeout policy. Publish nodes record
+only Folder, Archive, or Installer intent, format, and portable output; CPack
+settings are absent.
+
 ### Edges
 
 Edges make resolution causality explicit. Current semantic edge kinds include
@@ -167,7 +181,8 @@ Graph inspection operates on semantic identities:
   edges for one identity.
 
 Diff covers the product, selection, Options, PackageInstances, Exports,
-CapabilityBindings, Actions, Plugins, contributions, build items, and edges.
+CapabilityBindings, Actions, Plugins, contributions, build items, Launches,
+Testing, Publishes, and edges.
 Formatting and XML ordering are not reported as semantic changes.
 
 The CLI command migration to these APIs is tracked separately from the graph
@@ -186,3 +201,6 @@ This separation keeps the authoring model usable for beginners while leaving a
 precise extension boundary for future build systems and package providers. Only
 the CMake adapter is implemented in the current scope; the graph does not claim
 that other adapters already exist.
+
+Stage, process, test, and publishing behavior is specified in
+[deployment-plans.md](deployment-plans.md).

@@ -206,6 +206,56 @@ namespace NGIN::CLI
         ManifestSourceRange source{};
     };
 
+    enum class StageInputKind
+    {
+        File,
+        Directory,
+    };
+
+    struct ProjectStageInput
+    {
+        StageInputKind kind{StageInputKind::File};
+        PortablePath include{};
+        PortablePath destination{};
+        ManifestSourceRange source{};
+    };
+
+    struct ProjectLaunchDefinition
+    {
+        std::string name{};
+        bool defaultLaunch{false};
+        std::optional<std::string> product{};
+        std::optional<std::string> tool{};
+        PortablePath workingDirectory{.value = ".", .base = PortablePathBase::Manifest};
+        std::vector<std::string> arguments{};
+        std::map<std::string, std::string, std::less<>> environment{};
+        std::map<std::string, std::string, std::less<>> secrets{};
+        ManifestSourceRange source{};
+    };
+
+    struct ProjectTestingDefinition
+    {
+        std::vector<std::string> arguments{};
+        std::optional<std::int64_t> timeoutSeconds{};
+        ManifestSourceRange source{};
+    };
+
+    enum class PublishOutputKind
+    {
+        Folder,
+        Archive,
+        Installer,
+    };
+
+    struct ProjectPublishDefinition
+    {
+        std::string name{};
+        PublishOutputKind kind{PublishOutputKind::Folder};
+        std::string format{};
+        PortablePath output{};
+        ManifestSourceRange source{};
+    };
+
     struct SemanticProject
     {
         AuthoredManifestIdentity manifest{};
@@ -217,11 +267,12 @@ namespace NGIN::CLI
         std::map<std::string, OptionDefinition, std::less<>> options{};
         std::vector<ProjectDependency> dependencies{};
         std::vector<ProjectActionSelection> actions{};
+        std::vector<ProjectStageInput> stage{};
+        std::vector<ProjectLaunchDefinition> launches{};
+        std::optional<ProjectTestingDefinition> testing{};
+        std::vector<ProjectPublishDefinition> publishes{};
         ProjectBuildModel build{};
         bool hasBuildSection{false};
-        bool hasLaunch{false};
-        bool hasTesting{false};
-        bool hasPublish{false};
     };
 
     struct SemanticProjectResult

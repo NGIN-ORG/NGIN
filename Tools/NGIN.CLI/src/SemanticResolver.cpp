@@ -18,6 +18,7 @@ namespace NGIN::CLI
             RequirementVisibility visibility{RequirementVisibility::Private};
             ManifestSourceRange source{};
             std::string reason{};
+            std::string scope{};
         };
 
         struct PendingPackage
@@ -104,6 +105,17 @@ namespace NGIN::CLI
             case BuildItemKind::PrecompiledHeader: return "PrecompiledHeader";
             }
             return "Source";
+        }
+
+        [[nodiscard]] auto PublishKindName(const PublishOutputKind kind) -> std::string
+        {
+            switch (kind)
+            {
+            case PublishOutputKind::Folder: return "Folder";
+            case PublishOutputKind::Archive: return "Archive";
+            case PublishOutputKind::Installer: return "Installer";
+            }
+            return "Folder";
         }
 
         [[nodiscard]] auto VisibilityName(const BuildVisibility visibility) -> std::string
@@ -310,7 +322,8 @@ namespace NGIN::CLI
                                    PendingOrigin{.from = request.project.name,
                                                  .kind = "ProjectDependency",
                                                  .source = package->source,
-                                                 .reason = DependencyContextName(package->context)},
+                                                 .reason = DependencyContextName(package->context),
+                                                 .scope = package->owner.value_or("")},
                                    diagnostics);
                     else
                         for (const auto &use : package->exports)
@@ -321,7 +334,8 @@ namespace NGIN::CLI
                                        PendingOrigin{.from = request.project.name,
                                                      .kind = "ProjectDependency",
                                                      .source = package->source,
-                                                     .reason = DependencyContextName(package->context)},
+                                                     .reason = DependencyContextName(package->context),
+                                                     .scope = package->owner.value_or("")},
                                        diagnostics);
                 }
                 else if (const auto *project = std::get_if<ProjectDependencyRequest>(&dependency))
@@ -332,6 +346,7 @@ namespace NGIN::CLI
                                                      .to = "Project:" + project->name,
                                                      .kind = "ProjectDependency",
                                                      .context = DependencyContextName(project->context),
+                                                     .scope = project->owner.value_or(""),
                                                      .provenance = Provenance(project->source, request.workspaceRoot,
                                                                               "ProjectDependency", project->name,
                                                                               DependencyContextName(project->context))});
@@ -689,6 +704,7 @@ namespace NGIN::CLI
                                      .version = request.project.version.has_value()
                                                     ? std::optional<std::string>{VersionText(*request.project.version)}
                                                     : std::nullopt,
+                                     .license = request.project.metadata.license,
                                      .provenance = Provenance(projectSource, request.workspaceRoot, "Project",
                                                               request.project.name, "primary product")};
         graph.selection = GraphSelection{.configuration = request.targetSelection.configuration.name,
@@ -714,8 +730,55 @@ namespace NGIN::CLI
                                                                          "ProjectOption", request.project.name,
                                                                          selected == request.targetSelection.options.end()
                                                                              ? "declared default"
-                                                                             : "resolved selection")});
+                                                                        : "resolved selection")});
         }
+        for (const auto &stage : request.project.stage)
+        {
+            const auto kind = stage.kind == StageInputKind::Directory ? "ProjectDirectory" : "ProjectFile";
+            graph.contributions.push_back(GraphContribution{
+                .identity = request.project.name + ":Stage:" + kind + ":" + stage.destination.value + ":" +
+                            stage.include.value,
+                .owner = request.project.name,
+                .kind = kind,
+                .include = stage.include.value,
+                .destination = stage.destination.value,
+                .provenance = Provenance(stage.source, request.workspaceRoot, "ProjectStage", request.project.name,
+                                         "authored project stage input")});
+        }
+        for (const auto &launch : request.project.launches)
+            graph.launches.push_back(GraphLaunch{
+                .identity = request.project.name + ":Launch:" + launch.name,
+                .name = launch.name,
+                .defaultLaunch = launch.defaultLaunch,
+                .executableKind = launch.tool.has_value() ? "Tool" : "Product",
+                .executable = launch.tool.value_or(launch.product.value_or(request.project.name)),
+                .workingDirectory = launch.workingDirectory.value,
+                .arguments = launch.arguments,
+                .environment = launch.environment,
+                .secrets = launch.secrets,
+                .provenance = Provenance(launch.source, request.workspaceRoot, "Launch", launch.name,
+                                         "authored process intent")});
+        if (request.project.testing.has_value() || request.project.type == ProductType::Test ||
+            request.project.type == ProductType::Benchmark)
+        {
+            const auto &testing = request.project.testing;
+            graph.testing = GraphTesting{
+                .identity = request.project.name + ":Testing",
+                .arguments = testing.has_value() ? testing->arguments : std::vector<std::string>{},
+                .timeoutSeconds = testing.has_value() ? testing->timeoutSeconds : std::nullopt,
+                .provenance = Provenance(testing.has_value() ? testing->source : projectSource,
+                                         request.workspaceRoot, "Testing", request.project.name,
+                                         testing.has_value() ? "authored test intent" : "test product default")};
+        }
+        for (const auto &publish : request.project.publishes)
+            graph.publishes.push_back(GraphPublish{
+                .identity = request.project.name + ":Publish:" + publish.name,
+                .name = publish.name,
+                .outputKind = PublishKindName(publish.kind),
+                .format = publish.format,
+                .output = publish.output.value,
+                .provenance = Provenance(publish.source, request.workspaceRoot, "Publish", publish.name,
+                                         "authored backend-neutral publish intent")});
 
         std::map<std::string, const ResolvedPackageState *, std::less<>> statesByInstance{};
         for (const auto &[key, state] : states)
@@ -796,7 +859,9 @@ namespace NGIN::CLI
                     .to = state.instance.identity,
                     .kind = origin.kind,
                     .visibility = RequirementVisibilityName(origin.visibility),
-                    .context = ContextName(state.request.context),
+                    .context = origin.kind == "ProjectDependency" ? origin.reason
+                                                                    : ContextName(state.request.context),
+                    .scope = origin.scope,
                     .provenance = Provenance(origin.source, request.workspaceRoot, origin.kind, state.request.name,
                                              origin.reason)});
         }

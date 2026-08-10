@@ -20,7 +20,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 6 — Complete resolver and immutable graph | Complete | `feat(manifest): resolve immutable composition graph` |
 | 7 — Derived plans and CMake integration | Complete | `feat(manifest): derive plans through CMake adapter` |
 | 8 — PackageProvider hardening and reproducibility | Complete | `feat(manifest): lock exact package artifacts` |
-| 9 — Stage, launch, test, publish plans | Pending | — |
+| 9 — Stage, launch, test, publish plans | Complete | `feat(manifest): derive deployment and publish plans` |
 | 10 — Workspace, authoring commands, editor | Pending | — |
 | 11 — Repository migration and old model deletion | Pending | — |
 | 12 — Verification and release hardening | Pending | — |

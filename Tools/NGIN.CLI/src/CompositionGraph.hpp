@@ -32,6 +32,7 @@ namespace NGIN::CLI
         ProductType type{ProductType::Application};
         LibraryLinkage linkage{LibraryLinkage::None};
         std::optional<std::string> version{};
+        std::optional<std::string> license{};
         GraphProvenance provenance{};
     };
 
@@ -130,6 +131,38 @@ namespace NGIN::CLI
         GraphProvenance provenance{};
     };
 
+    struct GraphLaunch
+    {
+        std::string identity{};
+        std::string name{};
+        bool defaultLaunch{false};
+        std::string executableKind{};
+        std::string executable{};
+        std::string workingDirectory{"."};
+        std::vector<std::string> arguments{};
+        std::map<std::string, std::string, std::less<>> environment{};
+        std::map<std::string, std::string, std::less<>> secrets{};
+        GraphProvenance provenance{};
+    };
+
+    struct GraphTesting
+    {
+        std::string identity{};
+        std::vector<std::string> arguments{};
+        std::optional<std::int64_t> timeoutSeconds{};
+        GraphProvenance provenance{};
+    };
+
+    struct GraphPublish
+    {
+        std::string identity{};
+        std::string name{};
+        std::string outputKind{};
+        std::string format{};
+        std::string output{};
+        GraphProvenance provenance{};
+    };
+
     struct GraphEdge
     {
         std::string identity{};
@@ -138,6 +171,7 @@ namespace NGIN::CLI
         std::string kind{};
         std::string visibility{};
         std::string context{};
+        std::string scope{};
         GraphProvenance provenance{};
     };
 
@@ -153,6 +187,9 @@ namespace NGIN::CLI
         std::vector<GraphPlugin> plugins{};
         std::vector<GraphContribution> contributions{};
         std::vector<GraphBuildItem> buildItems{};
+        std::vector<GraphLaunch> launches{};
+        std::optional<GraphTesting> testing{};
+        std::vector<GraphPublish> publishes{};
         std::vector<GraphEdge> edges{};
     };
 

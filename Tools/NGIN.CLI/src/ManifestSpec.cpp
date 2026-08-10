@@ -235,7 +235,7 @@ namespace NGIN::CLI
 
             Add(spec, "project.launch", "Launch",
                 {Required("Name", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean)},
-                {C("project.launch.executable", 1, 1), C("project.launch.working-directory", 0, 1),
+                {C("project.launch.executable", 0, 1), C("project.launch.working-directory", 0, 1),
                  C("project.launch.argument"), C("project.launch.environment"), C("project.launch.secret")},
                 false, "Process launch intent.", "validate-launch", "launch");
             Add(spec, "project.launch.executable", "Executable",

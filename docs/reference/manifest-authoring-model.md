@@ -335,8 +335,10 @@ configure discovery, loading, services, modules, or runtime ordering.
 </Launch>
 ```
 
-Launch is process intent only. It may select a built executable or explicit
-Tool export, arguments, working directory, environment, and process-level
+Launch is process intent only. Omitting `Executable` selects the primary
+Product, which keeps the conventional case to `<Launch Name="Development" />`.
+An explicit executable may select the primary Product or an active Tool Export,
+along with arguments, working directory, environment, and process-level
 prerequisites. It cannot configure application services or runtime modules.
 Secret values refer to an external secret name; secret contents are never
 stored in XML, graph serialization, locks, or launch descriptors.
