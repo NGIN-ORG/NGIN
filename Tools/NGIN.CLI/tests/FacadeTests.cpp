@@ -1,11 +1,73 @@
 #include "TestSupport.hpp"
 #include "Publishing.hpp"
+#include "AuthoredManifest.hpp"
+#include "ProjectModel.hpp"
+#include "ActionModel.hpp"
 
 #if defined(_WIN32)
 #include <io.h>
 #else
 #include <unistd.h>
 #endif
+
+TEST_CASE("project Action facade keeps Generate and tooling verbs domain-specific") {
+  const auto authored = ParseAuthoredManifestText(R"xml(<Project Name="Facade" Type="Application">
+    <Generate Action="Example.Tools::Generate" />
+    <Tooling>
+      <Analyze Action="Example.Tools::Analyze" />
+      <Format Action="Example.Tools::Format" />
+      <Validate Action="Example.Tools::Validate" />
+      <Custom Action="Example.Tools::Custom" />
+    </Tooling>
+  </Project>)xml", "Facade.nginproj");
+  REQUIRE(authored.Succeeded());
+  const auto project = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
+  REQUIRE(project.Succeeded());
+  REQUIRE(project.value->actions.size() == 5);
+  REQUIRE(project.value->actions[0].kind == ActionKind::Generate);
+  REQUIRE(project.value->actions[1].kind == ActionKind::Analyze);
+  REQUIRE(project.value->actions[2].kind == ActionKind::Format);
+  REQUIRE(project.value->actions[3].kind == ActionKind::Validate);
+  REQUIRE(project.value->actions[4].kind == ActionKind::Custom);
+}
+
+TEST_CASE("Action grammar rejects application runtime composition metadata") {
+  const auto authored = ParseAuthoredManifestText(R"xml(<Package Name="Bad.Actions" Version="1.0.0"><Exports>
+    <Tool Name="Tool" />
+    <Action Name="Start" Kind="Custom" Tool="Tool">
+      <Service Name="Runtime.Service" />
+      <Module Name="Runtime.Module" />
+      <Lifecycle Phase="Startup" />
+    </Action>
+  </Exports></Package>)xml", "Bad.Actions.nginpkg");
+  REQUIRE_FALSE(authored.Succeeded());
+  REQUIRE(std::ranges::count_if(authored.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+    return diagnostic.code == "NGIN1003";
+  }) == 3);
+}
+
+TEST_CASE("workspace Action trust rules are repeated and source-located") {
+  const auto authored = ParseAuthoredManifestText(R"xml(<Workspace Name="Trust"><Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects><Policies><Actions Default="Deny" RequireLocked="true" IntegrityRequired="true" SignatureRequired="true">
+    <Allow Package="Example.MetaGen" Kind="Generate" Provider="Directory" Source="local"
+           Trust="workspace" ExecutableOrigin="tools" Reason="approved generator" />
+    <Confirm Kind="Custom" Reason="review custom tools" />
+  </Actions></Policies></Workspace>)xml", "Trust.ngin");
+  REQUIRE(authored.Succeeded());
+  std::vector<ManifestDiagnostic> diagnostics{};
+  const auto policy = ParseActionTrustPolicy(std::get<AuthoredWorkspaceManifest>(*authored.value), diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(policy.defaultDecision == ActionTrustDecision::Deny);
+  REQUIRE(policy.requireLocked);
+  REQUIRE(policy.requireIntegrity);
+  REQUIRE(policy.requireSignature);
+  REQUIRE(policy.rules.size() == 2);
+  REQUIRE(policy.rules[0].decision == ActionTrustDecision::Allow);
+  REQUIRE(policy.rules[0].executableOrigin->value == "tools");
+  REQUIRE(policy.rules[1].decision == ActionTrustDecision::Confirm);
+  REQUIRE(policy.rules[0].source.begin.line == 4);
+}
 
 TEST_CASE("terminal detection follows the native stream descriptor") {
 #if defined(_WIN32)

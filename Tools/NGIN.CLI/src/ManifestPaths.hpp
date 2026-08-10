@@ -15,6 +15,7 @@ namespace NGIN::CLI
     {
         Manifest,
         Workspace,
+        ActionOutput,
     };
 
     struct PortablePath

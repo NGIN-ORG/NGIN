@@ -179,9 +179,75 @@
     <xs:attribute name="AllowNonHermetic" type="boolean" />
   </xs:complexType>
   <xs:complexType name="t_workspace_policies_actions">
-    <xs:attribute name="AllowedOrigins" type="nonEmptyString" />
-    <xs:attribute name="RequireSignature" type="boolean" />
-    <xs:attribute name="RequireConfirmation" type="boolean" />
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Allow" type="t_workspace_policies_actions_allow" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Deny" type="t_workspace_policies_actions_deny" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Confirm" type="t_workspace_policies_actions_confirm" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Default">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Allow" />
+        <xs:enumeration value="Deny" />
+        <xs:enumeration value="Confirm" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="RequireLocked" type="boolean" />
+    <xs:attribute name="IntegrityRequired" type="boolean" />
+    <xs:attribute name="SignatureRequired" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_actions_allow">
+    <xs:attribute name="Package" type="identifier" />
+    <xs:attribute name="Kind">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Generate" />
+        <xs:enumeration value="Analyze" />
+        <xs:enumeration value="Format" />
+        <xs:enumeration value="Validate" />
+        <xs:enumeration value="Custom" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Provider" type="nonEmptyString" />
+    <xs:attribute name="Source" type="identifier" />
+    <xs:attribute name="Trust" type="nonEmptyString" />
+    <xs:attribute name="Signature" type="nonEmptyString" />
+    <xs:attribute name="ExecutableOrigin" type="nonEmptyString" />
+    <xs:attribute name="Reason" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_actions_deny">
+    <xs:attribute name="Package" type="identifier" />
+    <xs:attribute name="Kind">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Generate" />
+        <xs:enumeration value="Analyze" />
+        <xs:enumeration value="Format" />
+        <xs:enumeration value="Validate" />
+        <xs:enumeration value="Custom" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Provider" type="nonEmptyString" />
+    <xs:attribute name="Source" type="identifier" />
+    <xs:attribute name="Trust" type="nonEmptyString" />
+    <xs:attribute name="Signature" type="nonEmptyString" />
+    <xs:attribute name="ExecutableOrigin" type="nonEmptyString" />
+    <xs:attribute name="Reason" type="nonEmptyString" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_actions_confirm">
+    <xs:attribute name="Package" type="identifier" />
+    <xs:attribute name="Kind">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Generate" />
+        <xs:enumeration value="Analyze" />
+        <xs:enumeration value="Format" />
+        <xs:enumeration value="Validate" />
+        <xs:enumeration value="Custom" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="Provider" type="nonEmptyString" />
+    <xs:attribute name="Source" type="identifier" />
+    <xs:attribute name="Trust" type="nonEmptyString" />
+    <xs:attribute name="Signature" type="nonEmptyString" />
+    <xs:attribute name="ExecutableOrigin" type="nonEmptyString" />
+    <xs:attribute name="Reason" type="nonEmptyString" />
   </xs:complexType>
   <xs:complexType name="t_workspace_policies_paths">
     <xs:attribute name="AllowSymlinks" type="boolean" />

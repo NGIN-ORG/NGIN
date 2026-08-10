@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ActionContract.hpp"
 #include "CompositionBoundary.hpp"
 #include "ManifestPaths.hpp"
 #include "Selection.hpp"
@@ -188,6 +189,23 @@ namespace NGIN::CLI
         std::optional<std::string> vendor{};
     };
 
+    struct ProjectActionInput
+    {
+        std::string include{};
+        std::optional<std::string> exclude{};
+        ManifestSourceRange source{};
+    };
+
+    struct ProjectActionSelection
+    {
+        ActionKind kind{ActionKind::Custom};
+        std::string qualifiedAction{};
+        std::vector<ProjectActionInput> inputs{};
+        std::map<std::string, std::string, std::less<>> options{};
+        std::vector<std::string> arguments{};
+        ManifestSourceRange source{};
+    };
+
     struct SemanticProject
     {
         AuthoredManifestIdentity manifest{};
@@ -198,6 +216,7 @@ namespace NGIN::CLI
         ProjectMetadata metadata{};
         std::map<std::string, OptionDefinition, std::less<>> options{};
         std::vector<ProjectDependency> dependencies{};
+        std::vector<ProjectActionSelection> actions{};
         ProjectBuildModel build{};
         bool hasBuildSection{false};
         bool hasLaunch{false};

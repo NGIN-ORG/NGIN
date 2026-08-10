@@ -2,6 +2,39 @@
 #include "Canonical.hpp"
 #include "Selection.hpp"
 #include "PackageModel.hpp"
+#include "ActionModel.hpp"
+
+TEST_CASE("Action outputs have one owner and observed outputs stay declared")
+{
+    const ResolvedAction generator{
+        .qualifiedAction = "Example.MetaGen::Generate",
+        .contract = SemanticActionContract{
+            .outputs = {{.kind = ActionOutputKind::Source,
+                         .path = PortablePath{.value = "generated/reflection.cpp"}},
+                        {.kind = ActionOutputKind::Directory,
+                         .path = PortablePath{.value = "generated/meta"}}}}};
+    const ResolvedAction analyzer{
+        .qualifiedAction = "Example.Analyzer::Analyze",
+        .contract = SemanticActionContract{
+            .outputs = {{.kind = ActionOutputKind::File,
+                         .path = PortablePath{.value = "generated/reflection.cpp"}},
+                        {.kind = ActionOutputKind::File,
+                         .path = PortablePath{.value = "generated/meta/report.json"}}}}};
+    const std::array oneAction{generator};
+    REQUIRE(ValidateActionOutputCollisions(oneAction).empty());
+    const std::array actions{generator, analyzer};
+    REQUIRE(ValidateActionOutputCollisions(actions).size() == 2);
+
+    const std::array declaredOutputs{PortablePath{.value = "generated/reflection.cpp"},
+                                     PortablePath{.value = "generated/meta/types.json"}};
+    REQUIRE(ValidateObservedActionOutputs(generator, declaredOutputs).empty());
+    const std::array undeclaredOutputs{PortablePath{.value = "generated/reflection.cpp"},
+                                       PortablePath{.value = "elsewhere/side-effect.txt"}};
+    const auto diagnostics = ValidateObservedActionOutputs(generator, undeclaredOutputs);
+    REQUIRE(std::ranges::any_of(diagnostics, [](const ManifestDiagnostic &diagnostic) {
+        return diagnostic.code == "NGIN5011" && diagnostic.message.find("undeclared") != std::string::npos;
+    }));
+}
 
 TEST_CASE("versioned CapabilityBindings require one compatible implementation")
 {

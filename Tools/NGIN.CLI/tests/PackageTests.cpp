@@ -235,6 +235,52 @@ TEST_CASE("package and Capability requirements use one unambiguous Version form"
   }));
 }
 
+TEST_CASE("Action exports share one typed contract and require a Tool export") {
+  TempDir temp{};
+  const auto actionPath = temp.path() / "Actions.nginpkg";
+  WriteFile(actionPath, R"xml(<Package Name="Example.MetaGen" Version="1.0.0"><Exports>
+    <Library Name="Core" Default="true" />
+    <Tool Name="MetaGen" />
+    <Action Name="ReflectionCodegen" Kind="Generate" Tool="MetaGen" Deterministic="true">
+      <Inputs><Header Include="include/**/*.hpp" Exclude="include/legacy/**" /></Inputs>
+      <Outputs><Source Path="generated/reflection.cpp" /><Header Path="generated/reflection.hpp" /></Outputs>
+      <Argument>--emit-metadata</Argument>
+      <WorkingDirectory Path="." />
+      <Environment Name="MODE" Value="strict" />
+    </Action>
+  </Exports></Package>)xml");
+  const auto package = ParseNewPackage(actionPath);
+  REQUIRE(package.Succeeded());
+  const auto &action = package.value->exports.at("ReflectionCodegen").action;
+  REQUIRE(action.has_value());
+  REQUIRE(action->kind == ActionKind::Generate);
+  REQUIRE(action->toolExport == "MetaGen");
+  REQUIRE(action->deterministic);
+  REQUIRE(action->inputs.size() == 1);
+  REQUIRE(action->outputs.size() == 2);
+  REQUIRE(action->outputs[0].path.base == PortablePathBase::ActionOutput);
+  REQUIRE(action->workingDirectory->base == PortablePathBase::ActionOutput);
+  REQUIRE(action->arguments == std::vector<std::string>{"--emit-metadata"});
+  REQUIRE(action->environment.at("MODE") == "strict");
+
+  const auto defaults = ActivatePackageExports(
+      *package.value, TestPackageInstance(*package.value),
+      PackageActivationRequest{.options = ResolvePackageOptions(*package.value, {})});
+  REQUIRE(defaults.Succeeded());
+  REQUIRE(defaults.exports == std::vector<std::string>{"Core"});
+
+  const auto invalidPath = temp.path() / "InvalidAction.nginpkg";
+  WriteFile(invalidPath, R"(<Package Name="Invalid" Version="1.0.0"><Exports>
+    <Action Name="Generate" Kind="Generate" Tool="Missing" />
+  </Exports></Package>)");
+  REQUIRE_FALSE(ParseNewPackage(invalidPath).Succeeded());
+  const auto implicitPath = temp.path() / "ImplicitAction.nginpkg";
+  WriteFile(implicitPath, R"(<Package Name="Implicit" Version="1.0.0"><Exports>
+    <Tool Name="Tool" /><Action Name="Generate" Kind="Generate" Tool="Tool" Default="true" />
+  </Exports></Package>)");
+  REQUIRE_FALSE(ParseAuthoredManifest(implicitPath).Succeeded());
+}
+
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <netinet/in.h>

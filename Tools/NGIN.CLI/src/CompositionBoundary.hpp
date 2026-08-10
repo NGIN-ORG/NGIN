@@ -38,6 +38,7 @@ namespace NGIN::CLI
         bool hermetic{false};
         std::string provenance{};
         std::string trust{};
+        std::string signature{};
     };
 
     struct BinaryCompatibility

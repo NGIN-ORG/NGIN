@@ -329,7 +329,6 @@
       </xs:restriction></xs:simpleType>
     </xs:attribute>
     <xs:attribute name="Tool" type="identifier" use="required" />
-    <xs:attribute name="Default" type="boolean" />
     <xs:attribute name="Deterministic" type="boolean" />
     <xs:assert test="count(Requires) le 1" />
     <xs:assert test="count(Provides) le 1" />
@@ -345,28 +344,16 @@
     </xs:choice>
   </xs:complexType>
   <xs:complexType name="t_package_action_input_header">
-    <xs:attribute name="Include" type="nonEmptyString" />
-    <xs:attribute name="Remove" type="nonEmptyString" />
-    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
     <xs:attribute name="Exclude" type="nonEmptyString" />
-    <xs:attribute name="AllowEmpty" type="boolean" />
-    <xs:attribute name="Generated" type="boolean" />
   </xs:complexType>
   <xs:complexType name="t_package_action_input_source">
-    <xs:attribute name="Include" type="nonEmptyString" />
-    <xs:attribute name="Remove" type="nonEmptyString" />
-    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
     <xs:attribute name="Exclude" type="nonEmptyString" />
-    <xs:attribute name="AllowEmpty" type="boolean" />
-    <xs:attribute name="Generated" type="boolean" />
   </xs:complexType>
   <xs:complexType name="t_package_action_input_file">
-    <xs:attribute name="Include" type="nonEmptyString" />
-    <xs:attribute name="Remove" type="nonEmptyString" />
-    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
     <xs:attribute name="Exclude" type="nonEmptyString" />
-    <xs:attribute name="AllowEmpty" type="boolean" />
-    <xs:attribute name="Generated" type="boolean" />
   </xs:complexType>
   <xs:complexType name="t_package_action_outputs">
     <xs:choice minOccurs="0" maxOccurs="unbounded">

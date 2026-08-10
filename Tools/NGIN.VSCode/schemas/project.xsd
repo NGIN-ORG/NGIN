@@ -271,12 +271,8 @@
     <xs:attribute name="Action" type="nonEmptyString" use="required" />
   </xs:complexType>
   <xs:complexType name="t_project_generate_input">
-    <xs:attribute name="Include" type="nonEmptyString" />
-    <xs:attribute name="Remove" type="nonEmptyString" />
-    <xs:attribute name="Update" type="nonEmptyString" />
+    <xs:attribute name="Include" type="nonEmptyString" use="required" />
     <xs:attribute name="Exclude" type="nonEmptyString" />
-    <xs:attribute name="AllowEmpty" type="boolean" />
-    <xs:attribute name="Generated" type="boolean" />
   </xs:complexType>
   <xs:complexType name="t_project_generate_option">
     <xs:attribute name="Name" type="identifier" use="required" />

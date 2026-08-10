@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ActionContract.hpp"
 #include "ProjectModel.hpp"
 #include "SemanticAuthoring.hpp"
 
@@ -133,6 +134,7 @@ namespace NGIN::CLI
         std::vector<SemanticRequirement> requirements{};
         std::vector<CapabilityImplementation> capabilities{};
         std::vector<PackageContribution> contributions{};
+        std::optional<SemanticActionContract> action{};
         std::optional<std::string> description{};
         ManifestSourceRange source{};
     };

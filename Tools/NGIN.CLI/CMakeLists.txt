@@ -39,6 +39,7 @@ target_link_libraries(ngin_manifest_schema_generator PRIVATE ngin_cli_authoring)
 _ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 
 add_library(ngin_cli_semantics STATIC
+  src/ActionModel.cpp
   src/Canonical.cpp
   src/ManifestPaths.cpp
   src/PackageModel.cpp

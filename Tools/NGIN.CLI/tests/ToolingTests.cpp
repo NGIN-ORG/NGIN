@@ -1,5 +1,7 @@
 #include "TestSupport.hpp"
 #include "Tooling.hpp"
+#include "ActionModel.hpp"
+#include "AuthoredManifest.hpp"
 
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 
@@ -7,6 +9,116 @@
 #include <csignal>
 #include <future>
 #include <thread>
+
+TEST_CASE("explicit project Actions resolve a trusted host Tool and generated items")
+{
+    TempDir temp{};
+    const auto packagePath = temp.path() / "MetaGen.nginpkg";
+    WriteFile(packagePath, R"xml(<Package Name="Example.MetaGen" Version="1.0.0"><Exports>
+  <Tool Name="MetaGen" />
+  <Action Name="ReflectionCodegen" Kind="Generate" Tool="MetaGen" Deterministic="true">
+    <Inputs><Header Include="include/**/*.hpp" /></Inputs>
+    <Outputs><Source Path="generated/reflection.cpp" /></Outputs>
+    <Argument>--package-default</Argument>
+  </Action>
+  <Action Name="Analyze" Kind="Analyze" Tool="MetaGen" />
+</Exports></Package>)xml");
+    const auto projectPath = temp.path() / "App.nginproj";
+    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application">
+  <Generate Action="Example.MetaGen::ReflectionCodegen">
+    <Input Include="include/**/*.hpp" />
+    <Option Name="Namespace" Value="Example" />
+    <Argument>--project</Argument>
+  </Generate>
+  <Tooling><Analyze Action="Example.MetaGen::Analyze" /></Tooling>
+</Project>)xml");
+
+    const auto authoredPackage = ParseAuthoredManifest(packagePath);
+    REQUIRE(authoredPackage.Succeeded());
+    const auto package = ParseSemanticPackage(std::get<AuthoredPackageManifest>(*authoredPackage.value));
+    REQUIRE(package.Succeeded());
+    const auto authoredProject = ParseAuthoredManifest(projectPath);
+    REQUIRE(authoredProject.Succeeded());
+    const auto project = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authoredProject.value));
+    REQUIRE(project.Succeeded());
+    REQUIRE(project.value->actions.size() == 2);
+    REQUIRE(project.value->actions[0].kind == ActionKind::Generate);
+    REQUIRE(project.value->actions[1].kind == ActionKind::Analyze);
+
+    const PackageProviderResult provider{
+        .coordinate = package.value->coordinate,
+        .providerKind = "Directory",
+        .nativeIdentity = "Example.MetaGen/1.0.0",
+        .integrity = "sha256:metagen",
+        .root = temp.path(),
+        .manifest = packagePath,
+        .context = PackageInstanceContext::Target,
+        .hermetic = true,
+        .trust = "workspace",
+        .signature = "trusted-key",
+    };
+    const BinaryCompatibility hostCompatibility{
+        .operatingSystem = "windows", .architecture = "x64", .compiler = "msvc",
+        .configuration = "Debug"};
+    const auto options = ResolvePackageOptions(*package.value, {});
+    const auto resolved = ResolveActionSelection(project.value->actions[0], *package.value, provider,
+                                                 hostCompatibility, options);
+    REQUIRE(resolved.Succeeded());
+    REQUIRE(resolved.value->hostInstance.context == PackageInstanceContext::Host);
+    REQUIRE(resolved.value->toolExport == "MetaGen");
+    REQUIRE(resolved.value->activatedExports == std::vector<std::string>{"MetaGen", "ReflectionCodegen"});
+    REQUIRE(resolved.value->generatedItems.size() == 1);
+    REQUIRE(resolved.value->generatedItems[0].kind == BuildItemKind::Source);
+    REQUIRE(resolved.value->generatedItems[0].generated == true);
+    REQUIRE(resolved.value->arguments == std::vector<std::string>{"--package-default", "--project"});
+    REQUIRE(resolved.value->options.at("Namespace") == "Example");
+    const auto targetInstance = ConstructPackageInstance(provider, hostCompatibility, {});
+    REQUIRE(targetInstance.identity != resolved.value->hostInstance.identity);
+
+    REQUIRE_FALSE(EvaluateActionTrust(*resolved.value, ActionTrustPolicy{}, {}).Allowed());
+    const ActionTrustPolicy trusted{
+        .defaultDecision = ActionTrustDecision::Deny,
+        .requireLocked = true,
+        .requireIntegrity = true,
+        .requireSignature = true,
+        .rules = {{.package = "Example.MetaGen",
+                   .kind = ActionKind::Generate,
+                   .providerKind = "Directory",
+                   .trust = "workspace",
+                   .signature = "trusted-key",
+                   .executableOrigin = PortablePath{.value = "tools"},
+                   .decision = ActionTrustDecision::Allow,
+                   .reason = "workspace-approved generator"}},
+    };
+    const auto explanation = EvaluateActionTrust(
+        *resolved.value, trusted,
+        ActionExecutionContext{.locked = true,
+                               .executableOrigin = PortablePath{.value = "tools/metagen"}});
+    REQUIRE(explanation.Allowed());
+    REQUIRE(explanation.toolExport == "MetaGen");
+    REQUIRE(explanation.reason == "workspace-approved generator");
+    REQUIRE_FALSE(EvaluateActionTrust(*resolved.value, trusted, {}).Allowed());
+
+    const ActionTrustPolicy confirm{.defaultDecision = ActionTrustDecision::Confirm};
+    const auto nonInteractive = EvaluateActionTrust(
+        *resolved.value, confirm, ActionExecutionContext{.nonInteractive = true});
+    REQUIRE_FALSE(nonInteractive.Allowed());
+    REQUIRE_FALSE(nonInteractive.diagnostics.empty());
+
+    const ActionTrustPolicy conflicting{
+        .rules = {{.package = "Example.MetaGen", .decision = ActionTrustDecision::Allow},
+                  {.package = "Example.MetaGen", .decision = ActionTrustDecision::Deny}},
+    };
+    const auto conflict = EvaluateActionTrust(*resolved.value, conflicting, {});
+    REQUIRE_FALSE(conflict.Allowed());
+    REQUIRE(std::ranges::any_of(conflict.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+        return diagnostic.code == "NGIN5008";
+    }));
+
+    auto wrongVerb = project.value->actions[0];
+    wrongVerb.kind = ActionKind::Analyze;
+    REQUIRE_FALSE(ResolveActionSelection(wrongVerb, *package.value, provider, hostCompatibility, options).Succeeded());
+}
 
 TEST_CASE("tool scheduler is dependency-aware, bounded, deterministic, and resource-safe")
 {

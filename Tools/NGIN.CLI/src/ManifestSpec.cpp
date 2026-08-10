@@ -211,7 +211,8 @@ namespace NGIN::CLI
             Add(spec, "project.generate", "Generate", {Required("Action")},
                 {C("project.generate.input"), C("project.generate.option"), C("project.generate.argument")}, false,
                 "Selects a Generate Action.", "validate-action-selection", "action");
-            Add(spec, "project.generate.input", "Input", ItemAttributes());
+            Add(spec, "project.generate.input", "Input",
+                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)});
             Add(spec, "project.generate.option", "Option",
                 {Required("Name", ManifestValueKind::Identifier), Required("Value")});
             Add(spec, "project.generate.argument", "Argument", {}, {}, true);
@@ -387,17 +388,18 @@ namespace NGIN::CLI
                 {Required("Name", ManifestValueKind::Identifier),
                  Required("Kind", ManifestValueKind::Enumeration,
                           {"Generate", "Analyze", "Format", "Validate", "Custom"}),
-                 Required("Tool", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean),
-                 A("Deterministic", ManifestValueKind::Boolean)},
+                 Required("Tool", ManifestValueKind::Identifier), A("Deterministic", ManifestValueKind::Boolean)},
                 {C("package.requires", 0, 1), C("package.provides", 0, 1), C("package.action.inputs", 0, 1),
                  C("package.action.outputs", 0, 1), C("package.action.argument"),
                  C("package.action.working-directory", 0, 1), C("package.action.environment")},
                 false, {}, "validate-action", "action");
             Add(spec, "package.action.inputs", "Inputs", {},
                 {C("package.action.input.header"), C("package.action.input.source"), C("package.action.input.file")});
-            Add(spec, "package.action.input.header", "Header", ItemAttributes());
-            Add(spec, "package.action.input.source", "Source", ItemAttributes());
-            Add(spec, "package.action.input.file", "File", ItemAttributes());
+            const auto actionInput = std::vector<Attribute>{Required("Include", ManifestValueKind::Path),
+                                                            A("Exclude", ManifestValueKind::Path)};
+            Add(spec, "package.action.input.header", "Header", actionInput);
+            Add(spec, "package.action.input.source", "Source", actionInput);
+            Add(spec, "package.action.input.file", "File", actionInput);
             Add(spec, "package.action.outputs", "Outputs", {},
                 {C("package.action.output.source"), C("package.action.output.header"), C("package.action.output.file"),
                  C("package.action.output.directory")});
@@ -549,8 +551,21 @@ namespace NGIN::CLI
                 {A("Allowed"), A("IntegrityRequired", ManifestValueKind::Boolean),
                  A("Locked", ManifestValueKind::Boolean), A("AllowNonHermetic", ManifestValueKind::Boolean)});
             Add(spec, "workspace.policies.actions", "Actions",
-                {A("AllowedOrigins"), A("RequireSignature", ManifestValueKind::Boolean),
-                 A("RequireConfirmation", ManifestValueKind::Boolean)});
+                {A("Default", ManifestValueKind::Enumeration, false, {"Allow", "Deny", "Confirm"}),
+                 A("RequireLocked", ManifestValueKind::Boolean),
+                 A("IntegrityRequired", ManifestValueKind::Boolean),
+                 A("SignatureRequired", ManifestValueKind::Boolean)},
+                {C("workspace.policies.actions.allow"), C("workspace.policies.actions.deny"),
+                 C("workspace.policies.actions.confirm")});
+            const auto actionTrustRule = std::vector<Attribute>{
+                A("Package", ManifestValueKind::Identifier),
+                A("Kind", ManifestValueKind::Enumeration, false,
+                  {"Generate", "Analyze", "Format", "Validate", "Custom"}),
+                A("Provider"), A("Source", ManifestValueKind::Identifier), A("Trust"), A("Signature"),
+                A("ExecutableOrigin", ManifestValueKind::Path), A("Reason")};
+            Add(spec, "workspace.policies.actions.allow", "Allow", actionTrustRule);
+            Add(spec, "workspace.policies.actions.deny", "Deny", actionTrustRule);
+            Add(spec, "workspace.policies.actions.confirm", "Confirm", actionTrustRule);
             Add(spec, "workspace.policies.paths", "Paths",
                 {A("AllowSymlinks", ManifestValueKind::Boolean), A("RequireContained", ManifestValueKind::Boolean)});
             Add(spec, "workspace.policies.stage", "Stage",

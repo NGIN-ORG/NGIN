@@ -192,6 +192,12 @@ namespace NGIN::CLI
                              const ManifestSourceRange &source) -> PortablePathResult
     {
         PortablePathResult result{};
+        if (path.base == PortablePathBase::ActionOutput)
+        {
+            AddPathError(result.diagnostics, "NGIN2007",
+                         "Action output paths resolve only against an ActionPlan output root", source);
+            return result;
+        }
         std::error_code error{};
         const auto base = path.base == PortablePathBase::Workspace ? workspaceRoot : manifestDirectory;
         const auto canonicalRoot = std::filesystem::weakly_canonical(allowedRoot, error);

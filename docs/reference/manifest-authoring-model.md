@@ -530,7 +530,10 @@ service registration, modules, and lifecycle are runtime-framework concerns.
 Kinds are `Generate`, `Analyze`, `Format`, `Validate`, and `Custom`. All Actions
 reference a Tool export. Inputs, outputs, arguments, working-directory needs,
 environment requirements, determinism, and generated build-item contribution
-are declared. Undeclared outputs and output collisions are errors.
+are declared. Action exports cannot be defaults: project selection is always
+explicit. Undeclared outputs and output collisions are errors.
+Action output and working-directory paths are relative to the invocation's
+ActionPlan output root, not to the package source directory.
 
 #### Asset
 
@@ -696,6 +699,32 @@ Policies are gates, never override values. Initial policy areas are:
 - stage collision behavior;
 - allowed Target/Toolchain combinations;
 - non-hermetic package-result allowance.
+
+Action execution is denied by default and uses repeated, source-located rules:
+
+```xml
+<Policies>
+  <Actions Default="Deny"
+           RequireLocked="true"
+           IntegrityRequired="true"
+           SignatureRequired="true">
+    <Allow Package="NGIN.Reflection.MetaGen"
+           Kind="Generate"
+           Provider="Directory"
+           Source="local"
+           Trust="workspace"
+           ExecutableOrigin="tools"
+           Reason="approved first-party generator" />
+    <Confirm Kind="Custom" Reason="custom Actions require review" />
+  </Actions>
+</Policies>
+```
+
+The most-specific matching rule wins. Conflicting rules at equal specificity
+are errors. A confirmation decision is denied in non-interactive execution.
+Trust evaluation produces an explanation containing the package instance,
+provider identity, Tool export, executable origin, matched rule, and reason
+before any process may start.
 
 ### Presets
 

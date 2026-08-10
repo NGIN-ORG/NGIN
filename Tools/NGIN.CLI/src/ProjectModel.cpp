@@ -81,6 +81,24 @@ namespace NGIN::CLI
             return BuildVisibility::Private;
         }
 
+        [[nodiscard]] auto ToolingActionKind(const std::string_view name) -> ActionKind
+        {
+            if (name == "Analyze") return ActionKind::Analyze;
+            if (name == "Format") return ActionKind::Format;
+            if (name == "Validate") return ActionKind::Validate;
+            return ActionKind::Custom;
+        }
+
+        auto ValidateQualifiedAction(const ProjectActionSelection &selection,
+                                     std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            const auto separator = selection.qualifiedAction.rfind("::");
+            if (separator == std::string::npos || separator == 0 || separator + 2 == selection.qualifiedAction.size())
+                AddError(diagnostics, "NGIN5005",
+                         "Action must be qualified as Package::Export, got '" + selection.qualifiedAction + "'",
+                         selection.source);
+        }
+
         [[nodiscard]] auto ParseInteger(const std::string_view value) -> std::optional<std::int64_t>
         {
             if (value.empty()) return std::nullopt;
@@ -375,6 +393,50 @@ namespace NGIN::CLI
             semantic.hasBuildSection = true;
             ParseBuild(*build, semantic, result.diagnostics);
         }
+        for (const auto *generate : Children(project.root, "project.generate"))
+        {
+            ProjectActionSelection selection{.kind = ActionKind::Generate,
+                                             .qualifiedAction = AttributeValue(*generate, "Action"),
+                                             .source = generate->source};
+            for (const auto &child : generate->children)
+            {
+                if (child.name == "Input")
+                {
+                    if (!HasAttribute(child, "Include") || HasAttribute(child, "Remove") || HasAttribute(child, "Update"))
+                        AddError(result.diagnostics, "NGIN5005",
+                                 "Generate Input requires Include and cannot Remove or Update", child.source);
+                    else
+                        selection.inputs.push_back(ProjectActionInput{
+                            .include = AttributeValue(child, "Include"),
+                            .exclude = HasAttribute(child, "Exclude")
+                                           ? std::optional<std::string>{AttributeValue(child, "Exclude")}
+                                           : std::nullopt,
+                            .source = child.source,
+                        });
+                }
+                else if (child.name == "Option")
+                {
+                    const auto name = AttributeValue(child, "Name");
+                    const auto value = AttributeValue(child, "Value");
+                    if (const auto [existing, inserted] = selection.options.emplace(name, value);
+                        !inserted && existing->second != value)
+                        AddError(result.diagnostics, "NGIN5005", "conflicting Generate Option '" + name + "'",
+                                 child.source);
+                }
+                else if (child.name == "Argument") selection.arguments.push_back(child.text);
+            }
+            ValidateQualifiedAction(selection, result.diagnostics);
+            semantic.actions.push_back(std::move(selection));
+        }
+        if (const auto *tooling = Child(project.root, "project.tooling"))
+            for (const auto &verb : tooling->children)
+            {
+                ProjectActionSelection selection{.kind = ToolingActionKind(verb.name),
+                                                 .qualifiedAction = AttributeValue(verb, "Action"),
+                                                 .source = verb.source};
+                ValidateQualifiedAction(selection, result.diagnostics);
+                semantic.actions.push_back(std::move(selection));
+            }
         semantic.hasLaunch = Child(project.root, "project.launch") != nullptr;
         semantic.hasTesting = Child(project.root, "project.testing") != nullptr;
         semantic.hasPublish = Child(project.root, "project.publish") != nullptr;

@@ -62,12 +62,41 @@ namespace NGIN::CLI
             return CapabilityDomain::Link;
         }
 
+        [[nodiscard]] auto ParseActionKind(const std::string_view value) -> ActionKind
+        {
+            if (value == "Generate") return ActionKind::Generate;
+            if (value == "Analyze") return ActionKind::Analyze;
+            if (value == "Format") return ActionKind::Format;
+            if (value == "Validate") return ActionKind::Validate;
+            return ActionKind::Custom;
+        }
+
+        [[nodiscard]] auto ParseActionInputKind(const std::string_view value) -> ActionInputKind
+        {
+            if (value == "Header") return ActionInputKind::Header;
+            if (value == "Source") return ActionInputKind::Source;
+            return ActionInputKind::File;
+        }
+
+        [[nodiscard]] auto ParseActionOutputKind(const std::string_view value) -> ActionOutputKind
+        {
+            if (value == "Source") return ActionOutputKind::Source;
+            if (value == "Header") return ActionOutputKind::Header;
+            if (value == "Directory") return ActionOutputKind::Directory;
+            return ActionOutputKind::File;
+        }
+
         [[nodiscard]] auto ParseExportKind(const AuthoredElement &element) -> ExportUseKind
         {
-            if (element.name == "Tool" || HasAttribute(element, "Tool")) return ExportUseKind::Tool;
-            if (element.name == "Plugin" || HasAttribute(element, "Plugin")) return ExportUseKind::Plugin;
-            if (element.name == "Action" || HasAttribute(element, "Action")) return ExportUseKind::Action;
-            if (element.name == "Asset" || HasAttribute(element, "Asset")) return ExportUseKind::Asset;
+            if (element.name == "Tool") return ExportUseKind::Tool;
+            if (element.name == "Plugin") return ExportUseKind::Plugin;
+            if (element.name == "Action") return ExportUseKind::Action;
+            if (element.name == "Asset") return ExportUseKind::Asset;
+            if (element.name == "Library") return ExportUseKind::Library;
+            if (HasAttribute(element, "Tool")) return ExportUseKind::Tool;
+            if (HasAttribute(element, "Plugin")) return ExportUseKind::Plugin;
+            if (HasAttribute(element, "Action")) return ExportUseKind::Action;
+            if (HasAttribute(element, "Asset")) return ExportUseKind::Asset;
             return ExportUseKind::Library;
         }
 
@@ -377,6 +406,96 @@ namespace NGIN::CLI
                                           .name = AttributeValue(node, "Name"),
                                           .defaultExport = BoolAttributeValue(node, "Default"),
                                           .source = node.source};
+                if (exportModel.kind == ExportUseKind::Action)
+                {
+                    if (exportModel.defaultExport)
+                        AddError(result.diagnostics, "NGIN5001",
+                                 "Action exports cannot be defaults and require explicit project selection",
+                                 node.source);
+                    SemanticActionContract action{
+                        .kind = ParseActionKind(AttributeValue(node, "Kind")),
+                        .toolExport = AttributeValue(node, "Tool"),
+                        .deterministic = BoolAttributeValue(node, "Deterministic"),
+                        .source = node.source,
+                    };
+                    std::map<std::string, ManifestSourceRange, std::less<>> outputIdentities{};
+                    for (const auto &child : node.children)
+                    {
+                        if (child.name == "Inputs")
+                        {
+                            for (const auto &input : child.children)
+                            {
+                                if (!HasAttribute(input, "Include") || HasAttribute(input, "Remove") ||
+                                    HasAttribute(input, "Update"))
+                                {
+                                    AddError(result.diagnostics, "NGIN5001",
+                                             "Action input declarations require Include and cannot Remove or Update",
+                                             input.source);
+                                    continue;
+                                }
+                                action.inputs.push_back(ActionInputDeclaration{
+                                    .kind = ParseActionInputKind(input.name),
+                                    .include = AttributeValue(input, "Include"),
+                                    .exclude = HasAttribute(input, "Exclude")
+                                                   ? std::optional<std::string>{AttributeValue(input, "Exclude")}
+                                                   : std::nullopt,
+                                    .source = input.source,
+                                });
+                            }
+                        }
+                        else if (child.name == "Outputs")
+                        {
+                            for (const auto &output : child.children)
+                            {
+                                const auto path = NormalizePortablePath(AttributeValue(output, "Path"),
+                                                                        PortablePathBase::ActionOutput, output.source);
+                                if (!path.Succeeded())
+                                {
+                                    result.diagnostics.insert(result.diagnostics.end(), path.diagnostics.begin(),
+                                                              path.diagnostics.end());
+                                    continue;
+                                }
+                                if (const auto [existing, inserted] = outputIdentities.emplace(path.value->value,
+                                                                                              output.source);
+                                    !inserted)
+                                    AddError(result.diagnostics, "NGIN5002",
+                                             "duplicate Action output path '" + path.value->value + "'", output.source,
+                                             {existing->second});
+                                action.outputs.push_back(ActionOutputDeclaration{
+                                    .kind = ParseActionOutputKind(output.name),
+                                    .path = *path.value,
+                                    .source = output.source,
+                                });
+                            }
+                        }
+                        else if (child.name == "Argument") action.arguments.push_back(child.text);
+                        else if (child.name == "WorkingDirectory")
+                        {
+                            const auto authoredPath = AttributeValue(child, "Path");
+                            if (authoredPath == ".")
+                            {
+                                action.workingDirectory = PortablePath{.value = ".",
+                                                                       .base = PortablePathBase::ActionOutput};
+                                continue;
+                            }
+                            const auto path = NormalizePortablePath(authoredPath,
+                                                                    PortablePathBase::ActionOutput, child.source);
+                            if (path.Succeeded()) action.workingDirectory = *path.value;
+                            else result.diagnostics.insert(result.diagnostics.end(), path.diagnostics.begin(),
+                                                           path.diagnostics.end());
+                        }
+                        else if (child.name == "Environment")
+                        {
+                            const auto name = AttributeValue(child, "Name");
+                            const auto value = AttributeValue(child, "Value");
+                            if (const auto [existing, inserted] = action.environment.emplace(name, value);
+                                !inserted && existing->second != value)
+                                AddError(result.diagnostics, "NGIN5003",
+                                         "conflicting Action environment value '" + name + "'", child.source);
+                        }
+                    }
+                    exportModel.action = std::move(action);
+                }
                 const auto defaultVisibility = exportModel.kind == ExportUseKind::Library
                                                    ? RequirementVisibility::Public
                                                    : RequirementVisibility::Private;
@@ -418,6 +537,15 @@ namespace NGIN::CLI
                              "duplicate package export name '" + exportModel.name + "'", node.source,
                              {existing->second.source});
             }
+        }
+        for (const auto &[name, exportModel] : semantic.exports)
+        {
+            if (!exportModel.action.has_value()) continue;
+            const auto tool = semantic.exports.find(exportModel.action->toolExport);
+            if (tool == semantic.exports.end() || tool->second.kind != ExportUseKind::Tool)
+                AddError(result.diagnostics, "NGIN5004",
+                         "Action '" + name + "' references unknown Tool export '" + exportModel.action->toolExport + "'",
+                         exportModel.action->source);
         }
         if (const auto *compatibility = Child(package.root, "package.compatibility"))
         {
