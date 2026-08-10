@@ -258,6 +258,7 @@ namespace NGIN::CLI
         SortByIdentity(data.exports);
         SortByIdentity(data.capabilities);
         SortByIdentity(data.actions);
+        for (auto &action : data.actions) std::ranges::sort(action.outputs);
         SortByIdentity(data.plugins);
         SortByIdentity(data.contributions);
         SortByIdentity(data.buildItems);

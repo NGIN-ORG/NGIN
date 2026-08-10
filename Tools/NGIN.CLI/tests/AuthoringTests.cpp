@@ -61,7 +61,7 @@ TEST_CASE("semantic package identity and backend bindings are separate types") {
   };
   IntegrationBindings bindings = CMakeIntegrationBindings{
       .packageInstance = instance.identity,
-      .mode = "FindPackage",
+      .kind = CMakeIntegrationKind::FindPackage,
       .targets = {{.exportName = "Core", .targetName = "Example::Core"}},
   };
 

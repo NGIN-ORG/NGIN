@@ -71,6 +71,7 @@ include(Catch)
 
 add_executable(NGINCliTests
   AuthoringTests.cpp
+  CMakeAdapterTests.cpp
   CommandAuthoringTests.cpp
   CryptoCommandTests.cpp
   FacadeTests.cpp

@@ -1,6 +1,6 @@
 # CMake integration extension
 
-Status: Normative for the initial backend implementation
+Status: Implemented and normative for the initial backend
 
 NGIN project/package semantics are backend-neutral. CMake integration is
 authored in a registered XML namespace and resolves to immutable
@@ -88,6 +88,11 @@ target production and source reuse with incompatible cache inputs are errors.
 Isolated configures/builds/installs into an NGIN-controlled prefix before the
 consumer build. It is preferred when embedding would leak global CMake state or
 when one source tree must produce several PackageInstances.
+
+The derived BuildPlan records this as an install-before-use package step. The
+consumer CMake project receives only the resulting prefix and `find_package`
+binding; it does not attempt to run an ExternalProject during the same configure
+that needs the installed package.
 
 The PackageProviderResult and dependency lock record source integrity. The
 installed artifact identity and artifact-affecting cache inputs participate in
@@ -234,9 +239,12 @@ this overhaul.
 
 ## Plan and cache identity
 
-BuildPlan includes selected CMakeIntegrationBindings, adapter/tool version,
-generator, relevant cache inputs, toolchain input, and generated work paths.
-Those facts produce a BuildPlan fingerprint.
+BuildPlan includes selected CMakeIntegrationBindings, adapter version,
+generator, single- or multi-configuration mode, cross-compilation state,
+toolchain input, relevant cache inputs, and generated work paths. ActionPlan
+contains selected Action identities, host Tool graph identities and CMake
+targets, determinism, outputs, and provenance. Those facts produce distinct
+deterministic plan identities and later cryptographic fingerprints.
 
 They do not alter the canonical semantic Composition Graph or composition
 fingerprint unless their semantic/artifact result changes. CMake-generated

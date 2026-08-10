@@ -40,8 +40,11 @@ _ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 
 add_library(ngin_cli_semantics STATIC
   src/ActionModel.cpp
-  src/Canonical.cpp
-  src/CompositionGraph.cpp
+    src/Canonical.cpp
+    src/CMakeIntegration.cpp
+    src/CMakeAdapter.cpp
+    src/CompositionGraph.cpp
+    src/DerivedPlans.cpp
   src/ManifestPaths.cpp
   src/PackageModel.cpp
   src/Placeholders.cpp

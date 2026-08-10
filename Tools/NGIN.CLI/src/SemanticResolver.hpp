@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CompositionGraph.hpp"
+#include "CMakeIntegration.hpp"
 #include "PackageModel.hpp"
 
 #include <map>
@@ -28,6 +29,7 @@ namespace NGIN::CLI
     struct SemanticResolutionResult
     {
         std::optional<ResolvedCompositionGraph> graph{};
+        ResolvedCMakeIntegrationBindings cmakeIntegrations{};
         std::vector<ManifestDiagnostic> diagnostics{};
 
         [[nodiscard]] auto Succeeded() const -> bool;

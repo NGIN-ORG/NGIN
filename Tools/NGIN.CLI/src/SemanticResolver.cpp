@@ -36,10 +36,17 @@ namespace NGIN::CLI
         {
             PendingPackage request{};
             PackageProviderResult provider{};
+            AuthoredPackageManifest authored{};
             SemanticPackage package{};
             ResolvedPackageOptions options{};
             PackageInstance instance{};
             ActivePackageExports activation{};
+        };
+
+        struct ParsedProviderPackage
+        {
+            AuthoredPackageManifest authored{};
+            SemanticPackage semantic{};
         };
 
         auto AddError(std::vector<ManifestDiagnostic> &diagnostics, std::string code, std::string message,
@@ -383,7 +390,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseProviderPackage(const PackageProviderResult &provider,
                                                 std::vector<ManifestDiagnostic> &diagnostics)
-            -> std::optional<SemanticPackage>
+            -> std::optional<ParsedProviderPackage>
         {
             const auto authored = ParseAuthoredManifest(provider.manifest);
             if (!authored.Succeeded())
@@ -403,7 +410,7 @@ namespace NGIN::CLI
                 diagnostics.insert(diagnostics.end(), semantic.diagnostics.begin(), semantic.diagnostics.end());
                 return std::nullopt;
             }
-            return semantic.value;
+            return ParsedProviderPackage{.authored = *package, .semantic = *semantic.value};
         }
 
         [[nodiscard]] auto ResolveState(const PendingPackage &pending, const SemanticResolutionRequest &request,
@@ -428,8 +435,8 @@ namespace NGIN::CLI
             if (!provider.has_value()) return std::nullopt;
             const auto package = ParseProviderPackage(*provider, diagnostics);
             if (!package.has_value()) return std::nullopt;
-            if (package->coordinate.name != provider->coordinate.name ||
-                package->coordinate.exactVersion != provider->coordinate.exactVersion)
+            if (package->semantic.coordinate.name != provider->coordinate.name ||
+                package->semantic.coordinate.exactVersion != provider->coordinate.exactVersion)
             {
                 AddError(diagnostics, "NGIN6003", "PackageProviderResult coordinate does not match its manifest");
                 return std::nullopt;
@@ -442,7 +449,7 @@ namespace NGIN::CLI
                     assignments.push_back(PackageOptionAssignment{.name = name,
                                                                   .value = value,
                                                                   .authority = AssignmentAuthority::Project});
-            auto options = ResolvePackageOptions(*package, assignments);
+            auto options = ResolvePackageOptions(package->semantic, assignments);
             if (!options.Succeeded())
             {
                 diagnostics.insert(diagnostics.end(), options.diagnostics.begin(), options.diagnostics.end());
@@ -451,13 +458,13 @@ namespace NGIN::CLI
             auto selection = pending.context == PackageInstanceContext::Host ? request.hostSelection
                                                                              : request.targetSelection;
             selection.options = options.values;
-            auto compatibility = DeriveBinaryCompatibility(selection, "Default", package->options);
+            auto compatibility = DeriveBinaryCompatibility(selection, "Default", package->semantic.options);
             auto providerForContext = *provider;
             providerForContext.context = pending.context;
             auto instance = ConstructPackageInstance(providerForContext, compatibility, options.artifactValues);
             auto exports = pending.exports;
             if (pending.activateDefaults)
-                for (const auto &[_, exportModel] : package->exports)
+                for (const auto &[_, exportModel] : package->semantic.exports)
                     if (exportModel.defaultExport &&
                         std::ranges::none_of(exports, [&](const auto &existing) {
                             return existing.kind == exportModel.kind && existing.name == exportModel.name;
@@ -466,7 +473,7 @@ namespace NGIN::CLI
                                                     .name = exportModel.name,
                                                     .source = exportModel.source});
             const auto activation = ActivatePackageExports(
-                *package, instance,
+                package->semantic, instance,
                 PackageActivationRequest{.exports = exports, .selection = selection, .options = options});
             if (!activation.Succeeded())
             {
@@ -475,7 +482,8 @@ namespace NGIN::CLI
             }
             return ResolvedPackageState{.request = pending,
                                         .provider = providerForContext,
-                                        .package = *package,
+                                        .authored = package->authored,
+                                        .package = package->semantic,
                                         .options = std::move(options),
                                         .instance = std::move(instance),
                                         .activation = activation};
@@ -523,6 +531,23 @@ namespace NGIN::CLI
             std::map<std::string, std::pair<std::string, ExportUseKind>, std::less<>> implementationOwners{};
             for (const auto &[key, state] : states)
             {
+                for (const auto &exportName : state.activation.exports)
+                {
+                    const auto &exportModel = state.package.exports.at(exportName);
+                    if (exportModel.kind != ExportUseKind::Action || !exportModel.action.has_value()) continue;
+                    const auto tool = state.package.exports.find(exportModel.action->toolExport);
+                    if (tool == state.package.exports.end()) continue;
+                    const ExportUse use{.kind = ExportUseKind::Tool,
+                                        .name = tool->second.name,
+                                        .source = exportModel.action->source};
+                    AddPending(next, state.request.name, PackageInstanceContext::Host, std::nullopt,
+                               std::span<const ExportUse>{&use, 1}, false, {}, state.request.sourceBinding,
+                               PendingOrigin{.from = state.instance.identity + "::" + exportName,
+                                             .kind = "ActionToolRequirement",
+                                             .source = exportModel.action->source,
+                                             .reason = tool->second.name},
+                               result.diagnostics);
+                }
                 for (const auto &requirement : state.activation.requirements)
                 {
                     if (const auto *package = std::get_if<SemanticPackageRequirement>(&requirement))
@@ -622,6 +647,21 @@ namespace NGIN::CLI
             result.diagnostics.insert(result.diagnostics.end(), diagnostics.begin(), diagnostics.end());
         }
         if (!result.diagnostics.empty()) return result;
+
+        std::vector<CMakeIntegrationBindings> cmakeIntegrations{};
+        for (const auto &[_, state] : states)
+        {
+            auto selection = state.request.context == PackageInstanceContext::Host ? request.hostSelection
+                                                                                   : request.targetSelection;
+            selection.options = state.options.values;
+            const auto integration = ResolveCMakeIntegration(state.authored, state.package, state.provider,
+                                                             state.instance, state.activation, selection, state.options);
+            result.diagnostics.insert(result.diagnostics.end(), integration.diagnostics.begin(),
+                                      integration.diagnostics.end());
+            if (integration.value.has_value()) cmakeIntegrations.push_back(*integration.value);
+        }
+        if (!result.diagnostics.empty()) return result;
+        result.cmakeIntegrations = ResolvedCMakeIntegrationBindings{std::move(cmakeIntegrations)};
 
         CompositionGraphData graph{};
         const auto projectSource = request.project.manifest.path.empty()

@@ -74,17 +74,53 @@ namespace NGIN::CLI
 
     struct CMakeTargetBinding
     {
+        std::string exportIdentity{};
         std::string exportName{};
         std::string targetName{};
+    };
+
+    enum class CMakeIntegrationKind
+    {
+        AddSubdirectory,
+        Isolated,
+        FindPackage,
+        Manual,
+    };
+
+    struct CMakeCacheBinding
+    {
+        std::string name{};
+        std::string value{};
+        std::string type{"STRING"};
+        bool artifact{false};
+    };
+
+    struct CMakeFindPackageBinding
+    {
+        std::string name{};
+        bool config{false};
+        bool required{true};
+        std::optional<std::string> version{};
+    };
+
+    struct IntegrationBindingProvenance
+    {
+        std::string document{};
+        std::size_t line{0};
+        std::size_t column{0};
+        std::string reason{};
     };
 
     struct CMakeIntegrationBindings
     {
         std::string packageInstance{};
-        std::string mode{};
+        CMakeIntegrationKind kind{CMakeIntegrationKind::AddSubdirectory};
         std::filesystem::path source{};
-        std::map<std::string, std::string> cache{};
+        std::vector<CMakeCacheBinding> cache{};
         std::vector<CMakeTargetBinding> targets{};
+        std::optional<CMakeFindPackageBinding> findPackage{};
+        bool installBeforeUse{false};
+        IntegrationBindingProvenance provenance{};
     };
 
     using IntegrationBindings = std::variant<CMakeIntegrationBindings>;
