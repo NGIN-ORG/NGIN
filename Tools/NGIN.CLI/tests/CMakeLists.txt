@@ -84,6 +84,7 @@ add_executable(NGINCliTests
   SemanticResolutionTests.cpp
   ToolingTests.cpp
   WorkspaceTests.cpp
+  WorkspaceModelTests.cpp
 )
 target_compile_features(NGINCliTests PRIVATE cxx_std_20)
 target_compile_definitions(NGINCliTests PRIVATE NGIN_CLI_TEST_REPO_ROOT="${CMAKE_SOURCE_DIR}")

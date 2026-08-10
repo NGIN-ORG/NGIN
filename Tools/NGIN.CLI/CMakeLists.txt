@@ -25,6 +25,7 @@ add_library(ngin_cli_authoring STATIC
   src/AuthoredManifest.cpp
   src/Authoring.cpp
   src/ManifestArtifacts.cpp
+  src/ManifestFormatter.cpp
   src/ManifestSpec.cpp
   src/Overlay.cpp
   src/Platform.cpp
@@ -56,6 +57,7 @@ add_library(ngin_cli_semantics STATIC
   src/Selection.cpp
   src/SelectionAuthoring.cpp
   src/SemanticMerge.cpp
+  src/WorkspaceModel.cpp
 )
 target_link_libraries(ngin_cli_semantics PUBLIC ngin_cli_authoring)
 _ngin_cli_apply_defaults(ngin_cli_semantics)

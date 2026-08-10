@@ -6,7 +6,7 @@
 
   <Build>
     <Source Include="src/**.cpp" />
-    <Header Include="include/**.hpp" Visibility="Public" />
+    <Header Include="include/**.hpp" Visibility="Private" />
   </Build>
 
   <Publish Name="plugin-package">

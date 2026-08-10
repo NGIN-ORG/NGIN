@@ -39,6 +39,14 @@ namespace NGIN::CLI
         std::optional<std::string> featureName{};
         std::optional<std::string> algorithmName{};
         std::optional<std::string> versionRange{};
+        std::optional<std::string> exactVersion{};
+        std::optional<std::string> compatibleVersion{};
+        std::optional<std::string> atLeastVersion{};
+        std::optional<std::string> afterVersion{};
+        std::optional<std::string> atMostVersion{};
+        std::optional<std::string> beforeVersion{};
+        std::vector<std::string> exportUses{};
+        std::vector<std::string> optionAssignments{};
         std::optional<std::string> scope{};
         std::optional<std::string> launchName{};
         std::optional<std::string> graphPlan{};

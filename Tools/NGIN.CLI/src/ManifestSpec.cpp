@@ -548,8 +548,10 @@ namespace NGIN::CLI
                  C("workspace.policies.compatibility", 0, 1)},
                 false, "Non-overridable trust and reproducibility gates.", "validate-policies");
             Add(spec, "workspace.policies.providers", "PackageProviders",
-                {A("Allowed"), A("IntegrityRequired", ManifestValueKind::Boolean),
-                 A("Locked", ManifestValueKind::Boolean), A("AllowNonHermetic", ManifestValueKind::Boolean)});
+                {A("IntegrityRequired", ManifestValueKind::Boolean), A("Locked", ManifestValueKind::Boolean),
+                 A("AllowNonHermetic", ManifestValueKind::Boolean)},
+                {C("workspace.policies.providers.allow")});
+            Add(spec, "workspace.policies.providers.allow", "Allow", {Required("Kind")});
             Add(spec, "workspace.policies.actions", "Actions",
                 {A("Default", ManifestValueKind::Enumeration, false, {"Allow", "Deny", "Confirm"}),
                  A("RequireLocked", ManifestValueKind::Boolean),
@@ -571,7 +573,10 @@ namespace NGIN::CLI
             Add(spec, "workspace.policies.stage", "Stage",
                 {A("Collision", ManifestValueKind::Enumeration, false, {"Error", "IdenticalBytes"})});
             Add(spec, "workspace.policies.compatibility", "Compatibility",
-                {A("AllowedTargets"), A("AllowedToolchains")});
+                {}, {C("workspace.policies.compatibility.target"),
+                     C("workspace.policies.compatibility.toolchain")});
+            Add(spec, "workspace.policies.compatibility.target", "Target", {Required("Name")});
+            Add(spec, "workspace.policies.compatibility.toolchain", "Toolchain", {Required("Name")});
 
             Add(spec, "workspace.presets", "Presets", {}, {C("workspace.preset")});
             Add(spec, "workspace.preset", "Preset",

@@ -1,6 +1,7 @@
 #include "AuthoredManifest.hpp"
 #include "CompositionBoundary.hpp"
 #include "ManifestArtifacts.hpp"
+#include "ManifestFormatter.hpp"
 #include "ManifestPaths.hpp"
 #include "Overlay.hpp"
 #include "Placeholders.hpp"
@@ -36,6 +37,15 @@ TEST_CASE("ManifestSpec describes the only pre-release document grammar") {
   REQUIRE(type != project.attributes.end());
   REQUIRE(std::ranges::find(type->allowedValues, "Module") ==
           type->allowedValues.end());
+}
+
+TEST_CASE("canonical manifest formatter preserves comments and repeated typed elements") {
+  const auto formatted = FormatManifestXml(R"xml(<Workspace Name="Demo"><Projects>
+<!-- keep this reason --><Project Path="App.nginproj"/></Projects><Policies><PackageProviders><Allow Kind="Directory"/><Allow Kind="Conan"/></PackageProviders></Policies></Workspace>)xml");
+  CHECK(formatted.find("<!--keep this reason-->") != std::string::npos);
+  CHECK(formatted.find("<Allow Kind=\"Directory\" />") != std::string::npos);
+  CHECK(formatted.find("<Allow Kind=\"Conan\" />") != std::string::npos);
+  CHECK(formatted.find("Allowed=") == std::string::npos);
 }
 
 TEST_CASE("semantic package identity and backend bindings are separate types") {

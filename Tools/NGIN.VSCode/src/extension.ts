@@ -50,6 +50,7 @@ import { NginSidebarController } from './ui/sidebar';
 import { NginStatusBarController } from './ui/statusBar';
 import { NginCppToolsProviderService } from './cpptools/provider';
 import { NginProjectEditorProvider } from './projectEditor/provider';
+import { registerManifestCompletion } from './manifestCompletion';
 import {
   ExactProjectInputKind,
   ProjectToolRunOverrideEdit,
@@ -3954,7 +3955,7 @@ class NginDebugConfigurationProvider implements vscode.DebugConfigurationProvide
 
 export function activate(context: vscode.ExtensionContext): void {
   const controller = new NginController(context);
-  context.subscriptions.push(...controller.register(), controller);
+  context.subscriptions.push(...controller.register(), registerManifestCompletion(context), controller);
   void controller.initialize();
 }
 

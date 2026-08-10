@@ -37,7 +37,7 @@ namespace
             << "  workspace list\n"
             << "  workspace status\n"
             << "  workspace doctor\n"
-            << "  new <app|lib|tool|test|benchmark|plugin> <Name>\n"
+            << "  new <app|lib|tool|test|benchmark|plugin|external> <Name>\n"
             << "  settings init [--project <file.nginproj>]\n"
             << "  variables explain [--project <file.nginproj>] [--profile <name>]\n"
             << "  crypto info\n"
@@ -49,9 +49,9 @@ namespace
             << "  inspect [--project <file.nginproj>] [--profile <name>] [--output <dir>] --format json\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  restore [--project <file.nginproj>] [--profile <name>] [--output <package-store-dir>] [--locked]\n"
-            << "  add package <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
+            << "  add package <PackageName> [--exact <version>|--compatible <version>|--at-least <version> --before <version>] [--use Library:<name>] [--option <name>=<value>] [--project <file.nginproj>]\n"
             << "  add project-reference <Path> [--project <file.nginproj>]\n"
-            << "  add tool-action <Package::Action> [--run <RunName>] [--project <file.nginproj>]\n"
+            << "  add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custom> [--project <file.nginproj>]\n"
             << "  graph [--project <file.nginproj>] [--profile <name>] [--format json|--build-plan|--editor-plan|--stage-plan|--package-plan|--package-output-plan|--launch-plan|--runtime-plan|--environment-plan|--publish-plan|--tooling-plan]\n"
             << "  diff [--project <file.nginproj>] --from-profile <name> --to-profile <name>\n"
             << "  diff --from-lock <old-ngin.lock> --to-lock <new-ngin.lock>\n"
@@ -79,9 +79,9 @@ namespace
             << "  tool edits [RunId] --run <RunName> [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  publish [PublishName] [--project <file.nginproj>] [--profile <name>] [--output <build-dir>]\n"
             << "  package list\n"
-            << "  package add <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
+            << "  package add <PackageName> [--exact <version>|--compatible <version>|readable interval flags] [--use <kind>:<name>] [--option <name>=<value>] [--project <file.nginproj>]\n"
             << "  package remove <PackageName> [--project <file.nginproj>]\n"
-            << "  package update <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
+            << "  package update <PackageName> [--exact <version>|--compatible <version>|readable interval flags] [--project <file.nginproj>]\n"
             << "  package pack [PackageOutputName] [--project <file.nginproj>] [--output <dir|file.nginpkg|file.nginpack>]\n"
             << "  package sources list\n"
             << "  package sources add <Name> <PathOrUrl>\n"
@@ -233,11 +233,11 @@ auto main(int argc, char **argv) -> int
                 args.featureName.reset();
                 return NGIN::CLI::CmdProjectReferenceAdd(root, args);
             }
-            if (subcommand == "tool-action")
+            if (subcommand == "action")
             {
                 if (!args.featureName.has_value())
                 {
-                    throw std::runtime_error("add tool-action requires Package::Action");
+                    throw std::runtime_error("add action requires Package::Action");
                 }
                 args.packageName = args.featureName;
                 args.featureName.reset();

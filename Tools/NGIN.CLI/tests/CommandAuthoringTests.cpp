@@ -23,21 +23,12 @@ TEST_CASE("new command creates product-first project skeletons")
     REQUIRE(fs::exists(projectPath));
     REQUIRE(fs::exists(temp.path() / "Hello.Native/src/main.cpp"));
 
-    const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.productKind == "Application");
-    REQUIRE(project.output.kind == "Executable");
-    REQUIRE(project.defaultProfile == "Debug");
-    REQUIRE(project.profiles.size() == 4);
-    REQUIRE(ProfileByName(project, "Debug").optimization == "Off");
-    REQUIRE(ProfileByName(project, "Debug").debugSymbols);
-    REQUIRE(BackendConfiguration(ProfileByName(project, "Debug")) == "Debug");
-    REQUIRE(ProfileByName(project, "Release").optimization == "Speed");
-    REQUIRE_FALSE(ProfileByName(project, "Release").debugSymbols);
-    REQUIRE(BackendConfiguration(ProfileByName(project, "Release")) == "Release");
-    REQUIRE(BackendConfiguration(ProfileByName(project, "RelWithDebInfo")) == "RelWithDebInfo");
-    REQUIRE(ProfileByName(project, "MinSizeRel").optimization == "Size");
-    REQUIRE(BackendConfiguration(ProfileByName(project, "MinSizeRel")) == "MinSizeRel");
-    REQUIRE_THAT(ReadFile(projectPath), ContainsSubstring(R"(<TargetPlatform Name="host" />)"));
+    const auto project = ParseAuthoredManifest(projectPath);
+    REQUIRE(project.Succeeded());
+    const auto &authored = std::get<AuthoredProjectManifest>(*project.value);
+    REQUIRE(authored.type == "Application");
+    REQUIRE_THAT(ReadFile(projectPath), ContainsSubstring(R"(<Source Include="src/**/*.cpp" />)"));
+    REQUIRE_THAT(ReadFile(projectPath), !ContainsSubstring("SchemaVersion"));
 
     REQUIRE(CmdNew(temp.path(), "lib", "Game.Engine") == 0);
     const auto libraryPath = temp.path() / "Game.Engine/Game.Engine.nginproj";
@@ -45,57 +36,59 @@ TEST_CASE("new command creates product-first project skeletons")
     REQUIRE(fs::exists(temp.path() / "Game.Engine/include/Game.Engine.hpp"));
     REQUIRE(fs::exists(temp.path() / "Game.Engine/src/Game.Engine.cpp"));
 
-    const auto library = LoadProjectManifest(libraryPath);
-    REQUIRE(library.productKind == "Library");
-    REQUIRE(library.output.kind == "StaticLibrary");
-    REQUIRE(library.defaultProfile == "Debug");
-    REQUIRE(library.profiles.size() == 4);
+    const auto library = ParseAuthoredManifest(libraryPath);
+    REQUIRE(library.Succeeded());
+    REQUIRE(std::get<AuthoredProjectManifest>(*library.value).type == "Library");
+
+    for (const auto &[kind, type] : std::vector<std::pair<std::string, std::string>>{
+             {"tool", "Tool"}, {"test", "Test"}, {"benchmark", "Benchmark"},
+             {"plugin", "Plugin"}, {"external", "External"}}) {
+        const auto projectName = "Example." + type;
+        REQUIRE(CmdNew(temp.path(), kind, projectName) == 0);
+        const auto parsed = ParseAuthoredManifest(temp.path() / projectName / (projectName + ".nginproj"));
+        REQUIRE(parsed.Succeeded());
+        REQUIRE(std::get<AuthoredProjectManifest>(*parsed.value).type == type);
+    }
 }
 
-TEST_CASE("package add update and remove edit Uses package dependencies")
+TEST_CASE("package add update and remove author typed package dependencies")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Hello.Native.nginproj";
     WriteFile(projectPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Hello.Native">
-  <Application />
-</Project>
+<Project Name="Hello.Native" Type="Application" />
 )xml");
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
 
     ParsedArgs args{};
     args.projectPath = projectPath.string();
     args.packageName = "NGIN.Core";
-    args.versionRange = "[0.1.0,0.2.0)";
-    args.scope = "Target;Runtime";
+    args.compatibleVersion = "0.4";
+    args.exportUses = {"Library:Core", "Plugin:Renderer"};
+    args.optionAssignments = {"Tracing=true"};
 
     REQUIRE(CmdPackageAdd(temp.path(), args) == 0);
 
     const auto text = ReadFile(projectPath);
-    REQUIRE_THAT(text, ContainsSubstring(R"(<Application>)"));
-    REQUIRE_THAT(text, ContainsSubstring(R"(<Uses>)"));
-    REQUIRE_THAT(text, ContainsSubstring(R"xml(<Package Name="NGIN.Core" Version="[0.1.0,0.2.0)" Scope="Target;Runtime" />)xml"));
-
-    const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.packageRefs.size() == 1);
-    REQUIRE(project.packageRefs[0].name == "NGIN.Core");
-    REQUIRE(project.packageRefs[0].versionRange == "[0.1.0,0.2.0)");
-    REQUIRE(project.packageRefs[0].scope == "Target;Runtime");
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Dependencies>)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"xml(<Package Name="NGIN.Core" Compatible="0.4">)xml"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Use Library="Core" />)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Use Plugin="Renderer" />)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Option Name="Tracing" Value="true" />)"));
+    REQUIRE_THAT(text, !ContainsSubstring("Scope="));
 
     ParsedArgs updateArgs{};
     updateArgs.projectPath = projectPath.string();
     updateArgs.packageName = "NGIN.Core";
-    updateArgs.versionRange = "[0.2.0,0.3.0)";
-    updateArgs.scope = "Build";
+    updateArgs.exactVersion = "0.4.7";
 
     REQUIRE(CmdPackageUpdate(temp.path(), updateArgs) == 0);
 
-    const auto updatedProject = LoadProjectManifest(projectPath);
-    REQUIRE(updatedProject.packageRefs.size() == 1);
-    REQUIRE(updatedProject.packageRefs[0].name == "NGIN.Core");
-    REQUIRE(updatedProject.packageRefs[0].versionRange == "[0.2.0,0.3.0)");
-    REQUIRE(updatedProject.packageRefs[0].scope == "Build");
+    const auto updatedText = ReadFile(projectPath);
+    REQUIRE_THAT(updatedText, ContainsSubstring(R"xml(<Package Name="NGIN.Core" Exact="0.4.7">)xml"));
+    REQUIRE_THAT(updatedText, ContainsSubstring(R"(<Use Library="Core" />)"));
+    REQUIRE_THAT(updatedText, ContainsSubstring(R"(<Option Name="Tracing" Value="true" />)"));
 
     ParsedArgs removeArgs{};
     removeArgs.projectPath = projectPath.string();
@@ -103,27 +96,22 @@ TEST_CASE("package add update and remove edit Uses package dependencies")
 
     REQUIRE(CmdPackageRemove(temp.path(), removeArgs) == 0);
 
-    const auto removedProject = LoadProjectManifest(projectPath);
-    REQUIRE(removedProject.packageRefs.empty());
+    REQUIRE(ParseAuthoredManifest(projectPath).Succeeded());
     REQUIRE_THAT(ReadFile(projectPath), !ContainsSubstring(R"(Name="NGIN.Core")"));
 }
 
-TEST_CASE("project-reference add edits Uses project dependencies")
+TEST_CASE("project-reference add authors direct project dependencies")
 {
     TempDir temp{};
     const auto appPath = temp.path() / "App/App.nginproj";
     const auto libraryPath = temp.path() / "Lib/Lib.nginproj";
     WriteFile(appPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="App">
-  <Application />
-</Project>
+<Project Name="App" Type="Application" />
 )xml");
     WriteFile(libraryPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Lib">
-  <Library />
-</Project>
+<Project Name="Lib" Type="Library" />
 )xml");
     WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
     WriteFile(temp.path() / "Lib/src/lib.cpp", "void lib() {}\n");
@@ -134,51 +122,33 @@ TEST_CASE("project-reference add edits Uses project dependencies")
 
     REQUIRE(CmdProjectReferenceAdd(temp.path(), args) == 0);
 
-    const auto app = LoadProjectManifest(appPath);
-    REQUIRE(app.projectRefs.size() == 1);
-    REQUIRE(app.projectRefs.front().path == fs::weakly_canonical(libraryPath));
+    REQUIRE(ParseAuthoredManifest(appPath).Succeeded());
     REQUIRE_THAT(ReadFile(appPath), ContainsSubstring(R"(<Project Name="Lib" Path="../Lib/Lib.nginproj" />)"));
 }
 
-TEST_CASE("tool-action add discovers package actions and authors general runs")
+TEST_CASE("action add authors friendly typed action selection")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "App/App.nginproj";
-    WriteFile(temp.path() / "Workspace.ngin",
-              R"xml(<Workspace SchemaVersion="4" Name="ToolAuthoring">
-  <Projects><Project Path="App/App.nginproj" /></Projects>
-  <Packages><Source Name="local" Path="Packages" /></Packages>
-</Workspace>)xml");
     WriteFile(projectPath,
-              R"xml(<Project SchemaVersion="4" Name="App"><Application /></Project>)xml");
-    WriteFile(temp.path() / "Packages/Example.Tooling/Example.Tooling.nginpkg",
-              R"xml(<Package SchemaVersion="4" Name="Example.Tooling" Version="1.2.3">
-  <Tool Name="Example.Tooling"><Exports><Tool Name="tool" Executable="tool" /></Exports></Tool>
-  <ToolDrivers><Driver Name="driver" Protocol="NGIN.ToolDriver/1" Executable="driver" /></ToolDrivers>
-  <ToolActions><Action Name="scan" Kind="Scan" Tool="tool" Driver="driver"><Accepts Contract="files/v1" /></Action></ToolActions>
-</Package>)xml");
+              R"xml(<Project Name="App" Type="Application" />)xml");
 
     ParsedArgs args{};
     args.projectPath = projectPath.string();
-    args.packageName = "Example.Tooling::scan";
-    args.toolRunName = "security-scan";
+    args.packageName = "Example.Tooling::Codegen";
+    args.toolActionKind = "Generate";
     REQUIRE(CmdToolActionAdd(temp.path(), args) == 0);
 
-    const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.packageRefs.size() == 1);
-    REQUIRE(project.packageRefs[0].name == "Example.Tooling");
-    REQUIRE(project.packageRefs[0].scope == "Dev");
-    REQUIRE(project.tooling.runs.size() == 1);
-    REQUIRE(project.tooling.runs[0].name == "security-scan");
-    REQUIRE(project.tooling.runs[0].action == "Example.Tooling::scan");
+    REQUIRE_THAT(ReadFile(projectPath), ContainsSubstring(R"(<Generate Action="Example.Tooling::Codegen" />)"));
+    REQUIRE(ParseAuthoredManifest(projectPath).Succeeded());
 }
 
-TEST_CASE("format command rewrites product manifests with deterministic XML layout")
+TEST_CASE("format command preserves comments in direct manifests")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Format.App.nginproj";
     WriteFile(projectPath,
-              R"xml(<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Format.App"><Application><Build><Sources Path="src/**.cpp" /><Define Name="FORMAT_APP" Value="1" /></Build></Application></Project>)xml");
+              R"xml(<?xml version="1.0" encoding="utf-8"?><Project Name="Format.App" Type="Application"><!-- source rationale --><Build><Source Include="src/**/*.cpp" /><Define Name="FORMAT_APP" Value="1" /></Build></Project>)xml");
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
 
     ParsedArgs args{};
@@ -188,14 +158,10 @@ TEST_CASE("format command rewrites product manifests with deterministic XML layo
 
     const auto formatted = ReadFile(projectPath);
     REQUIRE_THAT(formatted, ContainsSubstring("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"));
-    REQUIRE_THAT(formatted, ContainsSubstring("  <Application>\n"));
-    REQUIRE_THAT(formatted, ContainsSubstring("      <Sources Path=\"src/**.cpp\" />\n"));
-    REQUIRE_THAT(formatted, ContainsSubstring("      <Define Name=\"FORMAT_APP\" Value=\"1\" />\n"));
-
-    const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.name == "Format.App");
-    REQUIRE(project.build.compileDefinitions.size() == 1);
-    REQUIRE(project.build.compileDefinitions.front().value == "FORMAT_APP=1");
+    REQUIRE_THAT(formatted, ContainsSubstring("  <!--source rationale-->\n"));
+    REQUIRE_THAT(formatted, ContainsSubstring("    <Source Include=\"src/**/*.cpp\" />\n"));
+    REQUIRE_THAT(formatted, ContainsSubstring("    <Define Name=\"FORMAT_APP\" Value=\"1\" />\n"));
+    REQUIRE(ParseAuthoredManifest(projectPath).Succeeded());
 }
 
 TEST_CASE("schema command emits editor metadata")
@@ -210,28 +176,35 @@ TEST_CASE("schema command emits editor metadata")
     std::cout.rdbuf(previous);
 
     REQUIRE(exitCode == 0);
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("schemaVersion": "4.0")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("productKinds": ["Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "Module", "External"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("dependencyScopes": ["Build", "Target", "Runtime", "Test", "Dev", "Publish"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("overlayOperations": ["Remove"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("Application": ["Runtime", "Launch", "Publish"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive", "Installer"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip", "tgz"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("installerFormats": ["msi", "deb"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("graphJson": {)"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("fullKind": "NGIN.CompositionGraph")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("planKind": "NGIN.CompositionGraphPlan")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("schemaPath": "docs/schemas/ngin-composition-graph-v4.schema.json")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("specPath": "docs/specs/013-composition-graph-json-contract.md")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("stableTopLevelFields": [)"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("planFields": [)"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("environment")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publish")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("package-output")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("convention")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("env")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("tooling")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("run")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("generatedFrom": "ManifestSpec")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("extension": ".nginproj")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("root": "Project")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("id": "project.root")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("semanticValidator": "validate-workspace")"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring("schemaVersion"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring(R"("Type": "Module")"));
+}
+
+TEST_CASE("validate uses structural and semantic models for every manifest kind")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App.nginproj";
+    const auto packagePath = temp.path() / "Example.nginpkg";
+    const auto workspacePath = temp.path() / "Workspace.ngin";
+    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application" />)xml");
+    WriteFile(packagePath, R"xml(<Package Name="Example" Version="1.0.0">
+  <Exports><Library Name="Example" Default="true" /></Exports>
+</Package>)xml");
+    WriteFile(workspacePath, R"xml(<Workspace Name="Demo">
+  <Projects><Project Path="App.nginproj" /></Projects>
+</Workspace>)xml");
+
+    for (const auto &path : {projectPath, packagePath, workspacePath}) {
+        ParsedArgs args{};
+        args.projectPath = path.string();
+        INFO(path);
+        CHECK(CmdValidate(temp.path(), args) == 0);
+    }
 }
 
 TEST_CASE("package pack writes package manifest from PackageOutput")

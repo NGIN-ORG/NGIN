@@ -1,13 +1,19 @@
 #include "Commands.hpp"
 
 #include "Authoring.hpp"
+#include "AuthoredManifest.hpp"
 #include "Build.hpp"
 #include "Diagnostics.hpp"
+#include "ManifestArtifacts.hpp"
+#include "ManifestFormatter.hpp"
 #include "Overlay.hpp"
+#include "PackageModel.hpp"
+#include "ProjectModel.hpp"
 #include "Publishing.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 #include "Tooling.hpp"
+#include "WorkspaceModel.hpp"
 
 #include <NGIN/Crypto/Backend/CryptoContext.hpp>
 
@@ -2109,6 +2115,9 @@ auto PrintConditionalRuntimeRefs(
   if (kind == "plugin") {
     return "Plugin";
   }
+  if (kind == "external") {
+    return "External";
+  }
   throw std::runtime_error("unknown project template kind '" + kind + "'");
 }
 
@@ -2506,21 +2515,7 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
 }
 
 [[nodiscard]] auto FormatXmlManifest(const fs::path &path) -> std::string {
-  const auto existing = ReadText(path);
-  if (existing.find("<!--") != std::string::npos) {
-    throw std::runtime_error("format currently refuses XML comments so it does "
-                             "not drop authored comments");
-  }
-  const auto loaded = LoadXml(path);
-  const auto rootElement = loaded.document.Root();
-  if (!rootElement.IsValid())
-  {
-      throw std::runtime_error(path.string() + ": missing XML root element");
-  }
-  std::ostringstream formatted{};
-  formatted << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
-  WriteFormattedElement(formatted, rootElement, 0);
-  return formatted.str();
+  return FormatManifestFile(path);
 }
 
 struct ToolRunBinding {
@@ -4007,6 +4002,24 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       }
     } else if (current == "--version" && index + 1 < argc) {
       args.versionRange = argv[++index];
+    } else if (current == "--exact" && index + 1 < argc) {
+      args.exactVersion = argv[++index];
+    } else if (current == "--compatible" && index + 1 < argc) {
+      args.compatibleVersion = argv[++index];
+    } else if (current == "--at-least" && index + 1 < argc) {
+      args.atLeastVersion = argv[++index];
+    } else if (current == "--after" && index + 1 < argc) {
+      args.afterVersion = argv[++index];
+    } else if (current == "--at-most" && index + 1 < argc) {
+      args.atMostVersion = argv[++index];
+    } else if (current == "--before" && index + 1 < argc) {
+      args.beforeVersion = argv[++index];
+    } else if (current == "--use" && index + 1 < argc) {
+      args.exportUses.push_back(argv[++index]);
+    } else if (current == "--option" && index + 1 < argc) {
+      args.optionAssignments.push_back(argv[++index]);
+    } else if (current == "--kind" && index + 1 < argc) {
+      args.toolActionKind = argv[++index];
     } else if (current == "--algorithm" && index + 1 < argc) {
       args.algorithmName = argv[++index];
     } else if (current == "--algorithm") {
@@ -4478,43 +4491,141 @@ auto CmdPackageSourcesRemove(const fs::path &root, const ParsedArgs &args)
   return 0;
 }
 
+namespace {
+[[nodiscard]] auto ParseAuthoredProjectFile(const fs::path &path)
+    -> AuthoredProjectManifest {
+  const auto parsed = ParseAuthoredManifest(path);
+  if (!parsed.Succeeded()) {
+    const auto message = parsed.diagnostics.empty()
+                             ? std::string{"manifest is invalid"}
+                             : parsed.diagnostics.front().message;
+    throw std::runtime_error(path.string() + ": " + message);
+  }
+  if (!std::holds_alternative<AuthoredProjectManifest>(*parsed.value))
+    throw std::runtime_error(path.string() + ": expected a Project manifest");
+  return std::get<AuthoredProjectManifest>(std::move(*parsed.value));
+}
+
+[[nodiscard]] auto AuthoredChild(const AuthoredElement &owner,
+                                 const std::string_view specId)
+    -> const AuthoredElement * {
+  const auto found = std::ranges::find(owner.children, specId,
+                                       &AuthoredElement::specId);
+  return found == owner.children.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] auto FindAuthoredPackage(const AuthoredProjectManifest &project,
+                                       const std::string_view name)
+    -> const AuthoredElement * {
+  const auto *dependencies = AuthoredChild(project.root, "project.dependencies");
+  if (dependencies == nullptr) return nullptr;
+  const auto found = std::ranges::find_if(dependencies->children, [&](const auto &child) {
+    const auto *attribute = child.Attribute("Name");
+    return child.specId == "project.dependencies.package" && attribute != nullptr &&
+           attribute->value == name;
+  });
+  return found == dependencies->children.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] auto VersionAuthoring(const ParsedArgs &args) -> std::string {
+  const auto scalarCount = static_cast<std::size_t>(args.exactVersion.has_value()) +
+                           static_cast<std::size_t>(args.compatibleVersion.has_value());
+  const auto hasInterval = args.atLeastVersion.has_value() || args.afterVersion.has_value() ||
+                           args.atMostVersion.has_value() || args.beforeVersion.has_value();
+  if (args.versionRange.has_value())
+    throw std::runtime_error("--version ranges were removed; use --exact, --compatible, or readable interval flags");
+  if (scalarCount + static_cast<std::size_t>(hasInterval) > 1)
+    throw std::runtime_error("choose one version constraint form");
+  if (args.exactVersion.has_value()) return " Exact=\"" + EscapeXml(*args.exactVersion) + "\"";
+  if (args.compatibleVersion.has_value())
+    return " Compatible=\"" + EscapeXml(*args.compatibleVersion) + "\"";
+  std::string attributes{};
+  const auto append = [&](const std::string_view name, const std::optional<std::string> &value) {
+    if (value.has_value()) attributes += " " + std::string{name} + "=\"" + EscapeXml(*value) + "\"";
+  };
+  append("AtLeast", args.atLeastVersion);
+  append("After", args.afterVersion);
+  append("AtMost", args.atMostVersion);
+  append("Before", args.beforeVersion);
+  return attributes.empty() ? attributes : "<Version" + attributes + " />";
+}
+
+[[nodiscard]] auto PackageAuthoring(const ParsedArgs &args) -> std::string {
+  std::string body{};
+  const auto version = VersionAuthoring(args);
+  const auto structuredVersion = version.starts_with("<Version");
+  if (structuredVersion) body += "      " + version + "\n";
+  for (const auto &use : args.exportUses) {
+    const auto separator = use.find(':');
+    if (separator == std::string::npos || separator == 0 || separator + 1 == use.size())
+      throw std::runtime_error("--use expects Library:Name, Tool:Name, Plugin:Name, Action:Name, or Asset:Name");
+    const auto kind = use.substr(0, separator);
+    if (kind != "Library" && kind != "Tool" && kind != "Plugin" && kind != "Action" && kind != "Asset")
+      throw std::runtime_error("unknown export kind '" + kind + "'");
+    body += "      <Use " + kind + "=\"" + EscapeXml(use.substr(separator + 1)) + "\" />\n";
+  }
+  for (const auto &assignment : args.optionAssignments) {
+    const auto separator = assignment.find('=');
+    if (separator == std::string::npos || separator == 0)
+      throw std::runtime_error("--option expects Name=Value");
+    body += "      <Option Name=\"" + EscapeXml(assignment.substr(0, separator)) +
+            "\" Value=\"" + EscapeXml(assignment.substr(separator + 1)) + "\" />\n";
+  }
+  const auto opening = "    <Package Name=\"" + EscapeXml(*args.packageName) + "\"" +
+                       (structuredVersion ? std::string{} : version);
+  return body.empty() ? opening + " />\n" : opening + ">\n" + body + "    </Package>\n";
+}
+
+[[nodiscard]] auto InsertProjectDependency(std::string text,
+                                           const AuthoredProjectManifest &project,
+                                           const std::string &declaration) -> std::string {
+  if (const auto *dependencies = AuthoredChild(project.root, "project.dependencies")) {
+    const auto closing = text.rfind("</Dependencies>", dependencies->source.end.offset);
+    if (closing == std::string::npos || closing < dependencies->source.begin.offset)
+      throw std::runtime_error("cannot locate </Dependencies>");
+    text.insert(closing, declaration);
+    return text;
+  }
+  const auto rootOpen = text.find('>', project.root.source.begin.offset);
+  if (rootOpen == std::string::npos) throw std::runtime_error("cannot locate Project start tag");
+  const auto lastNonSpace = text.find_last_not_of(" \t\r\n", rootOpen - 1);
+  if (lastNonSpace != std::string::npos && text[lastNonSpace] == '/') {
+    text.replace(lastNonSpace, rootOpen - lastNonSpace + 1,
+                 ">\n  <Dependencies>\n" + declaration + "  </Dependencies>\n</Project>");
+    return text;
+  }
+  text.insert(rootOpen + 1, "\n  <Dependencies>\n" + declaration + "  </Dependencies>");
+  return text;
+}
+} // namespace
+
 auto CmdPackageAdd(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   if (!args.packageName.has_value()) {
     throw std::runtime_error("package add requires a package name");
   }
-  if (!args.versionRange.has_value() || args.versionRange->empty()) {
-    throw std::runtime_error("package add requires --version <range>");
-  }
-
   const auto projectPath = ResolveProjectPath(args.projectPath);
-  const auto project = LoadProjectManifest(projectPath);
-  if (project.productKind.empty()) {
-    throw std::runtime_error("package add requires a product-first project");
-  }
-  if (std::any_of(project.packageRefs.begin(), project.packageRefs.end(),
-                  [&](const PackageReference &reference) {
-                    return reference.name == *args.packageName;
-                  })) {
+  const auto project = ParseAuthoredProjectFile(projectPath);
+  if (FindAuthoredPackage(project, *args.packageName) != nullptr) {
     throw std::runtime_error("project already references package '" +
                              *args.packageName + "'");
   }
-
-  const auto scope = args.scope.value_or("Target");
+  if (args.scope.has_value())
+    throw std::runtime_error("--scope was removed; dependency role comes from its semantic section");
   auto text = ReadTextIfExists(projectPath);
   if (text.empty()) {
     throw std::runtime_error(projectPath.string() +
                              ": failed to read project file");
   }
-  text = InsertPackageUse(text, project.productKind, *args.packageName,
-                          *args.versionRange, scope);
-  WriteTextFile(projectPath, text);
+  text = InsertProjectDependency(std::move(text), project, PackageAuthoring(args));
+  WriteTextFile(projectPath, FormatManifestXml(text));
+  (void)ParseAuthoredProjectFile(projectPath);
 
   std::cout << "Added package reference\n";
   std::cout << "  project: " << projectPath << "\n";
   std::cout << "  package: " << *args.packageName << "\n";
-  std::cout << "  version: " << *args.versionRange << "\n";
-  std::cout << "  scope: " << scope << "\n";
+  std::cout << "  constraint: " << (VersionAuthoring(args).empty() ? "workspace-managed" : VersionAuthoring(args)) << "\n";
+  for (const auto &use : args.exportUses) std::cout << "  use: " << use << "\n";
   return 0;
 }
 
@@ -4526,34 +4637,29 @@ auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args)
   }
 
   const auto projectPath = ResolveProjectPath(args.projectPath);
-  const auto project = LoadProjectManifest(projectPath);
-  if (project.productKind.empty()) {
-    throw std::runtime_error(
-        "add project-reference requires a product-first project");
-  }
+  const auto project = ParseAuthoredProjectFile(projectPath);
 
   const auto referencePathText = *args.packageName;
   const auto referencePath =
       fs::weakly_canonical(projectPath.parent_path() / referencePathText);
-  const auto referencedProject = LoadProjectManifest(referencePath);
-  if (std::any_of(project.projectRefs.begin(), project.projectRefs.end(),
-                  [&](const ProjectReference &reference) {
-                    return !reference.path.empty() &&
-                           fs::weakly_canonical(reference.path) ==
-                               referencePath;
-                  })) {
-    throw std::runtime_error("project already references project '" +
-                             referencedProject.name + "'");
-  }
+  const auto referencedProject = ParseAuthoredProjectFile(referencePath);
+  if (const auto *dependencies = AuthoredChild(project.root, "project.dependencies"))
+    for (const auto &child : dependencies->children)
+      if (child.specId == "project.dependencies.project") {
+        const auto *name = child.Attribute("Name");
+        if (name != nullptr && name->value == referencedProject.name)
+          throw std::runtime_error("project already references project '" + referencedProject.name + "'");
+      }
 
   auto text = ReadTextIfExists(projectPath);
   if (text.empty()) {
     throw std::runtime_error(projectPath.string() +
                              ": failed to read project file");
   }
-  text = InsertProjectReferenceUse(text, project.productKind,
-                                   referencedProject.name, referencePathText);
-  WriteTextFile(projectPath, text);
+  const auto declaration = "    <Project Name=\"" + EscapeXml(referencedProject.name) +
+                           "\" Path=\"" + EscapeXml(referencePathText) + "\" />\n";
+  text = InsertProjectDependency(std::move(text), project, declaration);
+  WriteTextFile(projectPath, FormatManifestXml(text));
 
   std::cout << "Added project reference\n";
   std::cout << "  project: " << projectPath << "\n";
@@ -4570,58 +4676,47 @@ auto CmdToolActionAdd(const fs::path &root, const ParsedArgs &args) -> int {
   if (separator == std::string::npos || separator == 0 ||
       separator + 2 >= args.packageName->size())
     throw std::runtime_error("tool action must be package-qualified as Package::Action");
-  const auto packageName = args.packageName->substr(0, separator);
   const auto actionName = args.packageName->substr(separator + 2);
-  const auto runName = args.toolRunName.value_or(actionName);
-
   const auto projectPath = ResolveProjectPath(args.projectPath);
-  const auto project = LoadProjectManifest(projectPath);
-  if (project.productKind.empty())
-    throw std::runtime_error("add tool-action requires a product-first project");
-  if (std::any_of(project.tooling.runs.begin(), project.tooling.runs.end(),
-                  [&](const ToolRunDefinition &run) { return run.name == runName; }))
-    throw std::runtime_error("project already declares tool run '" + runName + "'");
-
-  std::optional<WorkspaceManifest> workspace{};
-  if (args.workspacePath.has_value()) {
-    workspace = LoadWorkspaceManifestFile(*args.workspacePath);
-  } else if (const auto workspaceRoot = RootDirFrom(projectPath.parent_path());
-             workspaceRoot.has_value()) {
-    workspace = TryLoadWorkspaceManifest(*workspaceRoot);
-  }
-  const auto catalog = LoadPackageCatalog(workspace, projectPath);
-  const auto packageEntry = catalog.find(packageName);
-  if (packageEntry == catalog.end())
-    throw std::runtime_error("unknown tooling package '" + packageName + "'");
-  const auto package = LoadPackageManifest(packageEntry->second.manifestPath);
-  const auto action = std::find_if(package.toolActions.begin(), package.toolActions.end(),
-                                   [&](const ToolActionDeclaration &candidate) {
-                                     return candidate.name == actionName;
-                                   });
-  if (action == package.toolActions.end())
-    throw std::runtime_error("package '" + packageName +
-                             "' does not export tool action '" + actionName + "'");
-
+  const auto project = ParseAuthoredProjectFile(projectPath);
+  const auto kind = args.toolActionKind.value_or("Generate");
+  if (kind != "Generate" && kind != "Analyze" && kind != "Format" &&
+      kind != "Validate" && kind != "Custom")
+    throw std::runtime_error("--kind expects Generate, Analyze, Format, Validate, or Custom");
   auto text = ReadTextIfExists(projectPath);
   if (text.empty())
     throw std::runtime_error(projectPath.string() + ": failed to read project file");
-  const auto hasPackage = std::any_of(
-      project.packageRefs.begin(), project.packageRefs.end(),
-      [&](const PackageReference &reference) { return reference.name == packageName; });
-  if (!hasPackage)
-    text = InsertPackageUse(std::move(text), project.productKind, packageName,
-                            "[" + package.version + "]", "Dev");
-  text = InsertToolRun(std::move(text), project.productKind, runName,
-                       *args.packageName);
-  WriteTextFile(projectPath, text);
-  (void)LoadProjectManifest(projectPath);
+  auto rootClose = text.rfind("</Project>");
+  if (rootClose == std::string::npos) {
+    const auto rootOpen = text.find('>', project.root.source.begin.offset);
+    const auto lastNonSpace = rootOpen == std::string::npos
+                                  ? std::string::npos
+                                  : text.find_last_not_of(" \t\r\n", rootOpen - 1);
+    if (lastNonSpace == std::string::npos || text[lastNonSpace] != '/')
+      throw std::runtime_error("cannot locate </Project>");
+    text.replace(lastNonSpace, rootOpen - lastNonSpace + 1, ">\n</Project>");
+    rootClose = text.rfind("</Project>");
+  }
+  if (kind == "Generate") {
+    text.insert(rootClose, "  <Generate Action=\"" + EscapeXml(*args.packageName) + "\" />\n");
+  } else {
+    const auto tooling = AuthoredChild(project.root, "project.tooling");
+    const auto declaration = "    <" + kind + " Action=\"" + EscapeXml(*args.packageName) + "\" />\n";
+    if (tooling != nullptr) {
+      const auto close = text.rfind("</Tooling>", tooling->source.end.offset);
+      if (close == std::string::npos) throw std::runtime_error("cannot locate </Tooling>");
+      text.insert(close, declaration);
+    } else {
+      text.insert(rootClose, "  <Tooling>\n" + declaration + "  </Tooling>\n");
+    }
+  }
+  WriteTextFile(projectPath, FormatManifestXml(text));
+  (void)ParseAuthoredProjectFile(projectPath);
 
   std::cout << "Added tool action\n";
   std::cout << "  project: " << projectPath << "\n";
-  std::cout << "  run: " << runName << "\n";
-  std::cout << "  action: " << *args.packageName << " [" << action->kind << "]\n";
-  std::cout << "  package: " << packageName << " " << package.version
-            << (hasPackage ? " [existing]" : " [added]") << "\n";
+  std::cout << "  action: " << *args.packageName << " [" << kind << "]\n";
+  std::cout << "  export: " << actionName << "\n";
   return 0;
 }
 
@@ -4632,14 +4727,9 @@ auto CmdPackageRemove(const fs::path &root, const ParsedArgs &args) -> int {
   }
 
   const auto projectPath = ResolveProjectPath(args.projectPath);
-  const auto project = LoadProjectManifest(projectPath);
-  if (project.productKind.empty()) {
-    throw std::runtime_error("package remove requires a product-first project");
-  }
-  if (std::none_of(project.packageRefs.begin(), project.packageRefs.end(),
-                   [&](const PackageReference &reference) {
-                     return reference.name == *args.packageName;
-                   })) {
+  const auto project = ParseAuthoredProjectFile(projectPath);
+  const auto *package = FindAuthoredPackage(project, *args.packageName);
+  if (package == nullptr) {
     throw std::runtime_error("project does not reference package '" +
                              *args.packageName + "'");
   }
@@ -4649,8 +4739,8 @@ auto CmdPackageRemove(const fs::path &root, const ParsedArgs &args) -> int {
     throw std::runtime_error(projectPath.string() +
                              ": failed to read project file");
   }
-  text = RemovePackageUse(text, project.productKind, *args.packageName);
-  WriteTextFile(projectPath, text);
+  text.erase(package->source.begin.offset, package->source.end.offset - package->source.begin.offset);
+  WriteTextFile(projectPath, FormatManifestXml(text));
 
   std::cout << "Removed package reference\n";
   std::cout << "  project: " << projectPath << "\n";
@@ -4663,41 +4753,45 @@ auto CmdPackageUpdate(const fs::path &root, const ParsedArgs &args) -> int {
   if (!args.packageName.has_value()) {
     throw std::runtime_error("package update requires a package name");
   }
-  if (!args.versionRange.has_value() || args.versionRange->empty()) {
-    throw std::runtime_error("package update requires --version <range>");
-  }
-
   const auto projectPath = ResolveProjectPath(args.projectPath);
-  const auto project = LoadProjectManifest(projectPath);
-  if (project.productKind.empty()) {
-    throw std::runtime_error("package update requires a product-first project");
-  }
-  const auto referenceIt =
-      std::find_if(project.packageRefs.begin(), project.packageRefs.end(),
-                   [&](const PackageReference &reference) {
-                     return reference.name == *args.packageName;
-                   });
-  if (referenceIt == project.packageRefs.end()) {
+  const auto project = ParseAuthoredProjectFile(projectPath);
+  const auto *package = FindAuthoredPackage(project, *args.packageName);
+  if (package == nullptr) {
     throw std::runtime_error("project does not reference package '" +
                              *args.packageName + "'");
   }
 
-  const auto scope = args.scope.value_or(
-      referenceIt->scope.empty() ? "Target" : referenceIt->scope);
+  if (args.scope.has_value())
+    throw std::runtime_error("--scope was removed; dependency role comes from its semantic section");
+  auto effective = args;
+  if (effective.exportUses.empty())
+    for (const auto &child : package->children)
+      if (child.specId == "project.dependencies.use")
+        for (const auto &kind : {"Library", "Tool", "Plugin", "Action", "Asset"})
+          if (const auto *attribute = child.Attribute(kind))
+            effective.exportUses.push_back(std::string{kind} + ":" + attribute->value);
+  if (effective.optionAssignments.empty())
+    for (const auto &child : package->children)
+      if (child.specId == "project.dependencies.option") {
+        const auto *name = child.Attribute("Name");
+        const auto *value = child.Attribute("Value");
+        if (name != nullptr && value != nullptr)
+          effective.optionAssignments.push_back(name->value + "=" + value->value);
+      }
   auto text = ReadTextIfExists(projectPath);
   if (text.empty()) {
     throw std::runtime_error(projectPath.string() +
                              ": failed to read project file");
   }
-  text = UpdatePackageUse(text, project.productKind, *args.packageName,
-                          *args.versionRange, scope);
-  WriteTextFile(projectPath, text);
+  const auto replacement = PackageAuthoring(effective);
+  text.replace(package->source.begin.offset, package->source.end.offset - package->source.begin.offset,
+               replacement.substr(4));
+  WriteTextFile(projectPath, FormatManifestXml(text));
 
   std::cout << "Updated package reference\n";
   std::cout << "  project: " << projectPath << "\n";
   std::cout << "  package: " << *args.packageName << "\n";
-  std::cout << "  version: " << *args.versionRange << "\n";
-  std::cout << "  scope: " << scope << "\n";
+  std::cout << "  constraint: " << (VersionAuthoring(args).empty() ? "workspace-managed" : VersionAuthoring(args)) << "\n";
   return 0;
 }
 
@@ -7559,39 +7653,21 @@ auto CmdNew(const fs::path &root, const std::string &kind,
   }
 
   const auto projectPath = projectDir / (name + ".nginproj");
-  const auto profile = [&](const std::string &profileName,
-                           const std::string &optimization,
-                           const bool debugSymbols) {
-    return "\n  <Profile Name=\"" + profileName + "\">\n"
-           "    <Defaults>\n"
-           "      <TargetPlatform Name=\"host\" />\n"
-           "    </Defaults>\n"
-           "    <" + productKind + ">\n"
-           "      <Build>\n"
-           "        <Optimization Mode=\"" + optimization + "\" />\n"
-           "        <DebugSymbols Enabled=\"" +
-           (debugSymbols ? std::string{"true"} : std::string{"false"}) + "\" />\n"
-           "        <LinkTimeOptimization Enabled=\"false\" />\n"
-           "      </Build>\n"
-           "    </" + productKind + ">\n"
-           "  </Profile>\n";
-  };
+  const auto build = productKind == "External"
+                         ? std::string{}
+                         : "  <Build>\n    <Source Include=\"src/**/*.cpp\" />\n  </Build>\n";
   WriteNewFile(projectPath,
                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
-               "<Project SchemaVersion=\"4\" Name=\"" + name +
-                   "\" DefaultProfile=\"Debug\">\n"
-                   "  <" + productKind + " />\n" +
-                   profile("Debug", "Off", true) +
-                   profile("Release", "Speed", false) +
-                   profile("RelWithDebInfo", "Speed", true) +
-                   profile("MinSizeRel", "Size", false) +
-                   "</Project>\n");
+               "<Project Name=\"" + name + "\" Type=\"" + productKind + "\">\n" +
+               build + "</Project>\n");
 
   if (productKind == "Library") {
     WriteNewFile(projectDir / "include" / (name + ".hpp"), "#pragma once\n");
     WriteNewFile(projectDir / "src" / (name + ".cpp"),
                  "#include \"" + name + ".hpp\"\n");
-  } else {
+  } else if (productKind == "Plugin") {
+    WriteNewFile(projectDir / "src" / (name + ".cpp"), "// Plugin entry points belong here.\n");
+  } else if (productKind != "External") {
     WriteNewFile(projectDir / "src/main.cpp", "int main() { return 0; }\n");
   }
 
@@ -7863,53 +7939,48 @@ auto WriteCompositionGraphPlanJson(
 }
 
 auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int {
-  (void)root;
-  const auto invocation = ResolveInvocation(args);
-  const auto resolved =
-      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
-  if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
-    PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
-    return 1;
-  }
-  for (const auto &[_, run] : EffectiveToolRuns(
-           invocation.project, invocation.profile, resolved.value->selectedPackageFeatures)) {
-    if (!run.enabled) continue;
-    const auto binding = BindToolRun(*resolved.value, run);
-    if (binding.state != "ready" || !ResolveToolExecutable(*resolved.value, binding).has_value()) {
-      std::cout << "\nValidation errors:\n  - tool run '" << run.name
-                << "' is unavailable: "
-                << (binding.diagnostic.empty() ? "tool executable could not be resolved" : binding.diagnostic)
-                << "\n";
-      return 1;
-    }
-    if (binding.driver.has_value() && binding.driver->adapter.empty()) {
-      if (!ResolveDriverExecutable(*resolved.value, binding).has_value()) {
-        std::cout << "\nValidation errors:\n  - tool run '" << run.name
-                  << "' driver executable could not be resolved\n";
-        return 1;
+  fs::path path{};
+  if (args.projectPath.has_value()) path = fs::weakly_canonical(*args.projectPath);
+  else if (args.workspacePath.has_value()) path = fs::weakly_canonical(*args.workspacePath);
+  else if (const auto workspace = WorkspaceFilePath(root); workspace.has_value()) path = *workspace;
+  else path = ResolveProjectPath(args.projectPath);
+
+  auto authored = ParseAuthoredManifest(path);
+  auto diagnostics = authored.diagnostics;
+  std::string kind{"Manifest"};
+  std::string identity{path.filename().string()};
+  if (authored.value.has_value()) {
+    std::visit([&](const auto &manifest) {
+      using TManifest = std::decay_t<decltype(manifest)>;
+      identity = manifest.name;
+      if constexpr (std::is_same_v<TManifest, AuthoredProjectManifest>) {
+        kind = "Project";
+        const auto semantic = ParseSemanticProject(manifest);
+        diagnostics.insert(diagnostics.end(), semantic.diagnostics.begin(), semantic.diagnostics.end());
+      } else if constexpr (std::is_same_v<TManifest, AuthoredPackageManifest>) {
+        kind = "Package";
+        const auto semantic = ParseSemanticPackage(manifest);
+        diagnostics.insert(diagnostics.end(), semantic.diagnostics.begin(), semantic.diagnostics.end());
+      } else {
+        kind = "Workspace";
+        const auto semantic = ParseSemanticWorkspace(manifest);
+        diagnostics.insert(diagnostics.end(), semantic.diagnostics.begin(), semantic.diagnostics.end());
       }
-    }
+    }, *authored.value);
   }
-  PrintTitle(args, "NGIN validate");
-  PrintField(args, "product", resolved.value->project.name);
-  PrintField(args, "profile", resolved.value->profile.name);
-  PrintField(args, "packages", resolved.value->orderedPackages.size());
-  PrintField(args, "executable",
-             resolved.value->selectedExecutable.has_value()
-                 ? resolved.value->selectedExecutable->name
-                 : "(none)");
-  if (IsVerbose(args)) {
-    PrintField(args, "required modules",
-               resolved.value->requiredModules.size());
-    PrintField(args, "optional modules",
-               resolved.value->optionalModules.size());
-    PrintField(args, "libraries", resolved.value->libraries.size());
-    PrintField(args, "executables", resolved.value->executables.size());
+  for (const auto &diagnostic : diagnostics) {
+    const auto diagnosticPath = diagnostic.source.path.empty() ? path : diagnostic.source.path;
+    std::cout << diagnosticPath.string() << ':' << diagnostic.source.begin.line << ':'
+              << diagnostic.source.begin.column << ": "
+              << (diagnostic.severity == ManifestDiagnosticSeverity::Error ? "error" : "warning")
+              << ' ' << diagnostic.code << ": " << diagnostic.message << '\n';
+    if (diagnostic.fixHint.has_value()) std::cout << "  hint: " << *diagnostic.fixHint << '\n';
   }
-  if (!IsQuiet(args)) {
-    PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
-    PrintSuccess(args, "Validation passed");
-  }
+  const auto errors = std::ranges::count_if(diagnostics, [](const auto &diagnostic) {
+    return diagnostic.severity == ManifestDiagnosticSeverity::Error;
+  });
+  if (errors != 0) return 1;
+  if (!IsQuiet(args)) std::cout << "Validation passed: " << kind << ' ' << identity << '\n';
   return 0;
 }
 
@@ -8565,75 +8636,8 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
     throw std::runtime_error("schema supports only --format json");
   }
 
-  std::cout << "{\n";
-  std::cout << "  \"schemaVersion\": \"4.0\",\n";
-  std::cout << "  \"format\": \"xml\",\n";
-  std::cout << "  \"fileTypes\": [\".nginproj\", \".nginpkg\", \".ngin\", "
-               "\".ngin.xml\"],\n";
-  std::cout
-      << "  \"productKinds\": [\"Application\", \"Library\", \"Tool\", "
-         "\"Test\", \"Benchmark\", \"Plugin\", \"Module\", \"External\"],\n";
-  std::cout << "  \"dependencyKinds\": [\"Project\", \"Package\", \"Tool\", "
-               "\"Runtime\"],\n";
-  std::cout << "  \"dependencyScopes\": [\"Build\", \"Target\", \"Runtime\", "
-               "\"Test\", \"Dev\", \"Publish\"],\n";
-  std::cout << "  \"overlayOperations\": [\"Remove\"],\n";
-  std::cout << "  \"commonProductSections\": [\"Uses\", \"Build\", "
-               "\"Generate\", \"Stage\", \"Environment\", \"Tooling\"],\n";
-  std::cout << "  \"productSections\": {\n";
-  std::cout << "    \"Application\": [\"Runtime\", \"Launch\", \"Publish\"],\n";
-  std::cout << "    \"Library\": [\"Exports\", \"PackageOutput\"],\n";
-  std::cout << "    \"Tool\": [\"Run\", \"Stage\", \"PackageOutput\"],\n";
-  std::cout << "    \"Test\": [\"Run\", \"Report\", \"TestSettings\"],\n";
-  std::cout
-      << "    \"Benchmark\": [\"Run\", \"Report\", \"BenchmarkSettings\"],\n";
-  std::cout << "    \"Plugin\": [\"Runtime\", \"Stage\", \"Exports\", "
-               "\"PackageOutput\"],\n";
-  std::cout
-      << "    \"Module\": [\"Runtime\", \"Exports\", \"PackageOutput\"],\n";
-  std::cout << "    \"External\": [\"Uses\", \"Exports\", \"Stage\", "
-               "\"PackageOutput\"]\n";
-  std::cout << "  },\n";
-  std::cout
-      << "  \"buildItems\": [\"Language\", \"Sources\", \"Headers\", "
-         "\"Optimization\", \"DebugSymbols\", \"LinkTimeOptimization\", "
-         "\"IncludePath\", \"Define\", \"CompileOption\", \"LinkOption\", "
-         "\"LinkLibrary\", \"PrecompiledHeader\", \"UnityBuild\"],\n";
-  std::cout << "  \"stageItems\": [\"Config\", \"Content\"],\n";
-  std::cout << "  \"runtimeItems\": [\"Module\", \"Plugin\", \"Setting\"],\n";
-  std::cout
-      << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
-  std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\", \"Installer\"],\n";
-  std::cout << "  \"archiveFormats\": [\"zip\", \"tgz\"],\n";
-  std::cout << "  \"installerFormats\": [\"msi\", \"deb\"],\n";
-  std::cout << "  \"graphJson\": {\n";
-  std::cout << "    \"schemaVersion\": \"4.0\",\n";
-  std::cout << "    \"fullKind\": \"NGIN.CompositionGraph\",\n";
-  std::cout << "    \"planKind\": \"NGIN.CompositionGraphPlan\",\n";
-  std::cout << "    \"schemaPath\": "
-               "\"docs/schemas/ngin-composition-graph-v4.schema.json\",\n";
-  std::cout << "    \"specPath\": "
-               "\"docs/specs/013-composition-graph-json-contract.md\",\n";
-  std::cout << "    \"stableTopLevelFields\": [\"schemaVersion\", \"kind\", "
-               "\"state\", "
-               "\"facets\", \"workspace\", \"outputRoot\", \"outputDir\", "
-               "\"identity\", \"conventions\", \"properties\", "
-               "\"product\", \"selection\", \"facetsSummary\", \"plans\"],\n";
-  std::cout
-      << "    \"planFields\": [\"packages\", \"packageFeatures\", \"build\", "
-         "\"editor\", \"generators\", \"stage\", \"runtime\", \"environment\", "
-         "\"launch\", \"launches\", \"packageOutputs\", \"publish\", "
-         "\"tooling\", \"diagnostics\"]\n";
-  std::cout << "  },\n";
-  std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", "
-               "\"define\", \"package\", \"feature\", \"stage\", "
-               "\"generator\", \"launch\", \"publish\", \"package-output\", "
-               "\"env\", \"tool\", \"driver\", \"action\", \"run\", "
-               "\"input-set\", \"runtime-module\", \"toolchain\"],\n";
-  std::cout << "  \"graphPlans\": [\"build\", \"editor\", \"stage\", \"package\", "
-               "\"package-output\", \"launch\", \"runtime\", \"environment\", "
-               "\"publish\", \"tooling\"]\n";
-  std::cout << "}\n";
+  const auto artifacts = GenerateManifestArtifacts();
+  std::cout << artifacts.at("manifest-editor-metadata.json");
   return 0;
 }
 

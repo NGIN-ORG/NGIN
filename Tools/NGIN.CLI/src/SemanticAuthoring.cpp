@@ -125,8 +125,13 @@ namespace NGIN::CLI
         const auto exact = AttributeValue(element, "Exact");
         const auto compatible = AttributeValue(element, "Compatible");
         const auto versionNode = std::ranges::find(element.children, "Version", &AuthoredElement::name);
+        const auto hasStructuredAttributes = !AttributeValue(element, "AtLeast").empty() ||
+                                             !AttributeValue(element, "After").empty() ||
+                                             !AttributeValue(element, "AtMost").empty() ||
+                                             !AttributeValue(element, "Before").empty();
         const auto sourceCount = static_cast<std::size_t>(!exact.empty()) +
                                  static_cast<std::size_t>(!compatible.empty()) +
+                                 static_cast<std::size_t>(hasStructuredAttributes) +
                                  static_cast<std::size_t>(versionNode != element.children.end());
         if (sourceCount > 1)
         {
@@ -146,10 +151,11 @@ namespace NGIN::CLI
         }
         if (!compatible.empty())
             return CompatibleConstraint(compatible, element.source);
-        if (versionNode == element.children.end()) return std::nullopt;
-        SourcedVersionConstraint constraint{.source = versionNode->source, .description = "structured Version"};
+        if (versionNode == element.children.end() && !hasStructuredAttributes) return std::nullopt;
+        const auto &constraintNode = versionNode == element.children.end() ? element : *versionNode;
+        SourcedVersionConstraint constraint{.source = constraintNode.source, .description = "structured Version"};
         const auto lower = [&](const std::string_view name, const bool inclusive) {
-            if (const auto text = AttributeValue(*versionNode, name); !text.empty())
+            if (const auto text = AttributeValue(constraintNode, name); !text.empty())
             {
                 const auto parsed = ParseSemanticVersion(text);
                 if (!parsed.has_value()) return;
@@ -163,7 +169,7 @@ namespace NGIN::CLI
         lower("AtLeast", true);
         lower("After", false);
         const auto upper = [&](const std::string_view name, const bool inclusive) {
-            if (const auto text = AttributeValue(*versionNode, name); !text.empty())
+            if (const auto text = AttributeValue(constraintNode, name); !text.empty())
             {
                 const auto parsed = ParseSemanticVersion(text);
                 if (!parsed.has_value()) return;

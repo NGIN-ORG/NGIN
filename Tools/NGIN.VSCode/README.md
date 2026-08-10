@@ -21,6 +21,8 @@ shows unknown state instead of guessing.
 
 Structural XML schemas and completion metadata under `schemas/` are generated
 from the CLI's `ManifestSpec`; they are not a second hand-maintained grammar.
+The extension reads that generated metadata for context-aware element and
+attribute completion, while `ngin validate` remains the semantic authority.
 Run the `ngin_manifest_schema_generator` target when the specification changes.
 
 ## Requirements

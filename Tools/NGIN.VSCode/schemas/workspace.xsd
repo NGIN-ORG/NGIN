@@ -173,10 +173,15 @@
     <xs:assert test="count(Compatibility) le 1" />
   </xs:complexType>
   <xs:complexType name="t_workspace_policies_providers">
-    <xs:attribute name="Allowed" type="nonEmptyString" />
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Allow" type="t_workspace_policies_providers_allow" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
     <xs:attribute name="IntegrityRequired" type="boolean" />
     <xs:attribute name="Locked" type="boolean" />
     <xs:attribute name="AllowNonHermetic" type="boolean" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_providers_allow">
+    <xs:attribute name="Kind" type="nonEmptyString" use="required" />
   </xs:complexType>
   <xs:complexType name="t_workspace_policies_actions">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
@@ -262,8 +267,16 @@
     </xs:attribute>
   </xs:complexType>
   <xs:complexType name="t_workspace_policies_compatibility">
-    <xs:attribute name="AllowedTargets" type="nonEmptyString" />
-    <xs:attribute name="AllowedToolchains" type="nonEmptyString" />
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Target" type="t_workspace_policies_compatibility_target" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Toolchain" type="t_workspace_policies_compatibility_toolchain" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_compatibility_target">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_workspace_policies_compatibility_toolchain">
+    <xs:attribute name="Name" type="nonEmptyString" use="required" />
   </xs:complexType>
   <xs:complexType name="t_workspace_presets">
     <xs:choice minOccurs="0" maxOccurs="unbounded">

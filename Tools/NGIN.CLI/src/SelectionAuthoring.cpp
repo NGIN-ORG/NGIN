@@ -99,6 +99,15 @@ namespace NGIN::CLI
                     configuration.debugSymbols = AttributeValue(*symbols, "Enabled") == "true";
                 if (const auto *lto = Child(*node, "workspace.configuration.lto"))
                     configuration.linkTimeOptimization = AttributeValue(*lto, "Enabled") == "true";
+                for (const auto *option : Children(*node, "workspace.configuration.option"))
+                {
+                    const auto name = AttributeValue(*option, "Name");
+                    const auto value = AttributeValue(*option, "Value");
+                    if (!configuration.options.emplace(
+                            name, TypedOptionValue{.type = OptionType::String, .value = value}).second)
+                        AddError(result.diagnostics, "duplicate Configuration Option '" + name + "'",
+                                 option->source);
+                }
                 AddUnique(model.configurations, std::move(configuration), [](const Configuration &item) { return item.name; },
                           node->source, configurationNames, result.diagnostics);
             }
