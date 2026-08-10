@@ -44,6 +44,30 @@ export interface ProjectCandidate {
   type?: string;
   workspaceManifest?: string;
   workspaceChoices?: WorkspaceChoices;
+  hasAnalyze?: boolean;
+  hasFormat?: boolean;
+  hasTesting?: boolean;
+}
+
+export interface ActionDiagnosticPoint {
+  line: number;
+  column: number;
+}
+
+export interface ActionDiagnostic {
+  file: string;
+  range: { start: ActionDiagnosticPoint; end: ActionDiagnosticPoint };
+  severity: 'error' | 'warning' | 'information';
+  source: string;
+  code?: string;
+  message: string;
+  fixes?: unknown[];
+}
+
+export interface ActionDiagnosticsEnvelope {
+  kind: 'NGIN.ActionDiagnostics';
+  state: 'complete';
+  diagnostics: ActionDiagnostic[];
 }
 
 export interface DiscoveryResult {
@@ -189,4 +213,6 @@ export interface ContextSnapshot {
   graph?: CompositionGraph;
   graphError?: string;
   busy?: string;
+  configured?: boolean;
+  lastOperation?: { projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; message?: string };
 }

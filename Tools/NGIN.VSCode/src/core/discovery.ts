@@ -30,6 +30,9 @@ async function candidateFromUri(
       directory: path.dirname(uri.fsPath),
       name: identity.name,
       type: identity.type,
+      hasAnalyze: /<Analyze\b/u.test(source),
+      hasFormat: /<Format\b/u.test(source),
+      hasTesting: /<Testing\b/u.test(source) || identity.type === 'Test',
       workspaceManifest,
       workspaceChoices
     };
@@ -37,6 +40,7 @@ async function candidateFromUri(
     return undefined;
   }
 }
+
 
 async function discoverWorkspaceProjects(workspaceUri: vscode.Uri): Promise<DiscoveryResult> {
   const source = await readText(workspaceUri);

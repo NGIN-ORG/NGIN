@@ -1,4 +1,5 @@
 #include "AuthoredManifest.hpp"
+#include "ActionDiagnostics.hpp"
 #include "ManifestCli.hpp"
 #include "ManifestFormatter.hpp"
 #include "ManifestPaths.hpp"
@@ -77,6 +78,28 @@ TEST_CASE("formatter preserves comments in direct manifests")
         R"(<Project Name="App" Type="Application"><!-- rationale --><Build><Source Include="src/**/*.cpp" /></Build></Project>)");
     REQUIRE_THAT(formatted, ContainsSubstring("<!--rationale-->"));
     REQUIRE_THAT(formatted, ContainsSubstring(R"(<Source Include="src/**/*.cpp" />)"));
+}
+
+TEST_CASE("Action diagnostics preserve tool identity and source ranges as structured JSON")
+{
+    const auto diagnostics = ParseActionDiagnostics(
+        "C:\\work\\src\\main.cpp:8:16: warning: 42 is a magic number [readability-magic-numbers]\n"
+        "/work/src/main.cpp:2:4: error: broken source\n",
+        "NGIN.Tooling.ClangTidy::Analyze");
+    REQUIRE(diagnostics.size() == 2);
+    CHECK(diagnostics[0].file == "C:\\work\\src\\main.cpp");
+    CHECK(diagnostics[0].startLine == 8);
+    CHECK(diagnostics[0].startColumn == 16);
+    CHECK(diagnostics[0].endColumn == 17);
+    CHECK(diagnostics[0].code == "readability-magic-numbers");
+    CHECK(diagnostics[0].source == "NGIN.Tooling.ClangTidy::Analyze");
+    CHECK(diagnostics[1].severity == "error");
+
+    const auto json = SerializeActionDiagnostics(diagnostics);
+    CHECK_THAT(json, ContainsSubstring(R"("kind":"NGIN.ActionDiagnostics")"));
+    CHECK_THAT(json, ContainsSubstring(R"("state":"complete")"));
+    CHECK_THAT(json, ContainsSubstring(R"("line":8)"));
+    CHECK_THAT(json, ContainsSubstring(R"("fixes":[])"));
 }
 
 TEST_CASE("portable path and glob authoring is rooted deterministic and "

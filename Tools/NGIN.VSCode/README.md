@@ -1,77 +1,109 @@
 # NGIN Tools for VS Code
 
-NGIN Tools is the graph-driven VS Code experience for NGIN workspaces,
-projects, packages, and the native C++ development loop.
+NGIN Tools makes the normal NGIN C++ loop feel native in VS Code:
 
-The extension does not implement a second NGIN project model. It owns editor
-interaction and delegates meaning to two repository-owned contracts:
+> Open a source file → edit → save → see diagnostics → press F5 to debug.
 
-- generated `ManifestSpec` metadata drives XML completion and hover help; and
-- the native `ngin` CLI supplies validation, the resolved Composition Graph,
-  and every executable lifecycle operation.
+The extension owns editor interaction while the native `ngin` CLI remains the
+semantic authority for manifests, composition, packages, builds, Actions,
+staging, and launch intent.
 
-This boundary allows the extension to provide a rich IDE without letting the
-editor, command line, and CI disagree about the project.
+## Developer experience
 
-## Experience
+The NGIN activity bar contains one compact **Projects** view. It lists every
+discovered project with Build, Run, Debug, optional Test and Analyze commands.
+Advanced operations and graph details are collapsed under each project.
 
-The NGIN activity-bar container contains:
+The normal VS Code Explorer remains the file browser. NGIN decorates files as
+included, excluded, generated, or project-owned and contributes context menu
+commands to include, exclude, analyze, format, and reveal the owning project.
 
-- **Solution**, for discovered workspaces and projects, active Configuration,
-  Target, Toolchain, Presets, and common lifecycle actions;
-- **Active Project**, for graph-derived product, selection, files, packages,
-  Exports, Options, Capabilities, Actions, Plugins, staging, Launch, Testing,
-  Publish, and graph-edge state; and
-- **Project Dashboard**, a resolved project overview with direct XML,
-  validation, inspection, configure, build, run, and debug actions.
+The status bar shows only the pinned fallback Build/Run target and its
+Configuration. Clicking it opens the searchable **NGIN: Switch Build Target**
+picker. Opening a source file does not silently change that pinned target.
 
-The status bar keeps the active project and complete selection visible. A
-graph-resolution failure is displayed as an error state rather than leaving
-apparently valid stale information on screen.
+File-specific operations and F5 instead use the project that owns the active
+file. When equally specific projects own a file, the extension asks once and
+remembers the answer. Project selection for navigation, source ownership, and
+the pinned execution target are separate concepts.
 
-## Start
+## Automatic source analysis
 
-Build the native CLI and extension from the repository:
+When a resolved Composition contains an Analyze Action, opening or saving a
+C/C++ source file analyzes the relevant translation unit. Analysis is
+debounced, obsolete work is cancelled, and only one analysis per project runs
+at a time. Headers use the closest Action translation unit.
 
-```bash
-cmake --preset dev
+Analyzer results use the CLI's structured `NGIN.ActionDiagnostics` JSON
+protocol. They appear as editor squiggles, hover text, and Problems entries
+with the analyzer identity and rule code. Manifest, compiler, and analyzer
+diagnostics use independent collections, so one operation cannot erase another
+kind of problem.
+
+Analysis is not run on every keystroke. Use `ngin.analysis.mode` to disable the
+default open-and-save behavior, and `ngin.analysis.debounceMs` to change the
+save delay. **NGIN: Analyze Project** remains available for full-project and CI
+style checks.
+
+## Trusted project tooling
+
+The extension never weakens workspace Action policy. The first time automatic
+tooling is needed, it asks whether to enable verified project tooling. On
+approval it creates and reuses `<output>/ngin.lock`, and passes that lock to
+analyzers and formatters automatically. If dependencies change, a one-click
+**Refresh Tooling Lock** action repairs the stale lock.
+
+Use **NGIN: Enable Project Tooling** to enable tooling after previously
+declining, or **NGIN: Lock Dependencies** for explicit lock maintenance.
+
+## Build, run, and debug
+
+Build, Debug, analysis, and other consuming operations configure automatically
+when their generated state is missing or stale. Unchanged configurations are
+reused. **NGIN: Configure** remains available as an explicit regeneration and
+troubleshooting command.
+
+F5 debugs the project owning the active source file and falls back to the
+pinned Build target. Debugging builds and stages the product, resolves Launch
+arguments, environment, working directory, and staged library paths, then
+hands off to `cppvsdbg` on Windows or `cppdbg` with GDB/LLDB elsewhere. Multiple
+Launch definitions get a remembered picker. Ctrl+F5 uses the same resolved
+configuration without stopping in the debugger.
+
+The Microsoft C/C++ extension is required for native debugging. When installed,
+NGIN also supplies compile-database-backed IntelliSense. Headers use the
+closest translation unit and graph facts provide a fallback before the first
+configuration.
+
+## Project overview and composition details
+
+The optional Project Overview shows only developer-facing state: product,
+Configuration, readiness, last analyzer result, launches, packages, and build
+inputs. Build, Run, Debug, and Test are primary actions. Composition graph
+internals remain available through the collapsed **Composition Details** node,
+graph JSON, Inspect, Explain, and Diff commands.
+
+## XML authoring
+
+`.ngin`, `.nginproj`, and `.nginpkg` files receive syntax highlighting,
+metadata-driven completion and hovers, CLI validation on save, and
+comment-preserving formatting. Package, project-reference, Action, Product,
+Option, and exact file-membership edits preserve the authored XML rather than
+creating a second editor-side semantic model.
+
+## Build and install
+
+```powershell
 cmake --build build/dev --target ngin_cli
-cd Tools/NGIN.VSCode
+Set-Location Tools/NGIN.VSCode
 npm install
-npm run build
-```
-
-Open the repository in VS Code and run the extension development host, or
-install the VSIX produced by:
-
-```bash
+npm test
 npm run package
+code --install-extension .\ngin-tools.vsix --force
 ```
 
-When `ngin.executable` is empty, the extension first looks for the repository's
-`build/dev/Tools/NGIN.CLI/ngin` development build and then uses `ngin` from
-`PATH`. Set `ngin.executable` for another build.
-
-## Selection and output
-
-Workspace discovery reads `<Projects>` rules from `.ngin`; it does not treat
-every nearby project as a workspace member. A folder without a workspace still
-supports standalone `.nginproj` files.
-
-One active context supplies every view, command, task, debug request, and C/C++
-configuration:
-
-- Workspace and Project
-- Configuration
-- Target
-- Toolchain
-- explicit Option overrides
-
-Presets are command-specific in the CLI, so **NGIN: Run Preset** executes the
-Preset's declared command as a one-shot action. It does not silently turn a
-build Preset into persistent selection for validate, run, or publish.
-
-Extension-driven output defaults to:
+When `ngin.executable` is empty, the extension first uses the repository
+development build and then `ngin` on `PATH`. Extension output defaults to:
 
 ```text
 <workspace>/build/ngin/<project>/<Configuration>.<Target>.<Toolchain>
@@ -79,131 +111,22 @@ Extension-driven output defaults to:
 
 Change the root with `ngin.build.outputRoot`.
 
-## Build, run, test, and publish
-
-Commands use argument arrays through the native CLI and share the exact active
-context:
+## Important commands
 
 ```text
-NGIN: Restore Packages
-NGIN: Lock Dependencies
-NGIN: Configure
+NGIN: Switch Build Target
 NGIN: Build
-NGIN: Rebuild
-NGIN: Clean Output
-NGIN: Stage
 NGIN: Run
 NGIN: Debug
 NGIN: Test
-NGIN: Publish
-NGIN: Analyze
-NGIN: Run Format Actions
-```
-
-Configure, Build, Run, and Debug are also available directly on each project
-row in Solution. Analyzer and formatter Actions use the generated
-`<output>/ngin.lock`; when it is missing, the extension asks before creating it
-from the active Composition.
-
-Running a process requires a trusted workspace. Output is streamed to the NGIN
-output channel, operations are cancellable, and manifest diagnostics are
-attached to exact files, lines, columns, and NGIN diagnostic codes.
-
-The `ngin` task provider supplies configure, build, stage, test, and restore
-tasks. These use the same context and output directory as the views and command
-palette.
-
-## Debugging
-
-The contributed `ngin` debug type is a configuration resolver rather than a
-debug adapter. It:
-
-1. resolves the current Composition Graph;
-2. builds and stages the product when `preStage` is enabled;
-3. selects the default graph Launch;
-4. applies its working directory, arguments, environment, and staged library
-   path; and
-5. hands off to `cppvsdbg` on Windows or `cppdbg` with GDB/LLDB elsewhere.
-
-The current graph is sufficient for Product launches. Debugging a package Tool
-launch remains unavailable until the CLI exposes the resolved LaunchPlan,
-because the extension will not guess a provider-owned Tool artifact path.
-
-## C/C++ IntelliSense
-
-NGIN configure/build asks CMake to generate:
-
-```text
-<output>/cmake/compile_commands.json
-```
-
-When Microsoft's C/C++ extension is installed and `ngin.cpp.enabled` is true,
-NGIN registers a custom configuration provider. It maps each translation
-unit's compiler, arguments, include directories, defines, forced includes, and
-language standard. Headers use the closest translation unit. Graph build facts
-provide a useful fallback before configure has produced the compile database.
-
-The extension intentionally does not generate `c_cpp_properties.json`; the
-active graph and compile database remain the only configuration sources.
-
-## XML authoring
-
-All `.ngin`, `.nginproj`, and `.nginpkg` files receive:
-
-- XML syntax highlighting and snippets;
-- context-aware element and attribute completion;
-- element and attribute hover information;
-- CLI semantic validation on demand and on save; and
-- comment-preserving CLI formatting.
-
-Generated schemas and editor metadata live under `schemas/`. Regenerate them
-with `ngin_manifest_schema_generator` after changing `ManifestSpec`.
-
-The Project Files tree combines physical files with graph membership and shows
-selected, unselected, generated, external, missing, authored-manifest, and
-nested-project-boundary states. File commands include create, rename,
-duplicate, trash-delete, reveal, include, and exclude.
-
-Membership actions add exact typed `<Source>`, `<Header>`, `<CxxModule>`, or
-`<Resource>` rules through a VS Code `WorkspaceEdit`. They preserve comments,
-globs, and extension elements and leave the manifest dirty for review and
-undo. Saving invokes the CLI validator. The XML utility only finds edit ranges;
-it never evaluates Refinements, dependencies, capabilities, or backend rules.
-
-## Inspection and authoring commands
-
-```text
+NGIN: Analyze File
+NGIN: Analyze Project
+NGIN: Format File
+NGIN: Enable Project Tooling
 NGIN: Show Composition Graph
-NGIN: Inspect Active Project
-NGIN: Explain Selection
-NGIN: Diff Composition Against Project
 NGIN: Open Project Dashboard
-NGIN: Edit Product
-NGIN: Add Package
-NGIN: Add Project Reference
-NGIN: Add Action
-NGIN: Format Manifest
 ```
-
-Dependency, project-reference, and Action authoring delegates to the CLI's
-canonical authoring commands.
-
-## Develop and verify
-
-```bash
-npm run typecheck
-npm run test:unit
-npm run test:integration
-npm run build
-npm run package
-```
-
-The unit suite covers graph envelopes, diagnostics, workspace vocabulary,
-compile commands, paths, and lossless membership edits. The extension-host
-suite activates the packaged entry point against this repository, discovers
-`Hello.Native`, opens its real Composition Graph, checks tasks, and validates
-through the native CLI.
 
 See the [extension implementation plan](../../docs/plans/vscode-extension-reimagining-plan.md),
-[CLI reference](../../docs/reference/cli.md), and
-[Composition Graph reference](../../docs/reference/composition-graph.md).
+[tooling guide](../../docs/guides/tooling.md), and
+[CLI reference](../../docs/reference/cli.md).

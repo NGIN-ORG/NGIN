@@ -11,7 +11,9 @@ import {
   splitCommandLine
 } from '../../core/compileCommands';
 import { dependencyLockPath, lifecycleArguments } from '../../core/commandArguments';
-import { parseCliDiagnostics } from '../../core/diagnostics';
+import { parseActionDiagnostics } from '../../core/actionDiagnostics';
+import { parseCliDiagnostics, parseCompilerDiagnostics } from '../../core/diagnostics';
+import { projectsForFile } from '../../core/projectOwnership';
 import { createNativeDebugConfiguration } from '../../core/debugConfiguration';
 import { displayOptionValue, parseCompositionGraph } from '../../core/graph';
 import { insertBuildItem, kindForPath, updateExactBuildItemPaths, updateProjectAttributes } from '../../core/manifestEdits';
@@ -110,6 +112,15 @@ test('CLI diagnostics preserve Windows drive paths and hints', () => {
   }]);
 });
 
+test('compiler diagnostics are parsed independently from manifest diagnostics', () => {
+  const values = parseCompilerDiagnostics(
+    'C:\\work\\main.cpp:4:7: warning: unused value [-Wunused-value]\n' +
+    'C:\\work\\other.cpp(9,3): error C2065: undeclared identifier\n');
+  assert.equal(values.length, 2);
+  assert.equal(values[0].code, '-Wunused-value');
+  assert.equal(values[1].code, 'C2065');
+});
+
 test('Composition Graph parsing rejects incomplete envelopes', () => {
   assert.equal(parseCompositionGraph(JSON.stringify(graph())).product.name, 'App');
   assert.throws(() => parseCompositionGraph('{}'), /unsupported or unresolved/);
@@ -162,6 +173,30 @@ test('selection keys are deterministic and output paths are bounded', () => {
     '--toolchain', 'default', '--option', 'A=1', '--option', 'B=2', '--output', lock
   ]);
   assert.deepEqual(lifecycleArguments('analyze', base).slice(-4), ['--output', output, '--lock', lock]);
+});
+
+test('structured Action diagnostics retain source, rule, and precise range', () => {
+  const envelope = parseActionDiagnostics(JSON.stringify({
+    kind: 'NGIN.ActionDiagnostics', state: 'complete', diagnostics: [{
+      file: 'C:/work/main.cpp', range: { start: { line: 8, column: 16 }, end: { line: 8, column: 17 } },
+      severity: 'warning', source: 'NGIN.Tooling.ClangTidy::Analyze', code: 'readability-magic-numbers',
+      message: '42 is a magic number', fixes: []
+    }]
+  }));
+  assert.equal(envelope.diagnostics[0].code, 'readability-magic-numbers');
+  assert.equal(envelope.diagnostics[0].range.start.column, 16);
+  assert.throws(() => parseActionDiagnostics('{"kind":"wrong"}'), /invalid Action diagnostics envelope/);
+});
+
+test('source ownership prefers the deepest project and exposes true ambiguities', () => {
+  const root = path.resolve('workspace');
+  const projects: ProjectCandidate[] = [
+    { manifest: path.join(root, 'Root.nginproj'), directory: root, name: 'Root' },
+    { manifest: path.join(root, 'nested', 'One.nginproj'), directory: path.join(root, 'nested'), name: 'One' },
+    { manifest: path.join(root, 'nested', 'Two.nginproj'), directory: path.join(root, 'nested'), name: 'Two' }
+  ];
+  const owners = projectsForFile(projects, path.join(root, 'nested', 'src', 'main.cpp'));
+  assert.deepEqual(owners.map(project => project.name), ['One', 'Two', 'Root']);
 });
 
 test('native debug configuration uses staged graph launch intent', () => {

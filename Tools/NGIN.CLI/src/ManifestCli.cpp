@@ -1,5 +1,6 @@
 #include "ManifestCli.hpp"
 
+#include "ActionDiagnostics.hpp"
 #include "AuthoredManifest.hpp"
 #include "CMakeAdapter.hpp"
 #include "Canonical.hpp"
@@ -57,6 +58,13 @@ namespace NGIN::CLI
             std::ofstream output(path, std::ios::binary | std::ios::trunc);
             if (!output) throw std::runtime_error(path.string() + ": cannot write file");
             output << text;
+        }
+
+        [[nodiscard]] auto WriteTextIfChanged(const fs::path &path, const std::string &text) -> bool
+        {
+            if (fs::is_regular_file(path) && ReadText(path) == text) return false;
+            WriteText(path, text);
+            return true;
         }
 
         [[nodiscard]] auto EscapeXml(const std::string_view value) -> std::string
@@ -751,6 +759,28 @@ namespace NGIN::CLI
             if (result != 0) throw std::runtime_error("process failed with exit code " + std::to_string(result));
         }
 
+        struct CapturedExecution
+        {
+            int exitCode{};
+            std::string output{};
+        };
+
+        [[nodiscard]] auto ExecuteCaptured(const std::string &command, const fs::path &logPath) -> CapturedExecution
+        {
+            fs::create_directories(logPath.parent_path());
+            const auto redirected = command + " > " + QuoteProcessArgument(logPath) + " 2>&1";
+            const auto result = std::system(redirected.c_str());
+            return CapturedExecution{.exitCode = result, .output = ReadText(logPath)};
+        }
+
+        auto ExecuteQuietly(const std::string &command, const fs::path &logPath) -> void
+        {
+            const auto result = ExecuteCaptured(command, logPath);
+            if (result.exitCode == 0) return;
+            std::cerr << result.output;
+            throw std::runtime_error("process failed with exit code " + std::to_string(result.exitCode));
+        }
+
 #if defined(_WIN32)
         [[nodiscard]] auto QuoteWindowsArgument(const std::wstring &value) -> std::wstring
         {
@@ -1089,7 +1119,7 @@ namespace NGIN::CLI
                 else if (!explanation.Allowed())
                     throw std::runtime_error("Action execution denied for '" + action->identity +
                                              "': " + explanation.reason);
-                if (!arguments.quiet)
+                if (!arguments.quiet && arguments.format != "json")
                     std::cout << "Authorized Action " << action->identity << ": " << explanation.reason << '\n';
             }
             for (auto &child : prepared.projectDependencies)
@@ -1135,6 +1165,47 @@ namespace NGIN::CLI
             return prepared;
         }
 
+        auto SelectActionInputs(PreparedBuild &prepared, const std::vector<std::string> &requestedFiles) -> bool
+        {
+            bool matched = false;
+            std::set<fs::path> requested{};
+            for (const auto &file : requestedFiles) requested.insert(fs::weakly_canonical(file));
+            for (auto &child : prepared.projectDependencies)
+                matched = SelectActionInputs(*child, requestedFiles) || matched;
+            for (auto step = prepared.actions.steps.begin(); step != prepared.actions.steps.end();)
+            {
+                const auto available = step->inputs;
+                std::erase_if(step->inputs, [&](const std::string &input) {
+                    return !requested.contains(fs::weakly_canonical(input));
+                });
+                if (step->inputs.empty())
+                {
+                    const auto requestedHeader = std::ranges::find_if(requested, [](const fs::path &file) {
+                        const auto extension = file.extension().string();
+                        return extension == ".h" || extension == ".hh" || extension == ".hpp" ||
+                               extension == ".hxx";
+                    });
+                    if (requestedHeader != requested.end() && !available.empty())
+                    {
+                        const auto distance = [&](const std::string &input) {
+                            const auto relative = fs::path{input}.parent_path().lexically_relative(requestedHeader->parent_path());
+                            return static_cast<std::size_t>(std::distance(relative.begin(), relative.end()));
+                        };
+                        step->inputs = {*std::ranges::min_element(available, {}, distance)};
+                    }
+                }
+                if (step->inputs.empty())
+                {
+                    step = prepared.actions.steps.erase(step);
+                    continue;
+                }
+                matched = true;
+                ++step;
+            }
+            prepared.actions.plan.identity = FingerprintActionPlan(prepared.actions);
+            return matched;
+        }
+
         [[nodiscard]] auto GenerateActionContext(const PreparedBuild &prepared, const ActionPlanStep &step)
             -> std::string
         {
@@ -1177,7 +1248,7 @@ namespace NGIN::CLI
             return out.str();
         }
 
-        auto PrepareIsolatedPackages(const PreparedBuild &prepared) -> void
+        auto PrepareIsolatedPackages(const PreparedBuild &prepared, const bool quietOutput = false) -> void
         {
             for (const auto &package : prepared.build.packages)
             {
@@ -1190,14 +1261,22 @@ namespace NGIN::CLI
                                  " -DCMAKE_INSTALL_PREFIX=" + QuoteProcessArgument(install);
                 for (const auto &cache : package.cache)
                     configure += " -D" + cache.name + ':' + cache.type + '=' + QuoteProcessArgument(cache.value);
-                Execute(configure);
-                Execute("cmake --build " + QuoteProcessArgument(binary) + " --target install");
+                if (quietOutput)
+                {
+                    ExecuteQuietly(configure, prepared.output / "diagnostics/isolated-configure.log");
+                    ExecuteQuietly("cmake --build " + QuoteProcessArgument(binary) + " --target install",
+                                   prepared.output / "diagnostics/isolated-build.log");
+                }
+                else
+                {
+                    Execute(configure);
+                    Execute("cmake --build " + QuoteProcessArgument(binary) + " --target install");
+                }
             }
         }
 
-        auto Configure(PreparedBuild &prepared) -> void
+        auto Configure(PreparedBuild &prepared, const bool quietOutput = false, const bool force = false) -> void
         {
-            PrepareIsolatedPackages(prepared);
             fs::create_directories(prepared.generated);
             for (const auto &action : prepared.actions.steps)
             {
@@ -1205,7 +1284,15 @@ namespace NGIN::CLI
                 fs::create_directories(action.workingDirectory);
                 if (!action.contextFile.empty()) WriteText(action.contextFile, GenerateActionContext(prepared, action));
             }
-            WriteText(prepared.generated / "CMakeLists.txt", GenerateCMakeProject(prepared.build, prepared.actions));
+            const auto cmakeSource = GenerateCMakeProject(prepared.build, prepared.actions);
+            const auto sourceChanged = WriteTextIfChanged(prepared.generated / "CMakeLists.txt", cmakeSource);
+            const auto configureState = prepared.build.plan.identity + '\n' + prepared.actions.plan.identity + '\n';
+            const auto statePath = prepared.output / ".ngin-configure-state";
+            if (!force && !sourceChanged && fs::is_regular_file(prepared.binary / "CMakeCache.txt") &&
+                fs::is_regular_file(prepared.binary / "compile_commands.json") && fs::is_regular_file(statePath) &&
+                ReadText(statePath) == configureState)
+                return;
+            PrepareIsolatedPackages(prepared, quietOutput);
             auto command = "cmake -S " + QuoteProcessArgument(prepared.generated) + " -B " +
                            QuoteProcessArgument(prepared.binary) +
                            " -G Ninja -DCMAKE_BUILD_TYPE=" + QuoteProcessArgument(prepared.build.configuration) +
@@ -1226,13 +1313,17 @@ namespace NGIN::CLI
                     compiler = "g++";
                 command += " -DCMAKE_CXX_COMPILER=" + QuoteProcessArgument(compiler);
             }
-            Execute(command);
+            if (quietOutput)
+                ExecuteQuietly(command, prepared.output / "diagnostics/configure.log");
+            else
+                Execute(command);
+            WriteText(statePath, configureState);
         }
 
-        auto ConfigureTree(PreparedBuild &prepared) -> void
+        auto ConfigureTree(PreparedBuild &prepared, const bool force = false) -> void
         {
-            for (auto &child : prepared.projectDependencies) ConfigureTree(*child);
-            Configure(prepared);
+            for (auto &child : prepared.projectDependencies) ConfigureTree(*child, force);
+            Configure(prepared, false, force);
         }
 
         auto Build(PreparedBuild &prepared) -> void
@@ -1378,6 +1469,8 @@ namespace NGIN::CLI
                 result.optionAssignments.push_back(value(index, argument));
             else if (argument == "--kind")
                 result.actionKind = value(index, argument);
+            else if (argument == "--file")
+                result.files.push_back(value(index, argument));
             else if (argument == "--quiet" || argument == "-q")
                 result.quiet = true;
             else if (argument.starts_with('-'))
@@ -1680,7 +1773,7 @@ namespace NGIN::CLI
     auto ConfigureProject(const fs::path &root, const CliArguments &arguments) -> int
     {
         auto prepared = PrepareBuild(root, arguments, "configure");
-        ConfigureTree(prepared);
+        ConfigureTree(prepared, true);
         std::cout << "Configured " << prepared.build.targetName << " in " << prepared.binary << '\n';
         return 0;
     }
@@ -1752,7 +1845,11 @@ namespace NGIN::CLI
     {
         if (command != "analyze" && command != "format")
             throw std::runtime_error("unsupported Action command '" + std::string(command) + "'");
+        if (arguments.format.has_value() && *arguments.format != "json")
+            throw std::runtime_error("Action commands support only --format json");
         auto prepared = PrepareBuild(root, arguments, command);
+        if (!arguments.files.empty() && !SelectActionInputs(prepared, arguments.files))
+            throw std::runtime_error("none of the selected Actions accepts the requested --file inputs");
         const auto actionCount = [](const auto &self, const PreparedBuild &build) -> std::size_t {
             auto count = build.actions.steps.size();
             for (const auto &child : build.projectDependencies) count += self(self, *child);
@@ -1760,21 +1857,41 @@ namespace NGIN::CLI
         };
         if (actionCount(actionCount, prepared) == 0)
             throw std::runtime_error("project selects no " + std::string(command) + " Actions");
-        const auto execute = [](const auto &self, PreparedBuild &build) -> void {
-            for (auto &child : build.projectDependencies) self(self, *child);
-            Configure(build);
+        const auto json = arguments.format == "json";
+        std::vector<ActionDiagnostic> diagnostics{};
+        const auto execute = [&](const auto &self, PreparedBuild &build) -> bool {
+            bool succeeded = true;
+            for (auto &child : build.projectDependencies) succeeded = self(self, *child) && succeeded;
+            Configure(build, json);
             for (const auto &step : build.actions.steps)
             {
                 auto target = std::string{"ngin_action_"} + step.graphIdentity;
                 for (auto &character : target)
                     if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
                         character = '_';
-                Execute("cmake --build " + QuoteProcessArgument(build.binary) + " --target " +
-                        QuoteProcessArgument(target));
+                const auto commandLine = "cmake --build " + QuoteProcessArgument(build.binary) + " --target " +
+                                         QuoteProcessArgument(target);
+                if (!json)
+                {
+                    Execute(commandLine);
+                    continue;
+                }
+                const auto log = build.output / "diagnostics" / (SafePathComponent(step.graphIdentity) + ".log");
+                const auto result = ExecuteCaptured(commandLine, log);
+                auto parsed = ParseActionDiagnostics(result.output, step.graphIdentity);
+                diagnostics.insert(diagnostics.end(), std::make_move_iterator(parsed.begin()),
+                                   std::make_move_iterator(parsed.end()));
+                if (result.exitCode != 0)
+                {
+                    std::cerr << result.output;
+                    succeeded = false;
+                }
             }
+            return succeeded;
         };
-        execute(execute, prepared);
-        return 0;
+        const auto succeeded = execute(execute, prepared);
+        if (json) std::cout << SerializeActionDiagnostics(diagnostics) << '\n';
+        return succeeded ? 0 : 1;
     }
 
     auto RestorePackages(const fs::path &root, const CliArguments &arguments) -> int

@@ -22,3 +22,27 @@ export function parseCliDiagnostics(stderr: string): NginDiagnostic[] {
   }
   return diagnostics;
 }
+
+const clangDiagnosticPattern = /^(.*):(\d+):(\d+):\s+(error|warning):\s+(.+?)(?:\s+\[([^\]]+)\])?$/u;
+const msvcDiagnosticPattern = /^(.*)\((\d+),(\d+)\):\s+(error|warning)\s+([A-Z]+\d+):\s+(.+)$/u;
+
+export function parseCompilerDiagnostics(output: string): NginDiagnostic[] {
+  const diagnostics: NginDiagnostic[] = [];
+  for (const raw of output.split(/\r?\n/u)) {
+    const line = raw.trim();
+    const clang = clangDiagnosticPattern.exec(line);
+    if (clang) {
+      diagnostics.push({
+        path: clang[1], line: Number(clang[2]), column: Number(clang[3]),
+        severity: clang[4] as 'error' | 'warning', message: clang[5], code: clang[6]
+      });
+      continue;
+    }
+    const msvc = msvcDiagnosticPattern.exec(line);
+    if (msvc) diagnostics.push({
+      path: msvc[1], line: Number(msvc[2]), column: Number(msvc[3]),
+      severity: msvc[4] as 'error' | 'warning', code: msvc[5], message: msvc[6]
+    });
+  }
+  return diagnostics;
+}

@@ -29,6 +29,7 @@ namespace NGIN::CLI
         std::optional<std::string> atMostVersion{};
         std::optional<std::string> beforeVersion{};
         std::optional<std::string> actionKind{};
+        std::vector<std::string> files{};
         std::vector<std::string> exportUses{};
         std::vector<std::string> optionAssignments{};
         std::vector<std::string> positional{};

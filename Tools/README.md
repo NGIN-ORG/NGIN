@@ -56,9 +56,9 @@ available on `PATH`; publishing additionally requires CPack.
 
 ## VS Code
 
-[`NGIN.VSCode`](NGIN.VSCode) provides graph-driven Solution and Active Project
-views, selection, lifecycle tasks and commands, staged native debugging,
-compile-database-backed C++ IntelliSense, a resolved project dashboard, safe
-project-file authoring, and direct XML completion, formatting, validation, and
-schema metadata. The CLI and Composition Graph remain the semantic authority;
-the extension does not contain a second resolver.
+[`NGIN.VSCode`](NGIN.VSCode) provides one compact Projects view, source-file
+ownership, automatic structured analyzer diagnostics, native Explorer
+decorations and commands, lifecycle tasks, staged native debugging,
+compile-database-backed C++ IntelliSense, and direct XML authoring support. The
+CLI and Composition Graph remain the semantic authority; the extension does
+not contain a second resolver.

@@ -4,6 +4,7 @@ import { stageDirectory } from './paths';
 
 export interface NativeDebugOverrides {
   name?: string;
+  launch?: string;
   args?: string[];
   stopAtEntry?: boolean;
   [key: string]: unknown;
@@ -33,9 +34,13 @@ export function createNativeDebugConfiguration(
   if (!['Application', 'Tool', 'Test', 'Benchmark'].includes(graph.product.type)) {
     throw new Error(`NGIN product ${graph.product.name} (${graph.product.type}) is not directly executable.`);
   }
-  const launch = graph.launches.find(candidate => candidate.default)
+  const launch = overrides.launch
+    ? graph.launches.find(candidate => candidate.name === overrides.launch || candidate.identity === overrides.launch)
+    : graph.launches.find(candidate => candidate.default)
     ?? (graph.launches.length === 1 ? graph.launches[0] : undefined);
-  if (!launch) throw new Error('Multiple NGIN Launch definitions require one Launch with Default="true".');
+  if (!launch) throw new Error(overrides.launch
+    ? `Unknown NGIN Launch '${overrides.launch}'.`
+    : 'Select one of the project Launch definitions.');
   if (launch.executableKind && launch.executableKind !== 'Product') {
     throw new Error('Debugging a package Tool launch requires a CLI-exposed LaunchPlan and is not available yet.');
   }
@@ -63,6 +68,7 @@ export function createNativeDebugConfiguration(
     environment: Object.entries(environment).map(([name, value]) => ({ name, value })),
     stopAtEntry: overrides.stopAtEntry ?? false
   };
+  delete common.launch;
   if (platform === 'win32') return { ...common, type: 'cppvsdbg' };
   return {
     ...common,

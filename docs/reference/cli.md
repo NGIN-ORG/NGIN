@@ -73,8 +73,8 @@ planned working directory, environment, and timeout.
 ## Actions
 
 ```text
-ngin analyze [--lock <ngin.lock>] [--output <dir>]
-ngin format [--lock <ngin.lock>] [--output <dir>]
+ngin analyze [--file <source>]... [--format json] [--lock <ngin.lock>] [--output <dir>]
+ngin format [--file <source>]... [--lock <ngin.lock>] [--output <dir>]
 ```
 
 Only explicitly selected Actions of the requested kind execute. The CLI
@@ -82,6 +82,13 @@ resolves their Tool exports in host package context, verifies workspace trust
 policy, configures the CMake tool binding, and invokes the derived ActionPlan.
 Normal builds execute only selected `Generate` Actions; analyzers and formatters
 do not run as a side effect of package presence or `ngin build`.
+
+Repeated `--file` arguments narrow Action inputs for editor and incremental
+tooling. A header selects the closest declared translation unit. Analyze JSON
+uses the `NGIN.ActionDiagnostics` envelope and emits successful warnings as
+machine-readable diagnostics without mixing configure or tool logs into
+standard output. The envelope records source ranges, severity, Action identity,
+rule codes, messages, and an optional fix inventory.
 
 ## Packages and reproducibility
 

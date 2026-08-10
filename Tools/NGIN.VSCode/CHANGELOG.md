@@ -2,30 +2,30 @@
 
 ## Unreleased
 
-- Reimagined the extension around one persisted Workspace, Project,
-  Configuration, Target, Toolchain, Option, and output context.
-- Added native Solution and Active Project views backed by workspace discovery
-  and the canonical Composition Graph.
-- Added graph-derived packages, Exports, Options, Capabilities, Actions,
-  Plugins, staging, Launch, Testing, Publish, provenance, and edge views.
-- Added status-bar selection and lifecycle controls plus a resolved Project
-  Dashboard.
-- Added validate, restore, configure, build, clean, rebuild, stage, run, debug,
-  test, publish, analyze, graph, inspect, explain, and cancellation workflows.
-- Exposed Configure and Debug beside Build and Run on Solution projects, and
-  added an explicit dependency-lock workflow for trusted tooling Actions.
-- Added an `ngin` task provider using the same active context.
-- Added native C++ debug configuration resolution from staged Product and
-  Launch facts.
-- Added optional Microsoft C/C++ custom configuration support from the
-  generated compile database with graph-based fallback data.
-- Added physical Project Files browsing with selected, unselected, generated,
-  external, missing, authored, and nested-project-boundary states.
-- Added guarded create, rename, duplicate, trash-delete, reveal, include, and
-  exclude project-file operations using lossless VS Code XML edits.
-- Added CLI-backed package, project-reference, and Action authoring.
-- Added lossless Product Name, Type, Version, and Linkage editing plus
-  command-line Option overrides.
-- Added generated-metadata completion and hover support, CLI diagnostics on
-  save, and comment-preserving formatting.
-- Restored focused unit tests and a real VS Code extension-host smoke test.
+- Added one compact Projects view with project-specific Build, Run, Debug,
+  Test, Analyze, advanced operations, and optional Composition Details.
+- Added source ownership inference without mutating the pinned Build target,
+  plus a searchable Build-target switcher and remembered ambiguous ownership.
+- Added automatic open/save analysis through the CLI's structured Action
+  diagnostics protocol, with cancellation, debouncing, per-file narrowing,
+  header translation-unit selection, and full-project analysis.
+- Added independent manifest, compiler, and analyzer Problems collections with
+  exact locations, analyzer identities, and rule codes.
+- Added one-time verified tooling consent, automatic dependency-lock reuse,
+  explicit enable/lock commands, and one-click stale-lock refresh without
+  weakening workspace trust policy.
+- Made the native Explorer the primary file browser and added NGIN membership
+  decorations plus include, exclude, analyze, format, and owning-project
+  context commands.
+- Added incremental configure-state reuse. Build, stage, debug, and analysis
+  configure implicitly when needed; explicit Configure remains available.
+- Added F5 source-project resolution, staged native debugging, remembered
+  Launch selection, and graph-derived arguments, environment, and working
+  directory.
+- Added compile-database-backed Microsoft C/C++ configuration with graph
+  fallback data.
+- Simplified the status bar to the pinned target and Configuration, and
+  simplified the dashboard to developer-facing readiness and tooling state.
+- Added generated-metadata XML completion and hovers, CLI validation on save,
+  comment-preserving formatting, and lossless authoring commands.
+- Added focused unit tests and a real VS Code extension-host smoke test.

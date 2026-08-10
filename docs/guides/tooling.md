@@ -28,5 +28,19 @@ ngin package lock --project Checked.App.nginproj --output build/Checked.App/ngin
 ngin analyze --project Checked.App.nginproj --lock build/Checked.App/ngin.lock
 ```
 
-The VS Code extension exposes **NGIN: Lock Dependencies**, stores the lock in
-the active output directory, and passes it automatically to Analyze and Format.
+Analyze one translation unit and request the editor protocol with:
+
+```text
+ngin analyze --project Checked.App.nginproj --file src/main.cpp --format json --lock build/Checked.App/ngin.lock
+```
+
+The result is a stable `NGIN.ActionDiagnostics` envelope containing file,
+range, severity, analyzer identity, rule code, message, and fix inventory.
+Multiple resolved Analyze Actions contribute to the same envelope.
+
+The VS Code extension asks once before enabling verified project tooling,
+stores the lock in the selected output directory, and passes it automatically.
+It analyzes the relevant translation unit when a C/C++ file is opened or saved,
+publishes Problems and editor squiggles, cancels obsolete work, and offers
+full-project analysis explicitly. A stale lock is never bypassed; the extension
+offers to regenerate it through the normal package-lock command.

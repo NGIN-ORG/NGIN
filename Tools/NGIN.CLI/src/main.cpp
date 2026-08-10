@@ -39,6 +39,9 @@ Resolution:
 
 Execution commands are driven by typed plans: configure, build, stage, run,
 test, publish, analyze, format, restore, and package lock.
+
+Analyzer integration:
+  analyze --file <source> [--file <source>...] [--format json]
 )";
     }
 }
