@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns:cmake="urn:ngin:integration:cmake"
+         Name="Example.MetaGen"
+         Version="1.0.0">
+  <Exports>
+    <Tool Name="MetaGen" />
+
+    <Action Name="GenerateMetadata"
+            Kind="Generate"
+            Tool="MetaGen">
+      <Inputs>
+        <Header Include="include/**.hpp" />
+      </Inputs>
+      <Outputs>
+        <Source Path="generated/metadata.cpp" />
+      </Outputs>
+    </Action>
+  </Exports>
+
+  <Integrations>
+    <cmake:AddSubdirectory Source=".">
+      <cmake:Target Export="MetaGen" Name="Example.MetaGen" />
+    </cmake:AddSubdirectory>
+  </Integrations>
+</Package>

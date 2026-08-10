@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Name="Example.Telemetry" Type="Plugin" Version="1.0.0">
+  <Dependencies>
+    <Package Name="NGIN.Base" Compatible="0.4" />
+  </Dependencies>
+
+  <Build>
+    <Source Include="src/**.cpp" />
+    <Header Include="include/**.hpp" Visibility="Public" />
+  </Build>
+
+  <Publish Name="plugin-package">
+    <Archive Format="zip"
+             Output="dist/${project.name}-${project.version}.zip" />
+  </Publish>
+</Project>

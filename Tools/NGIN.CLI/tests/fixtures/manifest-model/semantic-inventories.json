@@ -1,0 +1,66 @@
+{
+  "minimal-application": {
+    "product": { "name": "Hello.Native", "type": "Application" },
+    "selectionInputs": ["Configuration", "Target", "Toolchain", "Options"],
+    "directPackages": [
+      { "name": "NGIN.Base", "compatible": "0.4", "activation": "default" }
+    ],
+    "buildIncludes": ["src/**.cpp"],
+    "runtimeCompositionNodes": 0
+  },
+  "framework-application": {
+    "product": { "name": "Gallery", "type": "Application", "version": "0.4.0" },
+    "directPackages": [
+      "NGIN.Core",
+      "NGIN.UI",
+      "NGIN.UI.Hosting",
+      "NGIN.UI.Backend.SDL3"
+    ],
+    "launches": ["Development"],
+    "projectStageDestinations": ["config/app.cfg"],
+    "runtimeCompositionNodes": 0,
+    "forbiddenSemanticKinds": ["Host", "Module", "Service"]
+  },
+  "telemetry-plugin": {
+    "product": { "name": "Example.Telemetry", "type": "Plugin", "version": "1.0.0" },
+    "artifactSemantics": "deployable-plugin",
+    "runtimeLoadSemantics": false
+  },
+  "multi-export-default": {
+    "package": "Example.Security@3.2.1",
+    "activeExports": ["Crypto"],
+    "capabilityBindingsAvailable": ["Example.Crypto@1.0.0"],
+    "packageContributions": ["notices/Example.Security"],
+    "exportContributions": []
+  },
+  "multi-export-tls": {
+    "package": "Example.Security@3.2.1",
+    "requestedExports": ["TLS"],
+    "activeExports": ["Crypto", "TLS"],
+    "capabilityBindingsAvailable": ["Example.Crypto@1.0.0", "Example.TLS@1.0.0"],
+    "packageContributions": ["notices/Example.Security"],
+    "exportContributions": ["bin/tls-runtime.*"],
+    "cmakeDataInCompositionGraph": false,
+    "cmakeBindings": {
+      "Crypto": "Example::Crypto",
+      "TLS": "Example::TLS"
+    }
+  },
+  "generate-action": {
+    "action": "Example.MetaGen::GenerateMetadata",
+    "kind": "Generate",
+    "hostTool": "Example.MetaGen::MetaGen",
+    "hostPackageInstanceRequired": true,
+    "executesFromPackagePresence": false,
+    "generatedBuildItems": ["generated/metadata.cpp"]
+  },
+  "preset-equivalence": {
+    "preset": "dev",
+    "expandsTo": {
+      "configuration": "Debug",
+      "target": "host",
+      "toolchain": "default"
+    },
+    "presetNameInGraphIdentity": false
+  }
+}

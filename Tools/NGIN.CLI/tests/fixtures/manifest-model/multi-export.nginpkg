@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns:cmake="urn:ngin:integration:cmake"
+         Name="Example.Security"
+         Version="3.2.1">
+  <Metadata>
+    <Description>Multi-export security package fixture</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+
+  <Contributions>
+    <Notices>
+      <Notice Include="LICENSES/**" Into="notices/Example.Security" />
+    </Notices>
+  </Contributions>
+
+  <Exports>
+    <Library Name="Crypto" Default="true">
+      <Provides>
+        <Capability Name="Example.Crypto" Version="1.0.0" />
+      </Provides>
+    </Library>
+
+    <Library Name="TLS">
+      <Requires>
+        <Export Library="Crypto" />
+      </Requires>
+      <Provides>
+        <Capability Name="Example.TLS" Version="1.0.0" />
+      </Provides>
+      <RuntimeFiles>
+        <File Include="bin/tls-runtime.*" Into="bin" />
+      </RuntimeFiles>
+    </Library>
+  </Exports>
+
+  <Integrations>
+    <cmake:FindPackage Name="ExampleSecurity" Required="true">
+      <cmake:Target Export="Crypto" Name="Example::Crypto" />
+      <cmake:Target Export="TLS" Name="Example::TLS" />
+    </cmake:FindPackage>
+  </Integrations>
+</Package>

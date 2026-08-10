@@ -12,8 +12,12 @@ dependencies, launch behavior, staging, and publishing ambiguous.
 ## Decision
 
 One `.nginproj` describes one primary product: an application, library, tool,
-test, benchmark, plugin, module, or external product. A workspace groups related
+test, benchmark, plugin, or external product. A workspace groups related
 projects.
+
+There is no generic Module product. Statically linked reusable code is a
+Library, dynamically loaded code is a Plugin, and C++ language modules are
+typed build items within a product.
 
 ## Consequences
 

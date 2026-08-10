@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Workspace Name="Fixture.Workspace">
+  <Projects>
+    <Project Path="minimal-application.nginproj" />
+    <Project Path="framework-application.nginproj" />
+    <Project Path="telemetry-plugin.nginproj" />
+  </Projects>
+
+  <Configurations>
+    <Configuration Name="Debug">
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+    </Configuration>
+    <Configuration Name="Release">
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+    </Configuration>
+  </Configurations>
+
+  <Targets>
+    <Target Name="host" OS="host" Architecture="host" />
+    <Target Name="win-x64" OS="windows" Architecture="x64" />
+  </Targets>
+
+  <Toolchains>
+    <Toolchain Name="default" Compiler="default" Linker="default" />
+  </Toolchains>
+
+  <Defaults>
+    <OutputRoot Path="build/ngin" />
+    <Configuration Name="Debug" />
+    <Target Name="host" />
+    <Toolchain Name="default" />
+  </Defaults>
+
+  <Packages>
+    <Source Name="fixtures" Kind="Directory" Path="." />
+    <Version Name="NGIN.Base" Compatible="0.4" />
+  </Packages>
+
+  <Presets>
+    <Preset Name="dev" Command="build">
+      <Configuration Name="Debug" />
+      <Target Name="host" />
+      <Toolchain Name="default" />
+    </Preset>
+  </Presets>
+</Workspace>

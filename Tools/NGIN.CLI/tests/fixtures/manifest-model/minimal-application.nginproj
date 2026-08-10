@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Name="Hello.Native" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Base" Compatible="0.4" />
+  </Dependencies>
+
+  <Build>
+    <Source Include="src/**.cpp" />
+  </Build>
+</Project>

@@ -22,6 +22,9 @@ Start with the path that matches what you are trying to do.
 
 ## Look up an exact contract
 
+- [Manifest authoring model](reference/manifest-authoring-model.md)
+- [CMake integration extension](reference/cmake-integration.md)
+- [Manifest migration ledger](reference/manifest-migration.md)
 - [Project manifest](reference/project-manifest.md)
 - [Package manifest](reference/package-manifest.md)
 - [Workspace manifest](reference/workspace-manifest.md)
@@ -50,6 +53,6 @@ See the [libraries index](libraries/README.md) for `NGIN.Base`, `NGIN.Core`,
 - [Run tests](contributing/testing.md)
 - [Documentation style](contributing/documentation.md)
 
-Roadmaps and implementation work belong in GitHub issues and projects. Git
+Active repository implementation plans live under [`docs/plans`](plans/). Git
 history preserves superseded designs. Release and migration material is kept
-only when it helps users move between published library versions.
+when it defines a supported or in-progress repository transition.
