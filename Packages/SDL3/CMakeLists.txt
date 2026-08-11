@@ -30,3 +30,15 @@ if(NOT ngin_sdl3_POPULATED)
         EXCLUDE_FROM_ALL
     )
 endif()
+
+# SDL applies these definitions for MSVC, but CMake's GNU-like Clang driver
+# does not set MSVC even when it targets the Microsoft CRT and ABI.
+if(WIN32 AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+    target_compile_definitions(
+        SDL3-static
+        PRIVATE
+            _CRT_SECURE_NO_DEPRECATE
+            _CRT_NONSTDC_NO_DEPRECATE
+            _CRT_SECURE_NO_WARNINGS
+    )
+endif()

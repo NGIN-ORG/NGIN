@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Name="Hello.Reflection" Type="Application">
+  <Dependencies>
+    <Package Name="NGIN.Reflection" Compatible="0.1" />
+    <Package Name="NGIN.Reflection.MetaGen" Compatible="0.1">
+      <Use Action="ReflectionCodegen" />
+    </Package>
+  </Dependencies>
   <Build><Source Include="src/**/*.cpp" /></Build>
   <Generate Action="NGIN.Reflection.MetaGen::ReflectionCodegen">
     <Input Include="src/**/*.hpp" />

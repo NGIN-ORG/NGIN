@@ -15,8 +15,9 @@ namespace
     class ScopedStreamCapture
     {
       public:
-        explicit ScopedStreamCapture(std::ostream &stream) : stream_(stream), previous_(stream.rdbuf(buffer_.rdbuf()))
+        explicit ScopedStreamCapture(std::ostream &stream) : stream_(stream)
         {
+            previous_ = stream.rdbuf(buffer_.rdbuf());
         }
         ~ScopedStreamCapture() { stream_.rdbuf(previous_); }
         [[nodiscard]] auto Text() const -> std::string { return buffer_.str(); }

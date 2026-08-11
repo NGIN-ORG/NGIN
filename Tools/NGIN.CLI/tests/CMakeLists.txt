@@ -89,7 +89,12 @@ target_link_libraries(NGINCliTests PRIVATE
 if(MSVC)
   target_compile_options(NGINCliTests PRIVATE /W4 /permissive-)
 else()
-  target_compile_options(NGINCliTests PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(NGINCliTests PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>
+  )
 endif()
 
 catch_discover_tests(NGINCliTests

@@ -50,6 +50,25 @@ if(NGIN_REFLECTION_METAGEN_ENABLE_CLANG)
     if(NOT _ngin_reflection_metagen_clang_library AND DEFINED ENV{LIBCLANG_LIBRARY})
       set(_ngin_reflection_metagen_clang_library "$ENV{LIBCLANG_LIBRARY}")
     endif()
+    get_filename_component(_ngin_reflection_metagen_compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_ngin_reflection_metagen_compiler_prefix
+      "${_ngin_reflection_metagen_compiler_bin}" DIRECTORY)
+    if(NOT _ngin_reflection_metagen_clang_include_dir)
+      find_path(_ngin_reflection_metagen_detected_clang_include_dir
+        NAMES clang-c/Index.h
+        HINTS "${_ngin_reflection_metagen_compiler_prefix}/include"
+      )
+      set(_ngin_reflection_metagen_clang_include_dir
+        "${_ngin_reflection_metagen_detected_clang_include_dir}")
+    endif()
+    if(NOT _ngin_reflection_metagen_clang_library)
+      find_library(_ngin_reflection_metagen_detected_clang_library
+        NAMES libclang clang
+        HINTS "${_ngin_reflection_metagen_compiler_prefix}/lib"
+      )
+      set(_ngin_reflection_metagen_clang_library
+        "${_ngin_reflection_metagen_detected_clang_library}")
+    endif()
     if(_ngin_reflection_metagen_clang_include_dir AND _ngin_reflection_metagen_clang_library)
       add_library(libclang UNKNOWN IMPORTED)
       set_target_properties(libclang PROPERTIES

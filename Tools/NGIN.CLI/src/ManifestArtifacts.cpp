@@ -60,11 +60,6 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto Occurs(const std::optional<std::size_t> maximum) -> std::string
-        {
-            return maximum.has_value() ? std::to_string(*maximum) : "unbounded";
-        }
-
         [[nodiscard]] auto XsdBuiltinType(const ManifestValueKind kind) -> std::string_view
         {
             switch (kind)

@@ -24,6 +24,7 @@ namespace NGIN::Reflection::MetaGen
         fs::path projectDir{};
         fs::path outputDir{};
         fs::path generatedDir{};
+        fs::path compilationDatabaseDir{};
         std::string languageStandard{"23"};
         std::vector<fs::path> sourceFiles{};
         std::vector<fs::path> sourceRoots{};

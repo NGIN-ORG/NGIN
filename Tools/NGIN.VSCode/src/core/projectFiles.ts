@@ -31,17 +31,20 @@ export async function enumerateProjectFiles(
   projectManifest: string,
   graph?: CompositionGraph,
   limit = 5000,
-  respectProjectBoundaries = true
+  respectProjectBoundaries = true,
+  generatedDirectory?: string
 ): Promise<ProjectFileEntry[]> {
-  const selected = new Map<string, { kind: string; generated: boolean; relative: string }>();
+  const selected = new Map<string, { kind: string; generated: boolean; relative: string; absolute: string }>();
   const external: ProjectFileEntry[] = [];
   for (const item of (graph?.buildItems ?? []).filter(item => fileKinds.has(item.kind))) {
-    const absolute = path.isAbsolute(item.path) ? path.normalize(item.path) : path.resolve(projectDirectory, item.path);
-    const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
-    if (relative.startsWith('../') || path.isAbsolute(relative)) {
+    const generated = Boolean(item.generated);
+    const baseDirectory = generated ? generatedDirectory ?? projectDirectory : projectDirectory;
+    const absolute = path.isAbsolute(item.path) ? path.normalize(item.path) : path.resolve(baseDirectory, item.path);
+    const relative = path.relative(generated ? baseDirectory : projectDirectory, absolute).split(path.sep).join('/');
+    if (!generated && (relative.startsWith('../') || path.isAbsolute(relative))) {
       external.push({ name: path.basename(absolute), path: absolute, relativePath: item.path, directory: false, state: 'external', kind: item.kind });
     } else {
-      selected.set(normalizeForComparison(absolute), { kind: item.kind, generated: Boolean(item.generated), relative });
+      selected.set(normalizeForComparison(absolute), { kind: item.kind, generated, relative, absolute });
     }
   }
 
@@ -80,10 +83,11 @@ export async function enumerateProjectFiles(
 
   const physical = await visit(projectDirectory);
   for (const membership of selected.values()) {
-    const absolute = path.resolve(projectDirectory, membership.relative);
+    const absolute = membership.absolute;
+    const exists = await fs.stat(absolute).then(() => true, () => false);
     physical.push({
       name: path.basename(absolute), path: absolute, relativePath: membership.relative,
-      directory: false, state: membership.generated ? 'generated' : 'missing', kind: membership.kind
+      directory: false, state: membership.generated && exists ? 'generated' : 'missing', kind: membership.kind
     });
   }
   if (external.length) {

@@ -46,17 +46,6 @@ namespace NGIN::CLI
                                                        .relatedSources = std::move(related)});
         }
 
-        [[nodiscard]] auto IsWithin(const fs::path &root, const fs::path &candidate) -> bool
-        {
-            std::error_code error{};
-            const auto normalizedRoot = fs::weakly_canonical(root, error);
-            if (error) return false;
-            const auto normalizedCandidate = fs::weakly_canonical(candidate, error);
-            if (error) return false;
-            const auto relative = normalizedCandidate.lexically_relative(normalizedRoot);
-            return !relative.empty() && !relative.is_absolute() && *relative.begin() != "..";
-        }
-
         [[nodiscard]] auto ArtifactIdentity(const PackageProviderResult &result) -> std::string
         {
             if (!result.artifactIdentity.empty()) return result.artifactIdentity;

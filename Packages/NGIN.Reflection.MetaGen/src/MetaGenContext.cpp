@@ -100,8 +100,13 @@ namespace NGIN::Reflection::MetaGen
         context.projectDir = Attribute(root, "ProjectDir");
         context.outputDir = Attribute(root, "OutputDir");
         context.generatedDir = Attribute(root, "GeneratedDir");
+        context.compilationDatabaseDir = Attribute(root, "CompilationDatabaseDir");
         context.languageStandard =
             Attribute(root, "LanguageStandard").empty() ? "23" : Attribute(root, "LanguageStandard");
+        if (context.languageStandard.starts_with("C++"))
+        {
+            context.languageStandard.erase(0, 3);
+        }
         if (!context.projectDir.empty())
         {
             context.sourceRoots.push_back(context.projectDir.lexically_normal());

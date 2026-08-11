@@ -1,6 +1,7 @@
 #include "MetaGenContext.hpp"
 #include "MetaGenCommon.hpp"
 
+#include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 
 #include <algorithm>
@@ -596,9 +597,105 @@ namespace NGIN::Reflection::MetaGen
             return args;
         }
 
+        [[nodiscard]] auto CompilationDatabaseArguments(const MetaGenContext &context,
+                                                        std::vector<std::string> &diagnostics)
+            -> std::vector<std::string>
+        {
+            if (context.compilationDatabaseDir.empty())
+            {
+                return {};
+            }
+
+            CXCompilationDatabase_Error databaseError{};
+            CXCompilationDatabase database = clang_CompilationDatabase_fromDirectory(
+                context.compilationDatabaseDir.string().c_str(), &databaseError);
+            if (database == nullptr || databaseError != CXCompilationDatabase_NoError)
+            {
+                diagnostics.push_back("failed to load compilation database from '" +
+                                      context.compilationDatabaseDir.string() + "'");
+                if (database != nullptr)
+                {
+                    clang_CompilationDatabase_dispose(database);
+                }
+                return {};
+            }
+
+            CXCompileCommands commands{};
+            for (const auto &output : context.outputs)
+            {
+                commands = clang_CompilationDatabase_getCompileCommands(database, output.string().c_str());
+                if (commands != nullptr && clang_CompileCommands_getSize(commands) != 0)
+                {
+                    break;
+                }
+                if (commands != nullptr)
+                {
+                    clang_CompileCommands_dispose(commands);
+                    commands = nullptr;
+                }
+            }
+
+            if (commands == nullptr || clang_CompileCommands_getSize(commands) == 0)
+            {
+                diagnostics.push_back("compilation database has no command for the generated reflection source");
+                if (commands != nullptr)
+                {
+                    clang_CompileCommands_dispose(commands);
+                }
+                clang_CompilationDatabase_dispose(database);
+                return {};
+            }
+
+            const auto command = clang_CompileCommands_getCommand(commands, 0);
+            std::vector<std::string> args{};
+            const auto count = clang_CompileCommand_getNumArgs(command);
+            for (unsigned index = 1; index < count; ++index)
+            {
+                auto argument = ClangString(clang_CompileCommand_getArg(command, index)).String();
+                if (argument == "-c" || argument == "/c" || argument == "-MD" || argument == "-MMD" ||
+                    argument == "-MP")
+                {
+                    continue;
+                }
+                if (argument == "-o" || argument == "-MF" || argument == "-MT" || argument == "-MQ" ||
+                    argument == "-MJ" || argument == "--serialize-diagnostics")
+                {
+                    ++index;
+                    continue;
+                }
+                if (argument.starts_with("/Fo"))
+                {
+                    continue;
+                }
+
+                const auto argumentKey = NormalizedPathKey(argument);
+                const auto isInput = std::ranges::any_of(context.outputs,
+                                                         [&](const fs::path &output)
+                                                         {
+                                                             return argumentKey == NormalizedPathKey(output);
+                                                         });
+                if (!isInput)
+                {
+                    args.push_back(std::move(argument));
+                }
+            }
+
+            clang_CompileCommands_dispose(commands);
+            clang_CompilationDatabase_dispose(database);
+            return args;
+        }
+
         auto ScanSources(const MetaGenContext &metaGenContext, ScanContext &context) -> void
         {
             auto clangArgs = BuildClangArguments(metaGenContext);
+            auto compilationArgs = CompilationDatabaseArguments(metaGenContext, context.diagnostics);
+            if (!context.diagnostics.empty())
+            {
+                return;
+            }
+            clangArgs.insert(clangArgs.end(),
+                             std::make_move_iterator(compilationArgs.begin()),
+                             std::make_move_iterator(compilationArgs.end()));
             std::vector<const char *> rawArgs{};
             rawArgs.reserve(clangArgs.size());
             for (const auto &arg : clangArgs)
@@ -621,6 +718,26 @@ namespace NGIN::Reflection::MetaGen
                 if (error != CXError_Success || unit == nullptr)
                 {
                     context.diagnostics.push_back("failed to parse source file '" + source.string() + "'");
+                    continue;
+                }
+                bool hasErrors = false;
+                const auto diagnosticCount = clang_getNumDiagnostics(unit);
+                for (unsigned index = 0; index < diagnosticCount; ++index)
+                {
+                    CXDiagnostic diagnostic = clang_getDiagnostic(unit, index);
+                    const auto severity = clang_getDiagnosticSeverity(diagnostic);
+                    if (severity >= CXDiagnostic_Error)
+                    {
+                        context.diagnostics.push_back(
+                            ClangString(clang_formatDiagnostic(diagnostic, clang_defaultDiagnosticDisplayOptions()))
+                                .String());
+                        hasErrors = true;
+                    }
+                    clang_disposeDiagnostic(diagnostic);
+                }
+                if (hasErrors)
+                {
+                    clang_disposeTranslationUnit(unit);
                     continue;
                 }
                 context.sourceMembership.clear();

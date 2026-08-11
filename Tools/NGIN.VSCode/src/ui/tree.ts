@@ -142,7 +142,14 @@ async function projectChildren(
     : controller.activeProject?.manifest === project.manifest && controller.snapshot.graph
       ? controller.snapshot.graph
       : await controller.graphForContext(context, false);
-  const entries = await enumerateProjectFiles(project.directory, project.manifest, graph, 5000, mode === 'project');
+  const entries = await enumerateProjectFiles(
+    project.directory,
+    project.manifest,
+    graph,
+    5000,
+    mode === 'project',
+    path.join(context.outputDirectory, 'actions')
+  );
   if (mode === 'files') return entries.map(entry => fileNode(entry, project));
   const result: NginTreeNode[] = [];
   const graphProblem = controller.activeProject?.manifest === project.manifest ? controller.snapshot.graphError : undefined;

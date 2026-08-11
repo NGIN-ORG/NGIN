@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Name="NGIN.UI.MultiPage" Type="Application" Version="0.4.0">
   <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1" />
+    <Package Name="NGIN.Core" Compatible="0.1">
+      <Option Name="Reflection" Value="true" />
+    </Package>
+    <Package Name="NGIN.Reflection" Compatible="0.1" />
     <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
     <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
     <Package Name="NGIN.UI" Compatible="0.4" />

@@ -36,6 +36,27 @@ namespace NGIN::CLI::Tests
 #endif
     }
 
+    [[nodiscard]] inline auto GetEnvironmentVariableForTest(const std::string &name) -> std::optional<std::string>
+    {
+#if defined(_WIN32)
+        char *value = nullptr;
+        std::size_t size = 0;
+        if (_dupenv_s(&value, &size, name.c_str()) != 0 || value == nullptr)
+        {
+            return std::nullopt;
+        }
+        std::string result{value};
+        std::free(value);
+        return result;
+#else
+        if (const auto *value = std::getenv(name.c_str()); value != nullptr)
+        {
+            return std::string{value};
+        }
+        return std::nullopt;
+#endif
+    }
+
     class ScopedCurrentPath
     {
     public:
@@ -59,10 +80,7 @@ namespace NGIN::CLI::Tests
     public:
         ScopedEnvironmentVariable(const std::string &name, const std::string &value) : name_(name)
         {
-            if (const auto *existing = std::getenv(name.c_str()); existing != nullptr)
-            {
-                previous_ = existing;
-            }
+            previous_ = GetEnvironmentVariableForTest(name);
             SetEnvironmentVariableForTest(name, value);
         }
 
@@ -88,10 +106,7 @@ namespace NGIN::CLI::Tests
     public:
         explicit ScopedUnsetEnvironmentVariable(const std::string &name) : name_(name)
         {
-            if (const auto *existing = std::getenv(name.c_str()); existing != nullptr)
-            {
-                previous_ = existing;
-            }
+            previous_ = GetEnvironmentVariableForTest(name);
             UnsetEnvironmentVariableForTest(name);
         }
 

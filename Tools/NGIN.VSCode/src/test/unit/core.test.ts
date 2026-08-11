@@ -333,19 +333,25 @@ test('project files distinguish graph membership and physical boundaries', async
     await fs.writeFile(path.join(root, '.env'), 'MODE=development');
     await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Project Name="Nested" Type="Library" />');
     await fs.writeFile(path.join(root, 'Nested', 'README.md'), '# Nested');
+    const generatedDirectory = path.join(root, 'build', 'actions');
+    await fs.mkdir(generatedDirectory, { recursive: true });
+    await fs.writeFile(path.join(generatedDirectory, 'generated.hpp'), '// generated');
     const value = graph();
     value.buildItems.push(
       { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
       { identity: 'Header:generated.hpp', kind: 'Header', path: 'generated.hpp', generated: true },
+      { identity: 'Header:stale.generated.hpp', kind: 'Header', path: 'stale.generated.hpp', generated: true },
       { identity: 'Header:missing.hpp', kind: 'Header', path: 'missing.hpp' }
     );
-    const files = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'), value);
+    const files = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'), value, 5000, true, generatedDirectory);
     const flatten = (items: typeof files): typeof files => items.flatMap(item => [item, ...flatten(item.children ?? [])]);
     const all = flatten(files);
     assert.equal(all.find(item => item.name === 'App.nginproj')?.state, 'authored');
     assert.equal(all.find(item => item.name === 'main.cpp')?.state, 'selected');
     assert.equal(all.find(item => item.name === 'unused.cpp')?.state, 'unselected');
     assert.equal(all.find(item => item.name === 'generated.hpp')?.state, 'generated');
+    assert.equal(all.find(item => item.name === 'generated.hpp')?.path, path.join(generatedDirectory, 'generated.hpp'));
+    assert.equal(all.find(item => item.name === 'stale.generated.hpp')?.state, 'missing');
     assert.equal(all.find(item => item.name === 'missing.hpp')?.state, 'missing');
     assert.equal(all.find(item => item.name === 'Nested')?.state, 'boundary');
 

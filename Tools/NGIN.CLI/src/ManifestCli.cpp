@@ -1243,7 +1243,9 @@ namespace NGIN::CLI
                 << EscapeXml(selection.targetArchitecture) << "\" ProjectDir=\""
                 << EscapeXml(prepared.composition.projectDirectory.generic_string()) << "\" OutputDir=\""
                 << EscapeXml(prepared.output.generic_string()) << "\" GeneratedDir=\""
-                << EscapeXml((prepared.output / "actions").generic_string()) << "\">\n";
+                << EscapeXml((prepared.output / "actions").generic_string()) << "\" CompilationDatabaseDir=\""
+                << EscapeXml(prepared.binary.generic_string()) << "\" LanguageStandard=\""
+                << EscapeXml(prepared.build.languageStandard) << "\">\n";
             out << "  <Sources>\n";
             for (const auto &input : step.inputs)
             {

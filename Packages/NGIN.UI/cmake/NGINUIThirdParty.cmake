@@ -15,6 +15,12 @@ function(_ngin_ui_fetch_source name url sha256)
         endif()
         FetchContent_Populate(${name})
         cmake_policy(POP)
+        # The pinned HarfBuzz CMake entry point unconditionally warns that its
+        # CMake support is community-maintained. This integration deliberately
+        # uses that entry point, so keep the known warning local.
+        if(name STREQUAL "ngin_ui_harfbuzz")
+            set(CMAKE_MESSAGE_LOG_LEVEL ERROR)
+        endif()
         add_subdirectory(
             "${${name}_SOURCE_DIR}"
             "${${name}_BINARY_DIR}"
@@ -48,6 +54,16 @@ function(ngin_ui_configure_native_text target)
             "https://github.com/harfbuzz/harfbuzz/archive/56feae4035bdd48f62ba2b8d8c16232d4d89b3a4.tar.gz"
             "FF66AEA9CFC2BF07819C2352FEC4F2B4859257D33CA65E616DEDB04346EC727B"
         )
+
+        if(WIN32 AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+            target_compile_definitions(
+                harfbuzz
+                PRIVATE
+                    _CRT_SECURE_NO_DEPRECATE
+                    _CRT_NONSTDC_NO_DEPRECATE
+                    _CRT_SECURE_NO_WARNINGS
+            )
+        endif()
 
         set(_ngin_ui_freetype_target freetype)
         set(_ngin_ui_harfbuzz_target harfbuzz)
@@ -104,7 +120,7 @@ function(ngin_ui_configure_standard_images target)
         find_path(_ngin_ui_stb_include stb_image.h REQUIRED)
     endif()
 
-    target_include_directories(${target} PRIVATE "${_ngin_ui_stb_include}")
+    target_include_directories(${target} SYSTEM PRIVATE "${_ngin_ui_stb_include}")
     target_compile_definitions(
         ${target}
         PRIVATE NGIN_UI_HAS_STANDARD_IMAGE_FORMATS=1
