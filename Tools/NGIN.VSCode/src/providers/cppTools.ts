@@ -18,20 +18,27 @@ import {
   type CompileCommandEntry
 } from '../core/compileCommands';
 import type { NginController } from '../core/controller';
-import { compileCommandsPath, isProjectConfigurationPath, isWithin } from '../core/paths';
+import { graphOwnsFile } from '../core/projectOwnership';
+import { compileCommandsPath, isWithin } from '../core/paths';
+import type { CompositionGraph, NginContext } from '../model';
+
+interface ProjectConfigurationContext {
+  context: NginContext;
+  graph: CompositionGraph;
+}
 
 export class NginCppConfigurationProvider implements CustomConfigurationProvider {
   readonly name = 'NGIN';
   readonly extensionId = 'ngin.ngin-tools';
   private api?: CppToolsApi;
-  private entries: CompileCommandEntry[] = [];
-  private loadedPath?: string;
-  private loadedTime = -1;
+  private readonly entries = new Map<string, { modified: number; values: CompileCommandEntry[] }>();
+  private readonly configuring = new Map<string, Promise<void>>();
+  private readonly owners = new Map<string, ProjectConfigurationContext | null>();
   private readonly subscription: vscode.Disposable;
 
   constructor(private readonly controller: NginController) {
     this.subscription = controller.onDidChange(() => {
-      this.loadedPath = undefined;
+      this.owners.clear();
       if (this.api) {
         this.api.didChangeCustomConfiguration(this);
         this.api.didChangeCustomBrowseConfiguration(this);
@@ -52,45 +59,89 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
     this.api?.dispose();
   }
 
-  private async loadEntries(): Promise<CompileCommandEntry[]> {
-    const context = this.controller.snapshot.context;
-    if (!context) return [];
+  private async configure(context: NginContext): Promise<void> {
+    const candidate = compileCommandsPath(context);
+    const existing = this.configuring.get(candidate);
+    if (existing) return existing;
+    const request = (async () => {
+      if (!vscode.workspace.isTrusted) return;
+      await this.controller.execute('configure', [], false, context, { progress: false, announceFailure: false });
+    })();
+    this.configuring.set(candidate, request);
+    try {
+      await request;
+    } finally {
+      this.configuring.delete(candidate);
+    }
+  }
+
+  private async loadEntries(context: NginContext, configureIfMissing = false): Promise<CompileCommandEntry[]> {
     const candidate = compileCommandsPath(context);
     try {
       const stat = await fs.stat(candidate);
-      if (candidate !== this.loadedPath || stat.mtimeMs !== this.loadedTime) {
-        this.entries = parseCompileCommands(await fs.readFile(candidate, 'utf8'));
-        this.loadedPath = candidate;
-        this.loadedTime = stat.mtimeMs;
+      const cached = this.entries.get(candidate);
+      if (!cached || cached.modified !== stat.mtimeMs) {
+        const values = parseCompileCommands(await fs.readFile(candidate, 'utf8'));
+        this.entries.set(candidate, { modified: stat.mtimeMs, values });
+        return values;
       }
+      return cached.values;
     } catch {
-      this.entries = [];
-      this.loadedPath = candidate;
-      this.loadedTime = -1;
+      this.entries.delete(candidate);
+      if (configureIfMissing) {
+        await this.configure(context);
+        return this.loadEntries(context, false);
+      }
+      return [];
     }
-    return this.entries;
+  }
+
+  private async configurationContext(file: string): Promise<ProjectConfigurationContext | undefined> {
+    const key = path.resolve(file);
+    const cached = this.owners.get(key);
+    if (cached !== undefined) return cached ?? undefined;
+
+    for (const project of this.controller.projects) {
+      const context = this.controller.contextForProject(project);
+      if (!isWithin(context.outputDirectory, file)) continue;
+      const graph = await this.controller.graphForContext(context, false);
+      if (graph) {
+        const result = { context, graph };
+        this.owners.set(key, result);
+        return result;
+      }
+    }
+
+    const candidates = this.controller.projectsForFile(file);
+    const matches = (await Promise.all(candidates.map(async project => {
+      const context = this.controller.contextForProject(project);
+      const graph = await this.controller.graphForContext(context, false);
+      return graph && graphOwnsFile(graph, context, file) ? { context, graph } : undefined;
+    }))).filter((value): value is ProjectConfigurationContext => Boolean(value));
+    const activeManifest = this.controller.snapshot.context?.projectManifest;
+    const result = matches.find(match => match.context.projectManifest === activeManifest) ?? matches[0];
+    this.owners.set(key, result ?? null);
+    return result;
   }
 
   async canProvideConfiguration(uri: vscode.Uri): Promise<boolean> {
-    const context = this.controller.snapshot.context;
-    return Boolean(context && isProjectConfigurationPath(context, uri.fsPath));
+    return Boolean(await this.configurationContext(uri.fsPath));
   }
 
   async provideConfigurations(uris: vscode.Uri[]): Promise<SourceFileConfigurationItem[]> {
-    const snapshot = this.controller.snapshot;
-    if (!snapshot.context || !snapshot.graph) return [];
-    const entries = await this.loadEntries();
-    const context = snapshot.context;
-    const projectDirectory = path.dirname(context.projectManifest);
-    return uris.filter(uri => isProjectConfigurationPath(context, uri.fsPath)).map(uri => {
+    const configurations = await Promise.all(uris.map(async uri => {
+      const owner = await this.configurationContext(uri.fsPath);
+      if (!owner) return undefined;
+      const entries = await this.loadEntries(owner.context, true);
       const entry = selectCompileCommand(entries, uri.fsPath);
       return {
         uri,
         configuration: entry
-          ? createSourceConfiguration(entry, snapshot.graph!)
-          : createFallbackConfiguration(snapshot.graph!, projectDirectory)
+          ? createSourceConfiguration(entry, owner.graph)
+          : createFallbackConfiguration(owner.graph, path.dirname(owner.context.projectManifest))
       };
-    });
+    }));
+    return configurations.filter((value): value is NonNullable<typeof value> => value !== undefined);
   }
 
   async canProvideBrowseConfiguration(): Promise<boolean> {
@@ -100,7 +151,11 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
   async provideBrowseConfiguration(): Promise<WorkspaceBrowseConfiguration | null> {
     const snapshot = this.controller.snapshot;
     if (!snapshot.context || !snapshot.graph) return null;
-    return createBrowseConfiguration(await this.loadEntries(), snapshot.graph, path.dirname(snapshot.context.projectManifest));
+    return createBrowseConfiguration(
+      await this.loadEntries(snapshot.context),
+      snapshot.graph,
+      path.dirname(snapshot.context.projectManifest)
+    );
   }
 
   async canProvideBrowseConfigurationsPerFolder(): Promise<boolean> {

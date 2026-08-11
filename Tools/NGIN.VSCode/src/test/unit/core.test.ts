@@ -13,7 +13,7 @@ import {
 import { dependencyLockPath, lifecycleArguments } from '../../core/commandArguments';
 import { parseActionDiagnostics } from '../../core/actionDiagnostics';
 import { parseCliDiagnostics, parseCompilerDiagnostics } from '../../core/diagnostics';
-import { projectsForFile } from '../../core/projectOwnership';
+import { graphOwnsFile, projectsForFile } from '../../core/projectOwnership';
 import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../../core/debugConfiguration';
 import { displayOptionValue, parseCompositionGraph } from '../../core/graph';
 import { insertBuildItem, kindForPath, updateExactBuildItemPaths, updateProjectAttributes } from '../../core/manifestEdits';
@@ -304,6 +304,22 @@ test('source ownership prefers the deepest project and exposes true ambiguities'
   ];
   const owners = projectsForFile(projects, path.join(root, 'nested', 'src', 'main.cpp'));
   assert.deepEqual(owners.map(project => project.name), ['One', 'Two', 'Root']);
+
+  const context: NginContext = {
+    workspaceFolder: root,
+    projectManifest: projects[1].manifest,
+    projectName: projects[1].name,
+    configuration: 'Debug', target: 'host', toolchain: 'default', options: {},
+    outputDirectory: path.join(root, 'build', projects[1].name)
+  };
+  const value = graph();
+  value.buildItems.push(
+    { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
+    { identity: 'Source:generated.cpp', kind: 'Source', path: 'generated/generated.cpp', generated: true }
+  );
+  assert.equal(graphOwnsFile(value, context, path.join(root, 'nested', 'src', 'main.cpp')), true);
+  assert.equal(graphOwnsFile(value, context, path.join(context.outputDirectory, 'actions', 'generated', 'generated.cpp')), true);
+  assert.equal(graphOwnsFile(value, context, path.join(root, 'nested', 'src', 'other.cpp')), false);
 });
 
 test('native debug configuration uses staged graph launch intent', () => {
