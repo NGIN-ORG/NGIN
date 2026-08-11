@@ -102,6 +102,43 @@ auto main() -> int {
     return 1;
   }
 
+  const auto initialSidebar =
+      FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
+  const auto page =
+      FindByTypeAndKey(window->Tree(), ElementType::Column, "page");
+  const auto selectedOverview =
+      FindByTypeAndKey(window->Tree(), ElementType::Button, "0");
+  const auto *initialSidebarNode = window->Tree().Get(initialSidebar);
+  const auto *pageNode = window->Tree().Get(page);
+  const auto *selectedOverviewNode = window->Tree().Get(selectedOverview);
+  if (!Check(initialSidebarNode != nullptr &&
+                 initialSidebarNode->properties.layout.padding.left >= 20.0F,
+             "gallery navigation has a generous inner gutter") ||
+      !Check(pageNode != nullptr &&
+                 pageNode->properties.layout.padding.right >= 40.0F &&
+                 pageNode->properties.layout.padding.bottom >= 48.0F,
+             "gallery content keeps breathing room around each page") ||
+      !Check(
+          FindByTypeAndKey(window->Tree(), ElementType::Column, "brand-block")
+                  .IsValid() &&
+              FindByTypeAndKey(window->Tree(), ElementType::Column,
+                               "page-heading")
+                  .IsValid() &&
+              FindByTypeAndKey(window->Tree(), ElementType::Column,
+                               "gallery-page-content")
+                  .IsValid() &&
+              FindByTypeAndKey(window->Tree(), ElementType::Text,
+                               "page-section")
+                  .IsValid(),
+          "gallery exposes clear brand, section, and page hierarchy") ||
+      !Check(selectedOverviewNode != nullptr &&
+                 HasSemanticState(
+                     selectedOverviewNode->properties.semantics.states,
+                     SemanticStateFlags::Selected),
+             "current navigation page exposes its selected state")) {
+    return 1;
+  }
+
   platformObserver->InjectEvent(
       WindowResized{window->PlatformHandle(), PixelSize{1180, 660}});
   if (!application->PumpOnce()) {
@@ -155,6 +192,79 @@ auto main() -> int {
         !Check(!window->Semantics().Nodes().empty(),
                "every page emits semantics")) {
       return 1;
+    }
+    if (page == NGIN::UIGallery::Page::Overview) {
+      const auto progressRing = FindByTypeAndKey(
+          window->Tree(), ElementType::CustomElement, "progress-ring");
+      const auto chart = FindByTypeAndKey(
+          window->Tree(), ElementType::CustomElement, "bar-chart");
+      const auto *progressNode = window->Tree().Get(progressRing);
+      const auto *chartNode = window->Tree().Get(chart);
+      const auto *progressSemantics =
+          progressNode != nullptr
+              ? window->Semantics().FindByOwner(progressNode->id)
+              : nullptr;
+      const auto *chartSemantics =
+          chartNode != nullptr ? window->Semantics().FindByOwner(chartNode->id)
+                               : nullptr;
+      if (!Check(progressSemantics != nullptr &&
+                     progressSemantics->role == SemanticRole::ProgressBar &&
+                     HasSemanticAction(progressSemantics->actions,
+                                       SemanticActionFlags::Increment),
+                 "custom progress exposes an interactive value") ||
+          !Check(chartSemantics != nullptr &&
+                     chartSemantics->role == SemanticRole::Slider &&
+                     HasSemanticAction(chartSemantics->actions,
+                                       SemanticActionFlags::Increment),
+                 "custom chart exposes keyboard value navigation")) {
+        return 1;
+      }
+
+      const auto progressBefore = progressSemantics->value;
+      if (!Check(window->Focus(progressRing),
+                 "custom progress accepts keyboard focus")) {
+        return 1;
+      }
+      platformObserver->InjectEvent(KeyChanged{
+          .window = window->PlatformHandle(),
+          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+          .state = KeyState::Pressed,
+      });
+      if (!application->PumpOnce()) {
+        return 1;
+      }
+      progressNode = window->Tree().Get(progressRing);
+      progressSemantics =
+          progressNode != nullptr
+              ? window->Semantics().FindByOwner(progressNode->id)
+              : nullptr;
+      if (!Check(progressSemantics != nullptr &&
+                     progressSemantics->value != progressBefore,
+                 "custom progress changes when activated")) {
+        return 1;
+      }
+
+      if (!Check(window->Focus(chart), "custom chart accepts keyboard focus")) {
+        return 1;
+      }
+      platformObserver->InjectEvent(KeyChanged{
+          .window = window->PlatformHandle(),
+          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Right),
+          .state = KeyState::Pressed,
+      });
+      if (!application->PumpOnce()) {
+        return 1;
+      }
+      chartNode = window->Tree().Get(chart);
+      chartSemantics = chartNode != nullptr
+                           ? window->Semantics().FindByOwner(chartNode->id)
+                           : nullptr;
+      if (!Check(chartSemantics != nullptr &&
+                     chartSemantics->value !=
+                         NGIN::Text::String{"No bar selected"},
+                 "custom chart selection changes with the arrow keys")) {
+        return 1;
+      }
     }
     if (page == NGIN::UIGallery::Page::Inputs &&
         (!Check(HasRole(window->Semantics(), SemanticRole::CheckBox),

@@ -34,6 +34,14 @@ public:
       -> UI::UIResult<void> override;
   auto Semantics(UI::CustomElementContext &context)
       -> UI::UIResult<UI::SemanticProperties> override;
+  auto PointerEvent(UI::CustomElementContext &context,
+                    UI::RoutedPointerEvent &event)
+      -> UI::UIResult<UI::InvalidationKind> override;
+  auto KeyEvent(UI::CustomElementContext &context, UI::RoutedKeyEvent &event)
+      -> UI::UIResult<UI::InvalidationKind> override;
+  auto SemanticAction(UI::CustomElementContext &context,
+                      const UI::SemanticActionRequest &request)
+      -> UI::UIResult<UI::InvalidationKind> override;
 
 private:
   NGIN::F32 m_progress{0.0F};
@@ -55,6 +63,11 @@ public:
       -> UI::UIResult<UI::SemanticProperties> override;
   auto PointerEvent(UI::CustomElementContext &context,
                     UI::RoutedPointerEvent &event)
+      -> UI::UIResult<UI::InvalidationKind> override;
+  auto KeyEvent(UI::CustomElementContext &context, UI::RoutedKeyEvent &event)
+      -> UI::UIResult<UI::InvalidationKind> override;
+  auto SemanticAction(UI::CustomElementContext &context,
+                      const UI::SemanticActionRequest &request)
       -> UI::UIResult<UI::InvalidationKind> override;
 
 private:

@@ -489,6 +489,27 @@ constexpr std::array<std::string_view, PageCount> PageNames{
     "Windows",  "Themes",     "Accessibility", "Diagnostics",
 };
 
+struct NavigationGroup final {
+  std::string_view label;
+  NGIN::UIntSize firstPage;
+  NGIN::UIntSize pageCount;
+};
+
+constexpr std::array<NavigationGroup, 4> NavigationGroups{{
+    {.label = "Explore", .firstPage = 0, .pageCount = 1},
+    {.label = "Foundations", .firstPage = 1, .pageCount = 4},
+    {.label = "Controls and data", .firstPage = 5, .pageCount = 4},
+    {.label = "Application", .firstPage = 9, .pageCount = 5},
+}};
+
+constexpr std::array<std::string_view, PageCount> PageSections{
+    "Explore",           "Foundations",       "Foundations",
+    "Foundations",       "Foundations",       "Controls and data",
+    "Controls and data", "Controls and data", "Controls and data",
+    "Application",       "Application",       "Application",
+    "Application",       "Application",
+};
+
 constexpr std::array<std::string_view, PageCount> PageIds{
     "overview", "layout",     "typography",    "text-area",   "images",
     "inputs",   "async-data", "collections",   "motion",      "overlays",
@@ -598,7 +619,7 @@ constexpr std::array<std::string_view, PageCount> PageExamples{
   properties.text.fontSize = fontSize;
   properties.text.color = color;
   properties.text.geometry = &text;
-  properties.text.wrapping = TextWrapping::NoWrap;
+  properties.text.wrapping = TextWrapping::Wrap;
   return properties;
 }
 
@@ -656,6 +677,50 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
       key);
 }
 
+void ComposeNavigationButton(Composer &composer, NativeTextSystem &text,
+                             const Theme &theme, const char *label,
+                             NGIN::Utilities::Callable<void()> onActivate,
+                             const std::string_view key, const bool selected) {
+  NodeProperties button{};
+  button.layout.preferredSize = Size{216.0F, theme.controls.regularHeight};
+  button.layout.minimumSize.height = theme.controls.regularHeight;
+  button.layout.padding = Thickness{16.0F, 8.0F, 14.0F, 8.0F};
+  button.layout.horizontalAlignment = HorizontalAlignment::Stretch;
+  button.layout.verticalAlignment = VerticalAlignment::Start;
+  button.interaction.focusable = true;
+  button.interaction.onActivate = std::move(onActivate);
+  button.semantics.role = SemanticRole::Button;
+  button.semantics.label = String{label};
+  button.semantics.actions = SemanticActionFlags::Activate |
+                             SemanticActionFlags::Focus |
+                             SemanticActionFlags::Select;
+  button.visual = MakePanelVisual(theme);
+  button.visual.base.background = Color{0.0F, 0.0F, 0.0F, 0.0F};
+  button.visual.base.borderThickness = Thickness::Uniform(Dp{0.0F});
+  button.visual.states.hovered.background = theme.colors.raisedSurface;
+  button.visual.states.pressed.background = theme.colors.sunkenSurface;
+  button.visual.focus = MakeButtonVisual(theme).focus;
+  if (selected) {
+    button.visual.state |= VisualStateFlags::Selected;
+    button.visual.base.background = theme.colors.raisedSurface;
+    button.visual.base.borderColor = theme.colors.focus;
+    button.visual.base.borderThickness = Thickness{3.0F, 0.0F, 0.0F, 0.0F};
+    button.semantics.states |= SemanticStateFlags::Selected;
+  }
+
+  composer.Element(
+      ElementType::Button, button,
+      [&] {
+        auto labelProperties = TextProperties(text, theme.typography.body,
+                                              theme.colors.foreground);
+        labelProperties.text.wrapping = TextWrapping::NoWrap;
+        labelProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
+        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
+        composer.Text(String{label}, text, text, labelProperties, "label");
+      },
+      key);
+}
+
 void ComposeCommandButton(Composer &composer, NativeTextSystem &text,
                           const Theme &theme, const char *label,
                           CommandBinding command, const std::string_view key,
@@ -682,11 +747,11 @@ void ComposeCommandButton(Composer &composer, NativeTextSystem &text,
 template <typename ComposeContent>
 void ComposeCard(Composer &composer, const Theme &theme,
                  ComposeContent &&composeContent, const std::string_view key,
-                 const F32 width = 720.0F) {
+                 const F32 width = 760.0F) {
   NodeProperties card{};
   card.layout.preferredSize.width = width;
   card.layout.maximumSize.width = width;
-  card.layout.padding = Thickness::Uniform(Dp{theme.spacing.spacious});
+  card.layout.padding = Thickness::Uniform(Dp{24.0F});
   card.layout.horizontalAlignment = HorizontalAlignment::Start;
   card.layout.verticalAlignment = VerticalAlignment::Start;
   card.visual = MakePanelVisual(theme);
@@ -697,16 +762,25 @@ void ComposeCard(Composer &composer, const Theme &theme,
 void ComposePageHeading(Composer &composer, NativeTextSystem &text,
                         const Theme &theme, const char *title,
                         const char *description) {
-  ComposeText(composer, text, String{title}, 30.0F, theme.colors.foreground,
-              "page-title", SemanticRole::Heading);
-  ComposeText(composer, text, String{description}, theme.typography.body,
-              theme.colors.mutedForeground, "page-description");
-  NodeProperties separator{};
-  separator.layout.preferredSize.width = 720.0F;
-  separator.layout.horizontalAlignment = HorizontalAlignment::Start;
-  separator.visual = MakeSeparatorVisual(theme);
-  composer.Separator(SeparatorOrientation::Horizontal, separator,
-                     "page-separator");
+  NodeProperties heading{};
+  heading.layout.gap = theme.spacing.regular;
+  heading.layout.preferredSize.width = 760.0F;
+  heading.layout.maximumSize.width = 760.0F;
+  heading.layout.horizontalAlignment = HorizontalAlignment::Start;
+  composer.Column(
+      [&] {
+        ComposeText(composer, text, String{title}, 32.0F,
+                    theme.colors.foreground, "page-title",
+                    SemanticRole::Heading);
+        auto descriptionProperties =
+            TextProperties(text, 16.0F, theme.colors.mutedForeground);
+        descriptionProperties.layout.maximumSize.width = 720.0F;
+        descriptionProperties.text.lineHeight = 24.0F;
+        descriptionProperties.semantics.role = SemanticRole::Text;
+        composer.Text(String{description}, text, text, descriptionProperties,
+                      "page-description");
+      },
+      "page-heading");
 }
 
 void ComposeTextField(Composer &composer, NativeTextSystem &text,
@@ -745,8 +819,9 @@ void ComposeTextField(Composer &composer, NativeTextSystem &text,
   composer.TextField(std::move(value), text, field, key);
 }
 
-void ComposeSwatch(Composer &composer, const Theme &theme, const Color color,
-                   const char *label, const std::string_view key) {
+void ComposeSwatch(Composer &composer, NativeTextSystem &text,
+                   const Theme &theme, const Color color, const char *label,
+                   const std::string_view key) {
   NodeProperties swatch{};
   swatch.layout.preferredSize = Size{130.0F, 74.0F};
   swatch.layout.padding = Thickness::Uniform(Dp{theme.spacing.regular});
@@ -756,7 +831,17 @@ void ComposeSwatch(Composer &composer, const Theme &theme, const Color color,
   swatch.visual.base.background = color;
   swatch.semantics.role = SemanticRole::Group;
   swatch.semantics.label = String{label};
-  composer.Border([] {}, swatch, key);
+  composer.Border(
+      [&] {
+        auto labelProperties = TextProperties(text, theme.typography.body,
+                                              theme.colors.accentForeground);
+        labelProperties.layout.horizontalAlignment =
+            HorizontalAlignment::Center;
+        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
+        labelProperties.text.wrapping = TextWrapping::NoWrap;
+        composer.Text(String{label}, text, text, labelProperties, "label");
+      },
+      swatch, key);
 }
 
 void StyleScrollView(NodeProperties &properties, const Theme &theme) {
@@ -769,8 +854,9 @@ void StyleScrollView(NodeProperties &properties, const Theme &theme) {
 void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
                          GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Explore NGIN.UI",
-      "Try controls, layouts, text, images, themes, popups, and windows.");
+      composer, text, theme, "Build with NGIN.UI",
+      "Explore the toolkit by topic, interact with each example, and copy the "
+      "public API pattern when you are ready to build.");
 
   ComposeCard(
       composer, theme,
@@ -779,19 +865,19 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Included features"}, 19.0F,
+              ComposeText(composer, text, String{"What you can explore"}, 19.0F,
                           theme.colors.foreground, "features-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"Desktop windows \xC2\xB7 Controls and layouts "
-                         "\xC2\xB7 Unicode text"},
+                  String{"Layout and typography \xC2\xB7 Inputs and data "
+                         "\xC2\xB7 Motion and overlays"},
                   theme.typography.body, theme.colors.mutedForeground,
                   "features-value");
               ComposeText(
                   composer, text,
-                  String{"Keyboard, mouse, clipboard, themes, and custom "
-                         "controls."},
+                  String{"Windows, themes, accessibility, diagnostics, and "
+                         "custom controls."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "hosting-value");
             },
@@ -806,21 +892,31 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
   composer.Element(
       ElementType::Row, metricsRow,
       [&] {
-        ComposeSwatch(composer, theme, theme.colors.accent, "Accent",
+        ComposeSwatch(composer, text, theme, theme.colors.accent, "Accent",
                       "accent-swatch");
-        ComposeSwatch(composer, theme, theme.colors.selection, "Selection",
-                      "selection-swatch");
-        ComposeSwatch(composer, theme, theme.colors.focus, "Focus",
+        ComposeSwatch(composer, text, theme, theme.colors.selection,
+                      "Selection", "selection-swatch");
+        ComposeSwatch(composer, text, theme, theme.colors.focus, "Focus",
                       "focus-swatch");
       },
       "token-swatches");
 
-  ComposeButton(
-      composer, text, theme, "Click me", [&model] { model.Activate(); },
-      "overview-activate", 250.0F);
-  ComposeText(
-      composer, text, LabeledNumber("Clicks: ", model.ActivationCount()),
-      theme.typography.body, theme.colors.mutedForeground, "activation-count");
+  NodeProperties quickInteraction{};
+  quickInteraction.layout.gap = theme.spacing.regular;
+  quickInteraction.layout.horizontalAlignment = HorizontalAlignment::Start;
+  composer.Element(
+      ElementType::Column, quickInteraction,
+      [&] {
+        ComposeButton(
+            composer, text, theme, "Try the button",
+            [&model] { model.Activate(); }, "overview-activate", 250.0F);
+        ComposeText(
+            composer, text,
+            LabeledNumber("Button activations: ", model.ActivationCount()),
+            theme.typography.body, theme.colors.mutedForeground,
+            "activation-count");
+      },
+      "quick-interaction");
 
   ComposeCard(
       composer, theme,
@@ -829,11 +925,12 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Async command"}, 19.0F,
+              ComposeText(composer, text, String{"Try an async command"}, 19.0F,
                           theme.colors.foreground, "command-title",
                           SemanticRole::Heading);
               ComposeText(composer, text,
-                          String{"Run, cancel, fail, and retry one task."},
+                          String{"Run a task, cancel it, or preview a helpful "
+                                 "failure state."},
                           theme.typography.body, theme.colors.mutedForeground,
                           "command-description");
               NodeProperties actions{};
@@ -846,14 +943,14 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
                                          model.CommandDemoBinding(),
                                          "run-command", 150.0F);
                     ComposeButton(
-                        composer, text, theme, "Fail next",
+                        composer, text, theme, "Fail next run",
                         [&model] { model.StartFailingCommandDemo(); },
-                        "fail-command", 150.0F,
+                        "fail-command", 170.0F,
                         model.CommandDemoBinding().CanExecute());
                     ComposeButton(
-                        composer, text, theme, "Cancel",
+                        composer, text, theme, "Cancel task",
                         [&model] { model.CancelCommandDemo(); },
-                        "cancel-command", 120.0F,
+                        "cancel-command", 140.0F,
                         model.CommandDemoBinding().IsRunning());
                   },
                   "command-actions");
@@ -877,7 +974,8 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"A badge, progress ring, and interactive chart."},
+                  String{"Purpose-built controls with custom paint, retained "
+                         "state, input, and accessibility."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "custom-description");
               ComposeCustomControlExamples(composer, text, theme);
@@ -891,7 +989,8 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
                        const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Layout",
-      "Build forms, toolbars, dashboards, and free-positioned diagrams.");
+      "Arrange content with grids, wrapping, scrolling, and free-positioned "
+      "canvas elements.");
 
   ComposeCard(
       composer, theme,
@@ -1137,7 +1236,7 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                            const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Typography",
-      "Text sizes, languages, symbols, wrapping, and alignment.");
+      "Compare the type scale, multilingual text, wrapping, and alignment.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -1199,8 +1298,9 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
 void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
                          GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Text Area",
-      "Write, select, copy, paste, and move through multiple lines.");
+      composer, text, theme, "Text area",
+      "Edit multiple lines with keyboard selection, clipboard commands, and "
+      "caret navigation.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -1248,8 +1348,9 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeImagesPage(Composer &composer, NativeTextSystem &text,
                        GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Images",
-                     "Load PNG and JPEG files, then choose how they fit.");
+  ComposePageHeading(
+      composer, text, theme, "Images",
+      "Load common image formats and compare contain, cover, and fill modes.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -1369,8 +1470,8 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text,
                        GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Inputs",
-      "Buttons, checkboxes, radio buttons, switches, sliders, progress bars, "
-      "tooltips, and text fields.");
+      "Try input states, selection controls, validation, progress, tooltips, "
+      "and text fields.");
 
   ComposeCard(
       composer, theme,
@@ -1776,7 +1877,8 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text,
 void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
                           GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Async data",
-                     "See loading, content, empty, error, retry, and cancel.");
+                     "Preview clear loading, content, empty, error, retry, and "
+                     "cancel states.");
 
   ComposeCard(
       composer, theme,
@@ -1879,8 +1981,10 @@ void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                             GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Collections",
-                     "Small lists, huge lists, tabs, menus, and combo boxes.");
+  ComposePageHeading(
+      composer, text, theme, "Collections",
+      "Work with selection, large virtualized lists, tabs, menus, and combo "
+      "boxes.");
 
   ComposeCard(
       composer, theme,
@@ -2420,8 +2524,10 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeMotionPage(Composer &composer, NativeTextSystem &text,
                        GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Motion",
-                     "Change a value and NGIN.UI moves it smoothly.");
+  ComposePageHeading(
+      composer, text, theme, "Motion",
+      "Use purposeful transitions to explain change, guide attention, and "
+      "respect reduced-motion preferences.");
 
   const auto regular = AnimationSpec{
       .timing =
@@ -2999,7 +3105,8 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
                          GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Overlays",
-      "Open a popup, then close it with Escape or by clicking outside.");
+      "Open a focused popup, then dismiss it with Close, Escape, or an outside "
+      "click.");
   ComposeButton(
       composer, text, theme,
       model.IsPopupOpen() ? "Popup is open" : "Open popup",
@@ -3049,7 +3156,8 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
 void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                         GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Windows",
-                     "Open another window or a dialog.");
+                     "Open an independent window or a modal dialog and compare "
+                     "their behavior.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -3088,8 +3196,9 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
                           GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Themes",
-                     "Switch between light and dark colors.");
+  ComposePageHeading(
+      composer, text, theme, "Themes",
+      "Switch color modes and inspect the resources shared by the interface.");
   ComposeButton(
       composer, text, theme,
       model.IsLightTheme() ? "Switch to dark theme" : "Switch to light theme",
@@ -3137,7 +3246,8 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
                               GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Accessibility",
-      "Try common controls with Narrator, the keyboard, or the mouse.");
+      "Verify labels, focus, live announcements, and common controls with a "
+      "screen reader, keyboard, or pointer.");
 
   const auto diagnostics = model.AccessibilityDiagnostics();
   String provider{diagnostics.available ? "Ready: " : "Not available: "};
@@ -3232,7 +3342,8 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                             GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Diagnostics",
-      "See drawing work, text storage, and visual layout guides.");
+      "Inspect rendering, text, image, navigation, and accessibility data when "
+      "you need to understand the UI.");
   const auto diagnostics = model.Diagnostics();
   const auto textDiagnostics = model.TextDiagnostics();
   const auto fontDiagnostics = model.FontDiagnostics();
@@ -3539,11 +3650,12 @@ void ComposePublicExample(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Use it in code"}, 18.0F,
+              ComposeText(composer, text, String{"Use this pattern"}, 18.0F,
                           theme.colors.foreground, "example-title",
                           SemanticRole::Heading);
               ComposeText(composer, text,
-                          String{"A small public API example for this page."},
+                          String{"Copy this focused public API example into "
+                                 "your own composition."},
                           theme.typography.caption,
                           theme.colors.mutedForeground, "example-help");
 
@@ -3564,7 +3676,7 @@ void ComposePublicExample(Composer &composer, NativeTextSystem &text,
                   },
                   code, "example-code-frame");
               ComposeButton(
-                  composer, text, theme, "Copy example",
+                  composer, text, theme, "Copy code",
                   [&model, page] { model.CopyExample(page); }, "copy-example",
                   180.0F);
             },
@@ -3592,7 +3704,14 @@ auto RegisterGalleryPage(PageRegistry &registry, GalleryViewModel &model,
       [compose = std::move(compose)](Composer &composer,
                                      GalleryPageViewModel &pageModel,
                                      const NoNavigationParameter &) {
-        compose(composer, *pageModel.text, *pageModel.gallery);
+        NodeProperties content{};
+        content.layout.gap = 24.0F;
+        content.layout.horizontalAlignment = HorizontalAlignment::Stretch;
+        content.layout.verticalAlignment = VerticalAlignment::Start;
+        composer.Element(
+            ElementType::Column, content,
+            [&] { compose(composer, *pageModel.text, *pageModel.gallery); },
+            "gallery-page-content");
       });
 }
 
@@ -4816,10 +4935,10 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
   const auto theme = model.CurrentTheme();
   NodeProperties root{};
   root.layout.padding = Thickness::Uniform(Dp{24.0F});
-  root.grid.columns = {GridTrack::Fixed(210.0F),
-                       GridTrack::Weighted(1.0F, 280.0F)};
+  root.grid.columns = {GridTrack::Fixed(252.0F),
+                       GridTrack::Weighted(1.0F, 320.0F)};
   root.grid.rows = {GridTrack::Weighted()};
-  root.grid.columnGap = 22.0F;
+  root.grid.columnGap = 28.0F;
   root.visual.base.background = theme.colors.background;
   root.semantics.role = SemanticRole::Group;
   root.semantics.label = String{"NGIN.UI control gallery"};
@@ -4828,12 +4947,12 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
       ElementType::Grid, root,
       [&] {
         NodeProperties sidebar{};
-        sidebar.layout.preferredSize.width = 210.0F;
-        sidebar.layout.minimumSize.width = 210.0F;
-        sidebar.layout.maximumSize.width = 210.0F;
+        sidebar.layout.preferredSize.width = 252.0F;
+        sidebar.layout.minimumSize.width = 252.0F;
+        sidebar.layout.maximumSize.width = 252.0F;
         sidebar.layout.flexShrink = 0.0F;
         sidebar.gridPlacement = GridPlacement{.row = 0, .column = 0};
-        sidebar.layout.padding = Thickness::Uniform(Dp{14.0F});
+        sidebar.layout.padding = Thickness::Uniform(Dp{20.0F});
         sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
         sidebar.visual = MakePanelVisual(theme);
         sidebar.scroll.vertical = true;
@@ -4844,62 +4963,121 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
         composer.ScrollView(
             [&] {
               NodeProperties navigation{};
-              navigation.layout.gap = theme.spacing.regular;
+              navigation.layout.gap = theme.spacing.spacious;
               navigation.layout.horizontalAlignment =
                   HorizontalAlignment::Stretch;
               composer.Element(
                   ElementType::Column, navigation,
                   [&] {
-                    ComposeText(composer, text, String{"NGIN.UI"}, 25.0F,
-                                theme.colors.focus, "brand",
-                                SemanticRole::Heading);
-                    ComposeText(composer, text, String{"Control gallery"},
-                                13.0F, theme.colors.mutedForeground,
-                                "brand-subtitle");
-                    ComposeText(composer, text, String{"Find a page"}, 13.0F,
-                                theme.colors.mutedForeground,
-                                "navigation-search-label");
-                    ComposeTextField(
-                        composer, text, model, theme,
-                        model.NavigationSearchBinding(), "Search gallery pages",
-                        "navigation-search", false, true, false, false, 180.0F);
+                    NodeProperties brand{};
+                    brand.layout.gap = theme.spacing.compact;
+                    composer.Column(
+                        [&] {
+                          ComposeText(composer, text, String{"NGIN.UI"}, 27.0F,
+                                      theme.colors.focus, "brand",
+                                      SemanticRole::Heading);
+                          ComposeText(composer, text,
+                                      String{"Explore, learn, and build"},
+                                      13.0F, theme.colors.mutedForeground,
+                                      "brand-subtitle");
+                        },
+                        "brand-block");
                     NodeProperties separator{};
                     separator.visual = MakeSeparatorVisual(theme);
                     composer.Separator(SeparatorOrientation::Horizontal,
                                        separator, "nav-separator");
+
+                    NodeProperties search{};
+                    search.layout.gap = theme.spacing.regular;
+                    composer.Column(
+                        [&] {
+                          ComposeText(composer, text,
+                                      String{"Search the gallery"}, 13.0F,
+                                      theme.colors.foreground,
+                                      "navigation-search-label");
+                          ComposeTextField(composer, text, model, theme,
+                                           model.NavigationSearchBinding(),
+                                           "Search pages and features",
+                                           "navigation-search", false, true,
+                                           false, false, 212.0F);
+                        },
+                        "navigation-search-group");
+
                     NGIN::UIntSize visiblePages = 0;
-                    for (NGIN::UIntSize index = 0; index < PageCount; ++index) {
-                      const auto page = PageAt(index);
-                      if (!model.NavigationMatches(page)) {
+                    for (NGIN::UIntSize groupIndex = 0;
+                         groupIndex < NavigationGroups.size(); ++groupIndex) {
+                      const auto &group = NavigationGroups[groupIndex];
+                      bool groupHasMatches = false;
+                      for (NGIN::UIntSize offset = 0; offset < group.pageCount;
+                           ++offset) {
+                        if (model.NavigationMatches(
+                                PageAt(group.firstPage + offset))) {
+                          groupHasMatches = true;
+                          break;
+                        }
+                      }
+                      if (!groupHasMatches) {
                         continue;
                       }
-                      ++visiblePages;
-                      const auto name = PageName(page);
-                      ComposeButton(
-                          composer, text, theme, name.data(),
-                          [&model, page] { model.SelectPage(page); },
-                          std::to_string(index), 180.0F, true,
-                          model.CurrentPage() == page);
+
+                      NodeProperties groupProperties{};
+                      groupProperties.layout.gap = theme.spacing.compact;
+                      groupProperties.layout.horizontalAlignment =
+                          HorizontalAlignment::Stretch;
+                      composer.Column(
+                          [&] {
+                            ComposeText(composer, text,
+                                        String{group.label.data()}, 12.0F,
+                                        theme.colors.mutedForeground,
+                                        "group-label");
+                            for (NGIN::UIntSize offset = 0;
+                                 offset < group.pageCount; ++offset) {
+                              const auto index = group.firstPage + offset;
+                              const auto page = PageAt(index);
+                              if (!model.NavigationMatches(page)) {
+                                continue;
+                              }
+                              ++visiblePages;
+                              const auto name = PageName(page);
+                              ComposeNavigationButton(
+                                  composer, text, theme, name.data(),
+                                  [&model, page] { model.SelectPage(page); },
+                                  std::to_string(index),
+                                  model.CurrentPage() == page);
+                            }
+                          },
+                          std::to_string(groupIndex));
                     }
                     if (visiblePages == 0) {
-                      ComposeText(composer, text, String{"No pages found."},
+                      ComposeText(composer, text,
+                                  String{"No matching pages. Try a control or "
+                                         "feature name."},
                                   theme.typography.caption,
                                   theme.colors.mutedForeground,
                                   "navigation-no-results");
                     }
+
+                    NodeProperties appearanceSeparator{};
+                    appearanceSeparator.visual = MakeSeparatorVisual(theme);
+                    composer.Separator(SeparatorOrientation::Horizontal,
+                                       appearanceSeparator,
+                                       "appearance-separator");
+                    ComposeText(composer, text, String{"Appearance"}, 12.0F,
+                                theme.colors.mutedForeground,
+                                "appearance-label");
                     ComposeButton(
                         composer, text, theme,
-                        model.IsLightTheme() ? "Use dark theme"
-                                             : "Use light theme",
-                        [&model] { model.ToggleTheme(); }, "theme", 180.0F);
+                        model.IsLightTheme() ? "Switch to dark theme"
+                                             : "Switch to light theme",
+                        [&model] { model.ToggleTheme(); }, "theme", 212.0F);
                   },
                   "sidebar-content");
             },
             sidebar, "sidebar");
 
         NodeProperties viewport{};
-        viewport.layout.preferredSize = Size{780.0F, 680.0F};
-        viewport.layout.minimumSize = Size{280.0F, 320.0F};
+        viewport.layout.preferredSize = Size{860.0F, 720.0F};
+        viewport.layout.minimumSize = Size{320.0F, 320.0F};
         viewport.layout.flexGrow = 1.0F;
         viewport.layout.flexShrink = 1.0F;
         viewport.layout.horizontalAlignment = HorizontalAlignment::Stretch;
@@ -4911,8 +5089,8 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
         composer.ScrollView(
             [&] {
               NodeProperties page{};
-              page.layout.padding = Thickness{4.0F, 4.0F, 18.0F, 28.0F};
-              page.layout.gap = theme.spacing.spacious;
+              page.layout.padding = Thickness{8.0F, 8.0F, 40.0F, 56.0F};
+              page.layout.gap = 24.0F;
               page.layout.horizontalAlignment = HorizontalAlignment::Stretch;
               page.layout.verticalAlignment = VerticalAlignment::Start;
               page.semantics.role = SemanticRole::Group;
@@ -4921,6 +5099,13 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
               composer.Element(
                   ElementType::Column, page,
                   [&] {
+                    const auto currentPage = model.CurrentPage();
+                    ComposeText(composer, text,
+                                String{PageSections[static_cast<NGIN::UIntSize>(
+                                                        currentPage)]
+                                           .data()},
+                                theme.typography.caption, theme.colors.focus,
+                                "page-section");
                     model.ComposeCurrentPage(composer);
                     ComposePublicExample(composer, text, model, theme);
                     if (!model.Status().Empty()) {
@@ -4941,8 +5126,8 @@ auto CreateMainWindow(Application &application, NativeTextSystem &text,
   auto window = application.CreateWindow(WindowCreateInfo{
       .id = String{"Gallery.Main"},
       .title = String{"NGIN.UI Control Gallery"},
-      .initialSize = PixelSize{1180, 780},
-      .minimumSize = PixelSize{640, 480},
+      .initialSize = PixelSize{1280, 840},
+      .minimumSize = PixelSize{680, 520},
   });
   if (!window) {
     return std::move(window).Error();
