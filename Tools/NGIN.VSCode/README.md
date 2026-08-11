@@ -96,12 +96,16 @@ shown only for projects with resolved Launch intent; libraries and other
 non-launchable products retain Configure and Build without offering actions
 that the CLI cannot execute.
 
-Lifecycle output uses compact `BUILD`, `RUN`, and `TEST` sections. Successful
-backend steps are reduced to target, duration, and warning counts; compiler
-warnings and errors remain available in the Problems view. Runtime records use
-short timestamps and omit repetitive host and source metadata at Info level.
-The unabridged process stream is retained under the selected output directory
-at `diagnostics/<command>.log`.
+Lifecycle commands reveal the NGIN output channel by default and use compact
+`CONFIGURE`, `BUILD`, `STAGE`, `RUN`, and `TEST` sections. Active targets and
+filtered Ninja `[current/total]` updates provide live progress without exposing
+backend command noise. Successful steps retain durations and warning counts;
+compiler warnings and errors remain available in the Problems view. Runtime
+records use short timestamps and omit repetitive host and source metadata at
+Info level. The unabridged process stream is retained under the selected output
+directory at `diagnostics/<command>.log`. Set `ngin.revealOutputOnRun` to
+`false` to keep the current output channel selected when a lifecycle command
+starts.
 
 The Microsoft C/C++ extension is required for native debugging. When installed,
 NGIN also supplies compile-database-backed IntelliSense. Headers use the

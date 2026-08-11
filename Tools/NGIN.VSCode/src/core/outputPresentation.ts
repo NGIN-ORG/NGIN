@@ -8,6 +8,14 @@ interface EditorEvent {
   kind: 'NGIN.EditorEvent';
   event: string;
   target?: string;
+  detail?: string;
+  count?: number;
+}
+
+export interface NinjaProgress {
+  current: number;
+  total: number;
+  action: string;
 }
 
 export interface LifecyclePresentationOptions {
@@ -85,6 +93,30 @@ export function formatRuntimeLine(line: string): string | undefined {
   return `  ${match[2]}  ${category.padEnd(14)} ${compact}${location}\n`;
 }
 
+function buildInputName(value: string): string {
+  const name = value.split(/[\\/]/u).pop() ?? value;
+  return name.replace(/\.(?:obj|o)$/u, '');
+}
+
+export function parseNinjaProgress(line: string): NinjaProgress | undefined {
+  const match = /^\[(\d+)\/(\d+)\]\s+(.+)$/u.exec(line.trim());
+  if (!match) return undefined;
+  const current = Number(match[1]);
+  const total = Number(match[2]);
+  const raw = match[3];
+  if (current === 0 || /Re-checking globbed directories/u.test(raw)) return undefined;
+
+  let action: string;
+  const compile = /^Building (?:CXX|C) object (.+)$/u.exec(raw);
+  const resource = /^Building RC object (.+)$/u.exec(raw);
+  if (compile) action = `Compiling ${buildInputName(compile[1])}`;
+  else if (resource) action = `Compiling resource ${buildInputName(resource[1])}`;
+  else if (/^Linking /u.test(raw)) action = 'Linking';
+  else if (/^Generating /u.test(raw)) action = raw;
+  else return undefined;
+  return { current, total, action };
+}
+
 function formatDuration(milliseconds: number): string {
   return `${Math.max(milliseconds, 0) / 1000 < 10
     ? (Math.max(milliseconds, 0) / 1000).toFixed(1)
@@ -100,6 +132,7 @@ export class LifecycleOutputPresenter {
   private phase: string | undefined;
   private phaseStartedAt = 0;
   private activeTarget: string | undefined;
+  private activeBuild: { upToDate: boolean; lastProgressBucket: number } | undefined;
   private sawEvent = false;
   private sawRun = false;
   private warningSummaryWritten = false;
@@ -157,6 +190,17 @@ export class LifecycleOutputPresenter {
       return;
     }
     if (!this.sawEvent) return;
+    if (this.phase === 'build') {
+      if (line.trim() === 'ninja: no work to do.') {
+        if (this.activeBuild) this.activeBuild.upToDate = true;
+        return;
+      }
+      const progress = parseNinjaProgress(line);
+      if (progress && this.shouldWriteProgress(progress)) {
+        this.options.append(`    [${progress.current}/${progress.total}] ${progress.action}\n`);
+      }
+      return;
+    }
     if (this.phase === 'run' || this.phase === 'test') {
       const formatted = formatRuntimeLine(line);
       if (formatted === undefined) this.options.append(`${line}\n`);
@@ -166,29 +210,60 @@ export class LifecycleOutputPresenter {
 
   private event(value: EditorEvent): void {
     const [phase, transition] = value.event.split('-');
+    if (transition === 'skip' && phase === 'configure') {
+      this.section('CONFIGURE');
+      const target = value.target ?? this.options.label;
+      this.options.append(`  ✓ ${target.padEnd(32)} up to date\n`);
+      return;
+    }
     if (transition === 'start') {
       this.phase = phase;
       this.phaseStartedAt = this.now();
       this.activeTarget = value.target ?? this.options.label;
-      if (phase === 'build') this.section('BUILD');
-      else if (phase === 'configure' && this.options.command === 'configure') this.section('CONFIGURE');
-      else if (phase === 'stage' && this.options.command === 'stage') this.section('STAGE');
-      else if (phase === 'publish' && this.options.command === 'publish') this.section('PUBLISH');
+      if (phase === 'configure') {
+        this.section('CONFIGURE');
+        this.options.append(`  ${this.activeTarget}\n`);
+      } else if (phase === 'build') {
+        this.section('BUILD');
+        this.activeBuild = { upToDate: false, lastProgressBucket: -1 };
+        this.options.append(`  ${this.activeTarget}\n`);
+      } else if (phase === 'stage') {
+        this.writeWarningSummary();
+        this.section('STAGE');
+        this.options.append(`  ${this.activeTarget}\n`);
+      } else if (phase === 'publish') {
+        this.section('PUBLISH');
+        this.options.append(`  ${this.activeTarget}\n`);
+      }
       else if (phase === 'run' || phase === 'test') {
         this.writeWarningSummary();
         this.options.append(`\n${phase.toUpperCase()}\n`);
+        this.options.append(`  Starting ${value.detail ?? this.activeTarget}\n`);
         this.sawRun = true;
       }
       return;
     }
     if (transition !== 'end') return;
-    if (phase === 'build' || (phase === 'configure' && this.options.command === 'configure') ||
-        (phase === 'stage' && this.options.command === 'stage') ||
-        (phase === 'publish' && this.options.command === 'publish')) {
-      const target = value.target ?? this.activeTarget ?? this.options.label;
-      this.options.append(`  ✓ ${target.padEnd(32)} ${formatDuration(this.now() - this.phaseStartedAt)}\n`);
+    if (phase === 'build') {
+      const result = this.activeBuild?.upToDate ? 'up to date' : formatDuration(this.now() - this.phaseStartedAt);
+      this.options.append(`  ✓ ${'Completed'.padEnd(32)} ${result}\n`);
+      this.activeBuild = undefined;
+    } else if (phase === 'configure' || phase === 'publish') {
+      this.options.append(`  ✓ ${'Completed'.padEnd(32)} ${formatDuration(this.now() - this.phaseStartedAt)}\n`);
+    } else if (phase === 'stage') {
+      const staged = value.count === undefined ? 'Completed' : `${value.count} file${value.count === 1 ? '' : 's'}`;
+      this.options.append(`  ✓ ${staged.padEnd(32)} ${formatDuration(this.now() - this.phaseStartedAt)}\n`);
     }
     if (this.phase === phase) this.phase = undefined;
+  }
+
+  private shouldWriteProgress(progress: NinjaProgress): boolean {
+    if (!this.activeBuild) return false;
+    if (progress.total <= 20 || progress.current === 1 || progress.current === progress.total) return true;
+    const bucket = Math.floor(progress.current * 10 / progress.total);
+    if (bucket <= this.activeBuild.lastProgressBucket) return false;
+    this.activeBuild.lastProgressBucket = bucket;
+    return true;
   }
 
   private section(name: string): void {

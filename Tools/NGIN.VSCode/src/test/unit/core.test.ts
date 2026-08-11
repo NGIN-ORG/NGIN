@@ -24,7 +24,9 @@ import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
 import { projectCanLaunch } from '../../core/projectCapabilities';
-import { formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter } from '../../core/outputPresentation';
+import {
+  formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter, parseNinjaProgress
+} from '../../core/outputPresentation';
 import type { CompositionGraph, NginContext, ProjectCandidate } from '../../model';
 
 function graph(): CompositionGraph {
@@ -136,17 +138,26 @@ test('lifecycle presentation keeps build and run output compact', () => {
   const presenter = new LifecycleOutputPresenter({
     command: 'run', args, label: 'NGIN.UI.Gallery.Hosted', append: value => { output += value; }, now: () => now
   });
-  const event = (name: string, target = 'NGIN.UI.Gallery.Hosted') =>
-    `\x1eNGIN ${JSON.stringify({ event: name, kind: 'NGIN.EditorEvent', target })}\n`;
+  const event = (name: string, target = 'NGIN.UI.Gallery.Hosted', extra: Record<string, unknown> = {}) =>
+    `\x1eNGIN ${JSON.stringify({ event: name, kind: 'NGIN.EditorEvent', target, ...extra })}\n`;
 
+  presenter.accept('stdout', event('configure-skip', 'NGIN.UI.Gallery.Shared'));
+  presenter.accept('stdout', event('configure-skip'));
   presenter.accept('stdout', event('build-start', 'NGIN.UI.Gallery.Shared'));
+  presenter.accept('stdout', '[1/3] Building CXX object CMakeFiles/Gallery.dir/src/Gallery.cpp.obj\n');
+  presenter.accept('stdout', '[2/3] Building CXX object CMakeFiles/Gallery.dir/src/GalleryCustomControls.cpp.obj\n');
+  presenter.accept('stdout', '[3/3] Linking CXX static library NGIN.UI.Gallery.Shared.lib\n');
   presenter.accept('stdout', 'F:/work/SmartPointers.hpp:36:15: warning: unknown attribute [-Wunknown-attributes]\n');
   now = 1400;
   presenter.accept('stdout', event('build-end', 'NGIN.UI.Gallery.Shared'));
   presenter.accept('stdout', event('build-start'));
+  presenter.accept('stdout', 'ninja: no work to do.\n');
   now = 1600;
   presenter.accept('stdout', event('build-end'));
-  presenter.accept('stdout', event('run-start'));
+  presenter.accept('stdout', event('stage-start'));
+  now = 1700;
+  presenter.accept('stdout', event('stage-end', 'NGIN.UI.Gallery.Hosted', { count: 18 }));
+  presenter.accept('stdout', event('run-start', 'NGIN.UI.Gallery.Hosted', { detail: 'NGIN.UI.Gallery.Hosted.exe' }));
   presenter.accept('stdout',
     '[2026-08-11T22:20:54.876135100+0200][Info][Kernel] state transition -> ServicesBuilt '
     + '{host="NGIN.UI.Gallery.Hosted"} (F:/work/Kernel.cpp:498)\n'
@@ -157,10 +168,14 @@ test('lifecycle presentation keeps build and run output compact', () => {
   presenter.complete(0);
 
   assert.match(output, /> ngin run NGIN\.UI\.Gallery\.Hosted --configuration Debug/u);
-  assert.match(output, /BUILD\n  ✓ NGIN\.UI\.Gallery\.Shared\s+1\.4s/u);
-  assert.match(output, /✓ NGIN\.UI\.Gallery\.Hosted\s+0\.2s/u);
+  assert.match(output, /CONFIGURE\n  ✓ NGIN\.UI\.Gallery\.Shared\s+up to date/u);
+  assert.match(output, /BUILD\n  NGIN\.UI\.Gallery\.Shared\n    \[1\/3\] Compiling Gallery\.cpp/u);
+  assert.match(output, /\[3\/3\] Linking\n  ✓ Completed\s+1\.4s/u);
+  assert.match(output, /NGIN\.UI\.Gallery\.Hosted\n  ✓ Completed\s+up to date/u);
   assert.match(output, /⚠ 1 warning/u);
-  assert.match(output, /RUN\n  22:20:54\s+Kernel\s+Services built/u);
+  assert.match(output, /STAGE\n  NGIN\.UI\.Gallery\.Hosted\n  ✓ 18 files\s+0\.1s/u);
+  assert.match(output, /RUN\n  Starting NGIN\.UI\.Gallery\.Hosted\.exe/u);
+  assert.match(output, /22:20:54\s+Kernel\s+Services built/u);
   assert.match(output, /22:20:55\s+ModuleLoader\s+Started NGIN\.UI\.Runtime/u);
   assert.doesNotMatch(output, /SmartPointers\.hpp|Kernel\.cpp|\[Info\]/u);
   assert.match(output, /Process exited with code 0/u);
@@ -174,6 +189,10 @@ test('lifecycle display uses command syntax instead of a configuration tagline',
   assert.equal(formatRuntimeLine(
     '[2026-08-11T22:20:55.354906500+0200][Info][Kernel] kernel entered Running state (Kernel.cpp:10)'
   ), '');
+  assert.deepEqual(parseNinjaProgress(
+    '[12/84] Building CXX object CMakeFiles/App.dir/src/Renderer.cpp.obj'
+  ), { current: 12, total: 84, action: 'Compiling Renderer.cpp' });
+  assert.equal(parseNinjaProgress('[0/2] Re-checking globbed directories...'), undefined);
 });
 
 test('Composition Graph parsing rejects incomplete envelopes', () => {
