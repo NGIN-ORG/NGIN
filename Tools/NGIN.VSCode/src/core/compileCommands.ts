@@ -22,6 +22,8 @@ export function splitCommandLine(command: string): string[] {
         current += command[++index];
       }
       else current += character;
+    } else if (character === '\\' && command[index + 1] === '"') {
+      current += command[++index];
     } else if (character === '"' || character === "'") {
       quote = character;
     } else if (/\s/u.test(character)) {

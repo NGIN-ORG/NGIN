@@ -23,6 +23,11 @@ export function isWithin(parent: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
 }
 
+export function isProjectConfigurationPath(context: NginContext, candidate: string): boolean {
+  return isWithin(path.dirname(context.projectManifest), candidate)
+    || isWithin(context.outputDirectory, candidate);
+}
+
 export function contextKey(context: NginContext): string {
   const options = Object.entries(context.options).sort(([left], [right]) => left.localeCompare(right));
   return JSON.stringify({

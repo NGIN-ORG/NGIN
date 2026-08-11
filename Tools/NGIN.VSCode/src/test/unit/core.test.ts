@@ -18,7 +18,14 @@ import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } fr
 import { displayOptionValue, parseCompositionGraph } from '../../core/graph';
 import { insertBuildItem, kindForPath, updateExactBuildItemPaths, updateProjectAttributes } from '../../core/manifestEdits';
 import { parseAttributes, parseWorkspaceChoices, parseWorkspaceProjectRules } from '../../core/manifestText';
-import { compileCommandsPath, contextKey, isWithin, projectOutputDirectory, safePathComponent } from '../../core/paths';
+import {
+  compileCommandsPath,
+  contextKey,
+  isProjectConfigurationPath,
+  isWithin,
+  projectOutputDirectory,
+  safePathComponent
+} from '../../core/paths';
 import { enumerateProjectFiles } from '../../core/projectFiles';
 import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
@@ -217,6 +224,19 @@ test('compile command parsing handles quoted compiler paths and maps configurati
   assert.deepEqual(splitCommandLine(`"${args[0]}" "${sourceFile}"`), [args[0], sourceFile]);
 });
 
+test('compile command parsing preserves escaped definition quotes and following includes', () => {
+  const directory = path.resolve('project with spaces');
+  const compiler = path.join(directory, 'tool chain', 'clang++.exe');
+  const sourceFile = path.join(directory, 'src', 'main.cpp');
+  const include = path.join(directory, 'include');
+  const command = `"${compiler}" -DNGIN_PLATFORM=\\"Windows\\" -I"${include}" -std=c++23 -c "${sourceFile}"`;
+  const entry = parseCompileCommands(JSON.stringify([{ directory, file: sourceFile, command }]))[0];
+  const configuration = createSourceConfiguration(entry, graph());
+  assert.equal(configuration.compilerPath, compiler);
+  assert.deepEqual(configuration.defines, ['NGIN_PLATFORM="Windows"']);
+  assert.deepEqual(configuration.includePath, [include]);
+});
+
 test('headers use the closest compile command and browse paths are aggregated', () => {
   const root = path.resolve('project');
   const entries = [
@@ -240,6 +260,9 @@ test('selection keys are deterministic and output paths are bounded', () => {
   } satisfies NginContext;
   assert.equal(contextKey(base), contextKey({ ...base, options: { A: '1', B: '2' } }));
   assert.equal(compileCommandsPath(base), path.join(output, 'cmake', 'compile_commands.json'));
+  assert.equal(isProjectConfigurationPath(base, path.join(project.directory, 'src', 'main.cpp')), true);
+  assert.equal(isProjectConfigurationPath(base, path.join(output, 'actions', 'generated.cpp')), true);
+  assert.equal(isProjectConfigurationPath(base, path.resolve('..', 'unrelated', 'other.cpp')), false);
   const lock = dependencyLockPath(base);
   assert.equal(lock, path.join(output, 'ngin.lock'));
   assert.deepEqual(lifecycleArguments('lock', base), [

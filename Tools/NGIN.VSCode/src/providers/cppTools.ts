@@ -18,7 +18,7 @@ import {
   type CompileCommandEntry
 } from '../core/compileCommands';
 import type { NginController } from '../core/controller';
-import { compileCommandsPath, isWithin } from '../core/paths';
+import { compileCommandsPath, isProjectConfigurationPath, isWithin } from '../core/paths';
 
 export class NginCppConfigurationProvider implements CustomConfigurationProvider {
   readonly name = 'NGIN';
@@ -73,15 +73,16 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
 
   async canProvideConfiguration(uri: vscode.Uri): Promise<boolean> {
     const context = this.controller.snapshot.context;
-    return Boolean(context && isWithin(path.dirname(context.projectManifest), uri.fsPath));
+    return Boolean(context && isProjectConfigurationPath(context, uri.fsPath));
   }
 
   async provideConfigurations(uris: vscode.Uri[]): Promise<SourceFileConfigurationItem[]> {
     const snapshot = this.controller.snapshot;
     if (!snapshot.context || !snapshot.graph) return [];
     const entries = await this.loadEntries();
-    const projectDirectory = path.dirname(snapshot.context.projectManifest);
-    return uris.filter(uri => isWithin(projectDirectory, uri.fsPath)).map(uri => {
+    const context = snapshot.context;
+    const projectDirectory = path.dirname(context.projectManifest);
+    return uris.filter(uri => isProjectConfigurationPath(context, uri.fsPath)).map(uri => {
       const entry = selectCompileCommand(entries, uri.fsPath);
       return {
         uri,
