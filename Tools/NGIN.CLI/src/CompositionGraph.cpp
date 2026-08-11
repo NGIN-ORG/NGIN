@@ -135,12 +135,14 @@ namespace NGIN::CLI
                                                    {"workingDirectory", value.workingDirectory}};
                  })},
                 {"buildItems", Array(graph.buildItems, [](const GraphBuildItem &value) {
-                     return CanonicalValue::Object{{"generated", value.generated},
-                                                   {"identity", value.identity},
-                                                   {"kind", value.kind},
-                                                   {"path", value.path},
-                                                   {"provenance", ProvenanceValue(value.provenance)},
-                                                   {"visibility", value.visibility}};
+                     CanonicalValue::Object item{{"generated", value.generated},
+                                                 {"identity", value.identity},
+                                                 {"kind", value.kind},
+                                                 {"path", value.path},
+                                                 {"provenance", ProvenanceValue(value.provenance)},
+                                                 {"visibility", value.visibility}};
+                     if (value.value.has_value()) item.emplace("value", *value.value);
+                     return item;
                  })},
                 {"capabilityBindings", Array(graph.capabilities, [](const GraphCapabilityBinding &value) {
                      return CanonicalValue::Object{{"capability", value.binding.capability},
@@ -307,7 +309,9 @@ namespace NGIN::CLI
                 return CanonicalValue::Object{{"destination", value.destination}, {"owner", value.owner}};
             });
             add("buildItem", graph.buildItems, [](const auto &value) {
-                return CanonicalValue::Object{{"kind", value.kind}, {"path", value.path}};
+                CanonicalValue::Object item{{"kind", value.kind}, {"path", value.path}};
+                if (value.value.has_value()) item.emplace("value", *value.value);
+                return item;
             });
             add("launch", graph.launches, [](const auto &value) {
                 return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
@@ -433,7 +437,9 @@ namespace NGIN::CLI
                                 [](const auto &value) { return value.binding.capability + "@" + value.binding.version; }) ||
                            find("contribution", data.contributions,
                                 [](const auto &value) { return value.destination; }) ||
-                           find("buildItem", data.buildItems, [](const auto &value) { return value.path; }) ||
+                           find("buildItem", data.buildItems, [](const auto &value) {
+                               return value.value.has_value() ? value.path + "=" + *value.value : value.path;
+                           }) ||
                            find("option", data.options,
                                 [](const auto &value) { return value.name + "=" + value.value; }) ||
                            find("plugin", data.plugins, [](const auto &value) { return value.exportName; }) ||

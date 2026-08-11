@@ -136,7 +136,9 @@ portable and are not backend commands.
 Build items describe resolved Sources, Headers, C++ Modules, Resources, include
 directories, defines, compile and link options, and precompiled headers.
 Conventional and authored inputs use the same node form. Action outputs become
-generated build items only after their Action and host Tool are resolved.
+generated build items only after their Action and host Tool are resolved. A
+define records its name in `path` and preserves its optional replacement text
+in `value`, so graph consumers do not need to reconstruct authored semantics.
 
 ### Deployment and process intent
 

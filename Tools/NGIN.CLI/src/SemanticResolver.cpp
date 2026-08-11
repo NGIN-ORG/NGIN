@@ -1017,6 +1017,7 @@ namespace NGIN::CLI
                 .identity = item.identity,
                 .kind = BuildKindName(item.kind),
                 .path = item.path.value,
+                .value = item.value,
                 .visibility = VisibilityName(item.visibility),
                 .generated = item.generated,
                 .provenance = Provenance(

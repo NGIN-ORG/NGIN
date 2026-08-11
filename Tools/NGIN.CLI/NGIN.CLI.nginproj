@@ -8,8 +8,9 @@
   </Dependencies>
   <Build>
     <Source Include="src/**/*.cpp" />
+    <Source Remove="src/ManifestSchemaGenerator.cpp" />
     <IncludeDirectory Path="src" Visibility="Private" />
-    <Define Name="NGIN_CLI_VERSION" Value="${project.version}" Visibility="Private" />
+    <Define Name="NGIN_CLI_VERSION" Value="&quot;0.1.0&quot;" Visibility="Private" />
   </Build>
   <Stage>
     <File Include="../../LICENSE" Into="share/ngin/licenses/LICENSE" />
@@ -26,10 +27,6 @@
         <LinkOption Value="-static-libstdc++" />
         <LinkOption Value="-static-libgcc" />
       </Build>
-    </Refinement>
-    <Refinement>
-      <Select><Target OS="windows" /></Select>
-      <Build><CompileOption Value="/MT" /></Build>
     </Refinement>
     <Refinement>
       <Select><Option Name="BundledTools" Value="true" /></Select>

@@ -124,6 +124,46 @@ TEST_CASE("semantic resolver closes version diamonds and export requirements det
     REQUIRE_FALSE(explanation->provenance[0].document.empty());
 }
 
+TEST_CASE("semantic resolver preserves define values in the Composition Graph")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }");
+    const auto projectPath = temp.path() / "App.nginproj";
+    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Build>
+  <Define Name="APP_VERSION" Value="&quot;1.2.3&quot;" Visibility="Private" />
+</Build></Project>)xml");
+
+    const auto resolved = ResolveComposition(SemanticResolutionRequest{
+        .project = ParseProjectForResolution(projectPath),
+        .projectDirectory = temp.path(),
+        .workspaceRoot = temp.path(),
+        .targetSelection = TargetSelection(),
+        .hostSelection = HostSelection()});
+    REQUIRE(resolved.Succeeded());
+    const auto define = std::ranges::find_if(resolved.graph->Data().buildItems, [](const GraphBuildItem &item) {
+        return item.kind == "Define" && item.path == "APP_VERSION";
+    });
+    REQUIRE(define != resolved.graph->Data().buildItems.end());
+    REQUIRE(define->value == std::optional<std::string>{"\"1.2.3\""});
+    REQUIRE_THAT(resolved.graph->CanonicalSerialization(), ContainsSubstring("\"value\":\"\\\"1.2.3\\\"\""));
+
+    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Build>
+  <Define Name="APP_VERSION" Value="&quot;2.0.0&quot;" Visibility="Private" />
+</Build></Project>)xml");
+    const auto changed = ResolveComposition(SemanticResolutionRequest{
+        .project = ParseProjectForResolution(projectPath),
+        .projectDirectory = temp.path(),
+        .workspaceRoot = temp.path(),
+        .targetSelection = TargetSelection(),
+        .hostSelection = HostSelection()});
+    REQUIRE(changed.Succeeded());
+    const auto differences = DiffCompositionGraphs(*resolved.graph, *changed.graph);
+    REQUIRE(std::ranges::any_of(differences, [](const GraphDifference &difference) {
+        return difference.category == "buildItem" && difference.identity == "Define:APP_VERSION:0" &&
+               difference.change == "Changed";
+    }));
+}
+
 TEST_CASE("semantic resolver reaches a stable closure for package dependency cycles")
 {
     TempDir temp{};

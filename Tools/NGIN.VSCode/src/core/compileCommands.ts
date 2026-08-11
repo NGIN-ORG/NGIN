@@ -169,7 +169,9 @@ export function createFallbackConfiguration(graph: CompositionGraph, projectDire
   const includePath = graph.buildItems
     .filter(item => item.kind === 'IncludeDirectory')
     .map(item => absolute(projectDirectory, item.path));
-  const defines = graph.buildItems.filter(item => item.kind === 'Define').map(item => item.path);
+  const defines = graph.buildItems
+    .filter(item => item.kind === 'Define')
+    .map(item => item.value === undefined ? item.path : `${item.path}=${item.value}`);
   const forcedInclude = graph.buildItems
     .filter(item => item.kind === 'PrecompiledHeader')
     .map(item => absolute(projectDirectory, item.path));

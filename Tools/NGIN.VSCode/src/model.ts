@@ -129,6 +129,7 @@ export interface GraphBuildItem {
   identity: string;
   kind: string;
   path: string;
+  value?: string;
   visibility?: string;
   generated?: boolean;
   provenance?: GraphProvenance;

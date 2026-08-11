@@ -140,6 +140,7 @@ namespace NGIN::CLI
         std::string identity{};
         std::string kind{};
         std::string path{};
+        std::optional<std::string> value{};
         std::string visibility{};
         bool generated{false};
         GraphProvenance provenance{};

@@ -268,6 +268,25 @@ TEST_CASE("CMake adapter rejects unsupported semantic capabilities explicitly")
     }));
 }
 
+TEST_CASE("CMake adapter emits valued preprocessor definitions")
+{
+    CompositionGraphData data{};
+    data.product = GraphProduct{
+        .identity = "Versioned", .name = "Versioned", .type = ProductType::Tool, .linkage = LibraryLinkage::None};
+    data.buildItems.push_back(GraphBuildItem{.identity = "Define:APP_VERSION",
+                                             .kind = "Define",
+                                             .path = "APP_VERSION",
+                                             .value = "\"1.2.3\"",
+                                             .visibility = "Private"});
+
+    const ResolvedCompositionGraph graph{std::move(data)};
+    const auto plans = DeriveCMakePlans(graph, ResolvedCMakeIntegrationBindings{});
+    REQUIRE(plans.Succeeded());
+    REQUIRE(plans.build->items[0].value == "APP_VERSION=\"1.2.3\"");
+    REQUIRE_THAT(GenerateCMakeProject(*plans.build, *plans.actions),
+                 ContainsSubstring("target_compile_definitions(Versioned PRIVATE \"APP_VERSION=\\\"1.2.3\\\"\")"));
+}
+
 TEST_CASE("CMake package integrations are generated dependency first")
 {
     CompositionGraphData data{};

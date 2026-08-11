@@ -277,6 +277,7 @@ namespace NGIN::CLI
                 AddError(result.diagnostics, "NGIN7104",
                          "selected CMake adapter cannot represent C++ module item '" + item.path + "'");
             auto value = item.path;
+            if (item.kind == "Define" && item.value.has_value()) value += "=" + *item.value;
             const auto pathItem = item.kind == "Source" || item.kind == "Header" || item.kind == "CxxModule" ||
                                   item.kind == "Resource" || item.kind == "IncludeDirectory" ||
                                   item.kind == "PrecompiledHeader";

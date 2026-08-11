@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 import {
   createBrowseConfiguration,
+  createFallbackConfiguration,
   createSourceConfiguration,
   parseCompileCommands,
   selectCompileCommand,
@@ -235,6 +236,16 @@ test('compile command parsing preserves escaped definition quotes and following 
   assert.equal(configuration.compilerPath, compiler);
   assert.deepEqual(configuration.defines, ['NGIN_PLATFORM="Windows"']);
   assert.deepEqual(configuration.includePath, [include]);
+});
+
+test('fallback configuration preserves graph define values', () => {
+  const value = graph();
+  value.buildItems.push({
+    identity: 'Define:APP_VERSION', kind: 'Define', path: 'APP_VERSION', value: '"1.2.3"'
+  });
+  assert.deepEqual(createFallbackConfiguration(value, path.resolve('project')).defines, [
+    'APP=1', 'APP_VERSION="1.2.3"'
+  ]);
 });
 
 test('headers use the closest compile command and browse paths are aggregated', () => {
