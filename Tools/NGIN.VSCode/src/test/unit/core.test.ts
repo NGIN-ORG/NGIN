@@ -14,12 +14,16 @@ import { dependencyLockPath, lifecycleArguments } from '../../core/commandArgume
 import { parseActionDiagnostics } from '../../core/actionDiagnostics';
 import { parseCliDiagnostics, parseCompilerDiagnostics } from '../../core/diagnostics';
 import { projectsForFile } from '../../core/projectOwnership';
-import { createNativeDebugConfiguration } from '../../core/debugConfiguration';
+import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../../core/debugConfiguration';
 import { displayOptionValue, parseCompositionGraph } from '../../core/graph';
 import { insertBuildItem, kindForPath, updateExactBuildItemPaths, updateProjectAttributes } from '../../core/manifestEdits';
 import { parseAttributes, parseWorkspaceChoices, parseWorkspaceProjectRules } from '../../core/manifestText';
 import { compileCommandsPath, contextKey, isWithin, projectOutputDirectory, safePathComponent } from '../../core/paths';
 import { enumerateProjectFiles } from '../../core/projectFiles';
+import { createProjectTemplate } from '../../core/projectTemplates';
+import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
+import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
+import { projectCanLaunch } from '../../core/projectCapabilities';
 import type { CompositionGraph, NginContext, ProjectCandidate } from '../../model';
 
 function graph(): CompositionGraph {
@@ -186,6 +190,16 @@ test('structured Action diagnostics retain source, rule, and precise range', () 
   assert.equal(envelope.diagnostics[0].code, 'readability-magic-numbers');
   assert.equal(envelope.diagnostics[0].range.start.column, 16);
   assert.throws(() => parseActionDiagnostics('{"kind":"wrong"}'), /invalid Action diagnostics envelope/);
+  const withFix = parseActionDiagnostics(JSON.stringify({
+    kind: 'NGIN.ActionDiagnostics', state: 'complete', diagnostics: [{
+      file: 'main.cpp', range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+      severity: 'warning', source: 'Example', message: 'replace value',
+      fixes: [{ title: 'Replace value', safe: true, edits: [{
+        range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } }, text: 'x'
+      }] }]
+    }]
+  }));
+  assert.equal(withFix.diagnostics[0].fixes?.[0].title, 'Replace value');
 });
 
 test('source ownership prefers the deepest project and exposes true ambiguities', () => {
@@ -222,6 +236,22 @@ test('native debug configuration uses staged graph launch intent', () => {
   assert.match(configuration.environment.find(item => item.name === 'PATH')?.value ?? '', /stage[\\/]lib;existing$/);
 });
 
+test('native test debugging uses TestPlan arguments without a Launch definition', () => {
+  const root = path.resolve('workspace');
+  const context: NginContext = {
+    workspaceFolder: root, projectManifest: path.join(root, 'Tests.nginproj'), projectName: 'Tests',
+    configuration: 'Debug', target: 'host', toolchain: 'default', options: {}, outputDirectory: path.join(root, 'build')
+  };
+  const value = graph();
+  value.product.type = 'Test';
+  value.testing = { identity: 'Tests:Testing', arguments: ['--reporter', 'console'] };
+  const configuration = createNativeTestDebugConfiguration(value, context, path.join(root, 'build', 'stage', 'bin', 'Tests.exe'), {
+    args: ['--filter', 'smoke']
+  }, 'win32', ';');
+  assert.deepEqual(configuration.args, ['--reporter', 'console', '--filter', 'smoke']);
+  assert.equal(configuration.cwd, path.join(root, 'build', 'stage'));
+});
+
 test('project files distinguish graph membership and physical boundaries', async () => {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'ngin-vscode-'));
   try {
@@ -230,7 +260,9 @@ test('project files distinguish graph membership and physical boundaries', async
     await fs.writeFile(path.join(root, 'App.nginproj'), '<Project Name="App" Type="Application" />');
     await fs.writeFile(path.join(root, 'src', 'main.cpp'), 'int main() {}');
     await fs.writeFile(path.join(root, 'src', 'unused.cpp'), '');
+    await fs.writeFile(path.join(root, '.env'), 'MODE=development');
     await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Project Name="Nested" Type="Library" />');
+    await fs.writeFile(path.join(root, 'Nested', 'README.md'), '# Nested');
     const value = graph();
     value.buildItems.push(
       { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
@@ -251,8 +283,71 @@ test('project files distinguish graph membership and physical boundaries', async
     const physicalAll = flatten(physicalOnly);
     assert.equal(physicalAll.find(item => item.name === 'App.nginproj')?.state, 'authored');
     assert.equal(physicalAll.find(item => item.name === 'main.cpp')?.state, 'unselected');
+    assert.equal(physicalAll.find(item => item.name === '.env')?.state, 'unselected');
     assert.equal(physicalAll.some(item => item.name === 'missing.hpp'), false);
+
+    const filesView = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'), undefined, 5000, false);
+    const filesViewAll = flatten(filesView);
+    assert.equal(filesViewAll.find(item => item.name === 'README.md')?.relativePath, 'Nested/README.md');
+    assert.equal(filesViewAll.find(item => item.name === 'Nested')?.state, 'unselected');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('project templates use the direct product model', () => {
+  const app = createProjectTemplate('Hello.App', 'Application');
+  assert.match(app.manifest, /<Project Name="Hello\.App" Type="Application">/);
+  assert.match(app.manifest, /<Launch Name="default"/);
+  assert.ok(app.files['src/main.cpp']);
+  const library = createProjectTemplate('Math', 'Library');
+  assert.match(library.manifest, /Linkage="Static"/);
+  assert.ok(library.files['include/Math/Math.hpp']);
+  assert.doesNotMatch(createProjectTemplate('Legacy', 'External').manifest, /<Build>/);
+});
+
+test('manifest metadata choices are consumed without editor-side fallbacks', () => {
+  const metadata = {
+    namespaces: [],
+    elements: [{
+      id: 'project.root', name: 'Project', namespace: '', documentation: '', children: [],
+      attributes: [{ name: 'Type', type: 'enumeration', required: true, values: ['Application', 'Library'] }]
+    }]
+  };
+  assert.deepEqual(attributeChoices(metadata, 'project.root', 'Type'), ['Application', 'Library']);
+  assert.deepEqual(attributeChoices(metadata, 'project.root', 'Linkage'), []);
+  const generated = loadManifestMetadata(path.resolve('schemas', 'manifest-editor-metadata.json'));
+  assert.deepEqual(attributeChoices(generated, 'project.root', 'Linkage'), ['Static', 'Shared', 'Interface']);
+  assert.equal(attributeChoices(generated, 'project.root', 'Type').includes('Module'), false);
+});
+
+test('incompatible CLI selection options produce an actionable diagnosis', () => {
+  const result = {
+    command: 'C:\\Program Files\\NGIN\\ngin.exe',
+    args: ['graph', '--workspace', 'NGIN.ngin'], cwd: '.', exitCode: 1, stdout: '',
+    stderr: 'error: unknown option: --workspace', diagnostics: []
+  };
+  assert.equal(unsupportedSelectionOption(result), '--workspace');
+  assert.match(describeCliFailure(result), /incompatible with this version of NGIN Tools/u);
+  assert.match(describeCliFailure(result), /NGIN: Executable setting/u);
+});
+
+test('a failed graph remains stable until an explicit refresh', () => {
+  assert.equal(shouldLoadGraph(undefined, undefined), true);
+  assert.equal(shouldLoadGraph(graph(), undefined), false);
+  assert.equal(shouldLoadGraph(undefined, 'unknown option: --workspace'), false);
+});
+
+test('Run and Debug require Launch intent', () => {
+  const library: ProjectCandidate = {
+    manifest: 'Shared.nginproj', directory: '.', name: 'Shared', type: 'Library', hasLaunch: false
+  };
+  const application: ProjectCandidate = {
+    manifest: 'App.nginproj', directory: '.', name: 'App', type: 'Application', hasLaunch: true
+  };
+  assert.equal(projectCanLaunch(library), false);
+  assert.equal(projectCanLaunch(application), true);
+  const resolved = graph();
+  resolved.launches = [];
+  assert.equal(projectCanLaunch(application, resolved, application.manifest), false);
 });

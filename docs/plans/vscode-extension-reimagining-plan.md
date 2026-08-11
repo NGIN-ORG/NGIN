@@ -42,19 +42,20 @@ source context and presents results; it does not duplicate NGIN resolution.
 - Project tooling requires one explicit enable decision.
 - Approved tooling creates and reuses the selected output's dependency lock.
 - Stale locks produce a refresh action rather than an implicit bypass.
-- Explicit Enable Project Tooling and Lock Dependencies commands remain
+- Explicit Enable Analyzers and Formatters and Lock Dependencies commands remain
   available.
 
 ### Project and file context
 
 - One Projects view replaces duplicated Solution and Active Project views.
-- Project tree expansion shows the project's file hierarchy for focused
-  navigation; it does not select a global context.
+- Project tree expansion shows semantic product files, dependencies, launches,
+  tooling, generated inputs, nested projects, and issues; it does not select a
+  global context.
 - The normal Explorer remains available for workspace-wide filesystem
   navigation.
-- The pinned Build/Run target is independent from the project owning the
+- The default fallback project is independent from the project owning the
   active source file.
-- File commands and F5 use source ownership first and the pinned target as a
+- File commands and F5 use source ownership first and the default project as a
   fallback.
 - Equally specific ownership is chosen once and remembered.
 - Configuration, target, toolchain, and options are remembered per project.
@@ -68,13 +69,20 @@ source context and presents results; it does not duplicate NGIN resolution.
 - Project rows expose only Build, Run, and Debug inline. Lifecycle, Test,
   Analyze, tooling, dependency, and advanced operations are project context
   actions rather than child rows.
-- Project expansion exposes physical files together with selected, generated,
-  missing, external, and nested-project composition state.
-- Graph internals are under collapsed Composition Details and explicit
+- Project expansion exposes selected product files together with generated,
+  missing, external, and nested-project composition state. The native Explorer
+  remains the physical workspace browser.
+- Graph internals are under collapsed Advanced composition and explicit
   inspect/explain commands.
-- The status bar shows only the pinned project and Configuration.
-- The dashboard reports readiness, last analysis, launches, packages, and
-  build inputs rather than duplicating the graph tree.
+- The status bar shows one effective project and Configuration, distinguishing
+  active-file ownership from the default fallback.
+- The accessible dashboard reports actionable readiness, selection, last
+  analysis, launches, packages, and build inputs without replacing its DOM on
+  every state change.
+- Native welcome content and one walkthrough cover setup, project creation,
+  build/debug, and trusted tooling.
+- Analyzer and manifest diagnostics expose Quick Fix actions, and test-capable
+  projects participate in VS Code's native Testing view.
 
 ### Configure, build, and debug
 

@@ -77,3 +77,38 @@ export function createNativeDebugConfiguration(
     ...(configuredDebugger ? { miDebuggerPath: configuredDebugger } : {})
   };
 }
+
+export function createNativeTestDebugConfiguration(
+  graph: CompositionGraph,
+  context: NginContext,
+  program: string,
+  overrides: NativeDebugOverrides,
+  platform: NodeJS.Platform = process.platform,
+  pathDelimiter: string = path.delimiter,
+  configuredDebugger = ''
+): NativeDebugConfiguration {
+  if (!graph.testing && graph.product.type !== 'Test') {
+    throw new Error(`${graph.product.name} does not declare testing intent.`);
+  }
+  const stage = stageDirectory(context);
+  const runtimeVariable = graph.selection.targetOperatingSystem === 'windows'
+    ? 'PATH'
+    : graph.selection.targetOperatingSystem === 'macos' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH';
+  const environment = [{ name: runtimeVariable, value: path.join(stage, 'lib') }];
+  const common = {
+    ...overrides,
+    request: 'launch' as const,
+    name: overrides.name || `NGIN: Debug tests for ${graph.product.name}`,
+    program,
+    cwd: stage,
+    args: [...(graph.testing?.arguments ?? []), ...(overrides.args ?? [])],
+    environment,
+    stopAtEntry: overrides.stopAtEntry ?? false
+  };
+  delete common.launch;
+  if (platform === 'win32') return { ...common, type: 'cppvsdbg' };
+  return {
+    ...common, type: 'cppdbg', MIMode: platform === 'darwin' ? 'lldb' : 'gdb',
+    ...(configuredDebugger ? { miDebuggerPath: configuredDebugger } : {})
+  };
+}

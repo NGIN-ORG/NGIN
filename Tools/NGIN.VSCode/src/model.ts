@@ -47,6 +47,7 @@ export interface ProjectCandidate {
   hasAnalyze?: boolean;
   hasFormat?: boolean;
   hasTesting?: boolean;
+  hasLaunch?: boolean;
 }
 
 export interface ActionDiagnosticPoint {
@@ -61,7 +62,19 @@ export interface ActionDiagnostic {
   source: string;
   code?: string;
   message: string;
-  fixes?: unknown[];
+  fixes?: ActionDiagnosticFix[];
+}
+
+export interface ActionDiagnosticFixEdit {
+  file?: string;
+  range: { start: ActionDiagnosticPoint; end: ActionDiagnosticPoint };
+  text: string;
+}
+
+export interface ActionDiagnosticFix {
+  title: string;
+  safe?: boolean;
+  edits: ActionDiagnosticFixEdit[];
 }
 
 export interface ActionDiagnosticsEnvelope {
@@ -171,6 +184,11 @@ export interface GraphLaunch extends GraphNamedNode {
   secrets?: Record<string, string>;
 }
 
+export interface GraphTesting extends GraphNamedNode {
+  arguments?: string[];
+  timeoutSeconds?: number;
+}
+
 export interface GraphEdge {
   identity: string;
   from: string;
@@ -193,7 +211,7 @@ export interface CompositionGraph {
   contributions: GraphNamedNode[];
   buildItems: GraphBuildItem[];
   launches: GraphLaunch[];
-  testing: GraphNamedNode | null;
+  testing: GraphTesting | null;
   publishes: GraphNamedNode[];
   edges: GraphEdge[];
 }
@@ -213,6 +231,7 @@ export interface ContextSnapshot {
   graph?: CompositionGraph;
   graphError?: string;
   busy?: string;
+  busyProjectManifest?: string;
   configured?: boolean;
   lastOperation?: { projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; message?: string };
 }

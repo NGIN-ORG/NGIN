@@ -313,7 +313,13 @@ namespace NGIN::CLI
                     if (attributeIndex != 0) out << ", ";
                     out << "{\"name\": " << JsonEscape(attribute.name) << ", \"type\": "
                         << JsonEscape(ManifestValueKindName(attribute.valueKind)) << ", \"required\": "
-                        << (attribute.required ? "true" : "false") << "}";
+                        << (attribute.required ? "true" : "false") << ", \"values\": [";
+                    for (std::size_t valueIndex = 0; valueIndex < attribute.allowedValues.size(); ++valueIndex)
+                    {
+                        if (valueIndex != 0) out << ", ";
+                        out << JsonEscape(attribute.allowedValues[valueIndex]);
+                    }
+                    out << "], \"documentation\": " << JsonEscape(attribute.documentation) << "}";
                 }
                 out << "], \"children\": [";
                 for (std::size_t childIndex = 0; childIndex < element.children.size(); ++childIndex)

@@ -1,31 +1,5 @@
-import { readFileSync } from 'node:fs';
 import * as vscode from 'vscode';
-
-interface MetadataAttribute {
-  name: string;
-  type: string;
-  required: boolean;
-}
-
-interface MetadataChild {
-  id: string;
-  min: number;
-  max: number | null;
-}
-
-interface MetadataElement {
-  id: string;
-  name: string;
-  namespace: string;
-  documentation: string;
-  attributes: MetadataAttribute[];
-  children: MetadataChild[];
-}
-
-interface ManifestEditorMetadata {
-  namespaces: Array<{ uri: string; prefix: string }>;
-  elements: MetadataElement[];
-}
+import { loadManifestMetadata, type MetadataElement } from './core/manifestMetadata';
 
 function activeElementId(document: vscode.TextDocument, position: vscode.Position,
                          roots: Map<string, string>, elements: Map<string, MetadataElement>): string | undefined {
@@ -57,7 +31,7 @@ function activeElementId(document: vscode.TextDocument, position: vscode.Positio
 
 export function registerManifestCompletion(context: vscode.ExtensionContext): vscode.Disposable {
   const metadataPath = vscode.Uri.joinPath(context.extensionUri, 'schemas', 'manifest-editor-metadata.json').fsPath;
-  const metadata = JSON.parse(readFileSync(metadataPath, 'utf8')) as ManifestEditorMetadata;
+  const metadata = loadManifestMetadata(metadataPath);
   const elements = new Map(metadata.elements.map((element) => [element.id, element]));
   const roots = new Map(
     metadata.elements
@@ -73,7 +47,17 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
         const line = document.lineAt(position.line).text.slice(0, position.character);
         const currentId = activeElementId(document, position, roots, elements);
         const current = currentId ? elements.get(currentId) : undefined;
-        if (!current) {
+        const openTagStart = line.lastIndexOf('<');
+        const openTagEnd = line.lastIndexOf('>');
+        const incompleteName = openTagStart > openTagEnd
+          ? /^<([A-Za-z_:][\w:.-]*)/u.exec(line.slice(openTagStart))?.[1] : undefined;
+        const incompleteLocalName = incompleteName?.includes(':')
+          ? incompleteName.slice(incompleteName.indexOf(':') + 1) : incompleteName;
+        const attributeElement = incompleteName
+          ? elements.get(roots.get(incompleteName) ?? '')
+            ?? current?.children.map(child => elements.get(child.id)).find(child => child?.name === incompleteLocalName)
+          : current;
+        if (!current && !attributeElement) {
           if (!line.endsWith('<')) return [];
           return [...roots.entries()].map(([name]) => {
             const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
@@ -82,11 +66,19 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
           });
         }
 
-        const openTagStart = line.lastIndexOf('<');
-        const openTagEnd = line.lastIndexOf('>');
         if (openTagStart > openTagEnd && !line.slice(openTagStart).startsWith('</')) {
+          const valueMatch = /([A-Za-z_][\w:.-]*)\s*=\s*["'][^"']*$/u.exec(line.slice(openTagStart));
+          if (valueMatch) {
+            const attribute = attributeElement?.attributes.find(candidate => candidate.name === valueMatch[1]);
+            return (attribute?.values ?? []).map(value => {
+              const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
+              item.detail = `${attribute?.name} value from the NGIN manifest schema`;
+              item.insertText = value;
+              return item;
+            });
+          }
           const existing = new Set([...line.slice(openTagStart).matchAll(/([A-Za-z_][\w:.-]*)\s*=/g)].map(match => match[1]));
-          return current.attributes.filter(attribute => !existing.has(attribute.name)).map((attribute) => {
+          return (attributeElement?.attributes ?? []).filter(attribute => !existing.has(attribute.name)).map((attribute) => {
             const item = new vscode.CompletionItem(attribute.name, vscode.CompletionItemKind.Property);
             item.detail = `${attribute.required ? 'required' : 'optional'} ${attribute.type} attribute`;
             item.insertText = new vscode.SnippetString(`${attribute.name}="\${1}"`);
@@ -94,6 +86,7 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
           });
         }
         if (!line.endsWith('<')) return [];
+        if (!current) return [];
         return current.children.flatMap((childReference) => {
           const child = elements.get(childReference.id);
           if (!child) return [];
@@ -111,7 +104,7 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
         });
       }
     },
-    '<', ' '
+    '<', ' ', '"', "'"
   );
 
   const hover = vscode.languages.registerHoverProvider({ language: 'ngin', scheme: 'file' }, {
@@ -132,6 +125,8 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
       const markdown = new vscode.MarkdownString();
       if (attribute) {
         markdown.appendMarkdown(`**${attribute.name}** · ${attribute.type}${attribute.required ? ' · required' : ''}`);
+        if (attribute.values?.length) markdown.appendMarkdown(`\n\nAllowed values: ${attribute.values.map(value => `\`${value}\``).join(', ')}`);
+        if (attribute.documentation) markdown.appendMarkdown(`\n\n${attribute.documentation}`);
       } else if (word === localName || word === tagName) {
         const documented = candidates.find(element => element.documentation)?.documentation;
         markdown.appendMarkdown(`**${tagName}**`);

@@ -54,6 +54,8 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   private readonly jobsByProject = new Map<string, Promise<void>>();
   private readonly graphCache = new Map<string, ReturnType<typeof parseCompositionGraph>>();
   private readonly summaries = new Map<string, AnalysisSummary>();
+  private readonly actionDiagnosticsByFile = new Map<string, ActionDiagnostic[]>();
+  private readonly promptedThisSession = new Set<string>();
   private readonly changed = new vscode.EventEmitter<string>();
   readonly onDidChange = this.changed.event;
 
@@ -93,6 +95,15 @@ export class SourceAnalysisProvider implements vscode.Disposable {
     return this.summaries.get(projectManifest) ?? { state: 'idle', diagnostics: 0 };
   }
 
+  actionDiagnostics(uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[]): ActionDiagnostic[] {
+    const values = this.actionDiagnosticsByFile.get(path.resolve(uri.fsPath)) ?? [];
+    if (!diagnostics.length) return values;
+    return values.filter(value => diagnostics.some(diagnostic =>
+      diagnostic.source === value.source
+      && diagnostic.message === value.message
+      && String(diagnostic.code ?? '') === String(value.code ?? '')));
+  }
+
   invalidate(projectManifest?: string): void {
     if (projectManifest) this.graphCache.delete(projectManifest);
     else this.graphCache.clear();
@@ -129,6 +140,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
     if (timer) clearTimeout(timer);
     this.timers.delete(key);
     this.diagnostics.delete(document.uri);
+    this.actionDiagnosticsByFile.delete(path.resolve(document.uri.fsPath));
   }
 
   contextForProject(project: ProjectCandidate): NginContext {
@@ -175,15 +187,21 @@ export class SourceAnalysisProvider implements vscode.Disposable {
     const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
     if (consent[context.projectManifest] === false) return false;
     if (consent[context.projectManifest] !== true) {
+      if (this.promptedThisSession.has(context.projectManifest)) return false;
+      this.promptedThisSession.add(context.projectManifest);
       const answer = await vscode.window.showInformationMessage(
-        `Enable verified project tooling for ${context.projectName}? NGIN will create and reuse a dependency lock for declared analyzers and formatters.`,
-        { modal: true },
-        'Enable Project Tooling'
+        `${context.projectName} provides analyzers and formatters. Enable them for this workspace?`,
+        'Enable Analyzers and Formatters',
+        'Not Now',
+        "Don't Ask Again"
       );
-      const enabled = answer === 'Enable Project Tooling';
-      await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [context.projectManifest]: enabled });
+      const enabled = answer === 'Enable Analyzers and Formatters';
+      if (enabled) await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [context.projectManifest]: true });
+      if (answer === "Don't Ask Again") {
+        await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [context.projectManifest]: false });
+      }
       if (!enabled) {
-        this.setSummary(context.projectManifest, { state: 'disabled', diagnostics: 0 });
+        this.setSummary(context.projectManifest, { state: 'disabled', diagnostics: 0, message: 'Analyzers are not enabled' });
         return false;
       }
     }
@@ -228,16 +246,23 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       list.push(vscodeDiagnostic(value));
       grouped.set(file, list);
     }
-    if (replaceAll) this.diagnostics.clear();
-    for (const [file, diagnostics] of grouped) this.diagnostics.set(vscode.Uri.file(file), diagnostics);
+    if (replaceAll) {
+      this.diagnostics.clear();
+      this.actionDiagnosticsByFile.clear();
+    }
+    for (const [file, diagnostics] of grouped) {
+      this.diagnostics.set(vscode.Uri.file(file), diagnostics);
+      this.actionDiagnosticsByFile.set(file, values.filter(value => path.resolve(value.file) === file));
+    }
   }
 
-  private async executeNow(context: NginContext, files: string[], replaceAll: boolean): Promise<void> {
+  private async executeNow(context: NginContext, files: string[], replaceAll: boolean, announceFailures: boolean): Promise<void> {
     if (!await this.ensureTooling(context)) return;
     try {
       const values = await this.run(context, files);
       if (files.length === 1 && !values.some(value => path.resolve(value.file) === path.resolve(files[0]))) {
         this.diagnostics.delete(vscode.Uri.file(files[0]));
+        this.actionDiagnosticsByFile.delete(path.resolve(files[0]));
       }
       this.publish(values, replaceAll);
       this.setSummary(context.projectManifest, {
@@ -252,26 +277,30 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         );
         if (answer === 'Refresh Tooling Lock') {
           await this.createLock(context);
-          return this.executeNow(context, files, replaceAll);
+          return this.executeNow(context, files, replaceAll, announceFailures);
         }
       }
       this.setSummary(context.projectManifest, {
         state: 'failed', diagnostics: this.summary(context.projectManifest).diagnostics,
         message: error instanceof Error ? error.message : String(error)
       });
-      if (!/cancel/iu.test(error instanceof Error ? error.message : String(error))) {
+      if (announceFailures && !/cancel/iu.test(error instanceof Error ? error.message : String(error))) {
         this.cli.showOutput();
-        void vscode.window.showErrorMessage(`NGIN analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+        const action = await vscode.window.showErrorMessage(
+          `Analysis failed for ${context.projectName}. Check NGIN Output for details.`,
+          'Show Output'
+        );
+        if (action === 'Show Output') this.cli.showOutput();
       }
     }
   }
 
-  private async execute(context: NginContext, files: string[], replaceAll: boolean): Promise<void> {
+  private async execute(context: NginContext, files: string[], replaceAll: boolean, announceFailures: boolean): Promise<void> {
     this.activeByProject.get(context.projectManifest)?.cancel();
     const previous = this.jobsByProject.get(context.projectManifest);
     const job = (async () => {
       if (previous) await previous.catch(() => undefined);
-      await this.executeNow(context, files, replaceAll);
+      await this.executeNow(context, files, replaceAll, announceFailures);
     })();
     this.jobsByProject.set(context.projectManifest, job);
     try {
@@ -299,7 +328,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         this.diagnostics.delete(document.uri);
         return;
       }
-      await this.execute(context, [document.uri.fsPath], false);
+      await this.execute(context, [document.uri.fsPath], false, false);
     } catch (error) {
       this.setSummary(context.projectManifest, { state: 'failed', diagnostics: 0, message: error instanceof Error ? error.message : String(error) });
     }
@@ -307,21 +336,22 @@ export class SourceAnalysisProvider implements vscode.Disposable {
 
   async analyzeProject(project?: ProjectCandidate): Promise<void> {
     const selected = project ?? this.controller.activeProject;
-    if (!selected) throw new Error('No NGIN build target is selected.');
+    if (!selected) throw new Error('No NGIN project is selected.');
     const context = this.contextForProject(selected);
     const graph = await this.graph(context);
     if (!graph.actions.some(action => action.kind === 'Analyze')) {
       void vscode.window.showInformationMessage(`${selected.name} declares no Analyze tooling.`);
       return;
     }
-    await this.execute(context, [], true);
+    await this.execute(context, [], true, true);
   }
 
   async enableProjectTooling(project?: ProjectCandidate): Promise<void> {
     const selected = project ?? this.controller.activeProject;
-    if (!selected) throw new Error('No NGIN Build target is selected.');
+    if (!selected) throw new Error('No NGIN project is selected.');
     const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
     await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [selected.manifest]: true });
+    this.promptedThisSession.add(selected.manifest);
     const context = this.contextForProject(selected);
     await this.createLock(context);
     this.setSummary(selected.manifest, { state: 'idle', diagnostics: 0, message: 'Project tooling enabled' });

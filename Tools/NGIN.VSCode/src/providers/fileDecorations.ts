@@ -10,19 +10,27 @@ function key(value: string): string {
 export class NginFileDecorationProvider implements vscode.FileDecorationProvider, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   readonly onDidChangeFileDecorations = this.changed.event;
-  private readonly subscription: vscode.Disposable;
+  private readonly subscriptions: vscode.Disposable[];
 
   constructor(private readonly controller: NginController) {
-    this.subscription = controller.onDidChange(() => this.changed.fire(undefined));
+    this.subscriptions = [
+      controller.onDidChange(() => this.changed.fire(undefined)),
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('ngin.decorations.mode')) this.changed.fire(undefined);
+      })
+    ];
   }
 
   provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
     if (uri.scheme !== 'file') return undefined;
+    const mode = vscode.workspace.getConfiguration('ngin').get<string>('decorations.mode', 'minimal');
+    if (mode === 'off') return undefined;
     const owners = this.controller.projectsForFile(uri.fsPath);
     if (owners.length === 0) return undefined;
     const context = this.controller.snapshot.context;
     const graph = this.controller.snapshot.graph;
     if (!context || !graph || !owners.some(owner => owner.manifest === context.projectManifest)) {
+      if (mode !== 'detailed') return undefined;
       return { badge: 'N', tooltip: `Owned by ${owners.map(owner => owner.name).join(', ')}`, propagate: false };
     }
     const projectDirectory = path.dirname(context.projectManifest);
@@ -33,13 +41,15 @@ export class NginFileDecorationProvider implements vscode.FileDecorationProvider
       return { badge: 'G', tooltip: 'Generated NGIN build input', color: new vscode.ThemeColor('charts.purple'), propagate: false };
     }
     if (item) {
+      if (mode !== 'detailed') return undefined;
       return { badge: '✓', tooltip: `${item.kind} included in ${graph.product.name}`, color: new vscode.ThemeColor('testing.iconPassed'), propagate: false };
     }
+    if (mode !== 'detailed') return undefined;
     return { badge: '–', tooltip: `Not selected by ${graph.product.name}`, color: new vscode.ThemeColor('disabledForeground'), propagate: false };
   }
 
   dispose(): void {
-    this.subscription.dispose();
+    this.subscriptions.forEach(subscription => subscription.dispose());
     this.changed.dispose();
   }
 }

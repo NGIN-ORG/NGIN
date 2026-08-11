@@ -9,16 +9,18 @@ export async function run(): Promise<void> {
   assert.equal(extension.isActive, true);
 
   const commands = await vscode.commands.getCommands(true);
-  for (const command of ['ngin.switchBuildTarget', 'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.debug', 'ngin.lock', 'ngin.analyzeFile', 'ngin.revealOwningProject', 'ngin.showGraph', 'ngin.openDashboard']) {
+  for (const command of ['ngin.setDefaultProject', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.lock', 'ngin.analyzeFile', 'ngin.revealOwningProject', 'ngin.showGraph', 'ngin.openDashboard']) {
     assert.ok(commands.includes(command), `${command} is registered`);
   }
 
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   assert.ok(workspace, 'test workspace is open');
+  await vscode.commands.executeCommand('ngin.showFilesView');
+  await vscode.commands.executeCommand('ngin.showProjectView');
   const manifest = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Native', 'Hello.Native.nginproj'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest));
   await vscode.commands.executeCommand('ngin.refresh');
-  await vscode.commands.executeCommand('ngin.switchBuildTarget', {
+  await vscode.commands.executeCommand('ngin.setDefaultProject', {
     manifest: manifest.fsPath,
     directory: path.dirname(manifest.fsPath),
     name: 'Hello.Native',
@@ -34,8 +36,24 @@ export async function run(): Promise<void> {
   assert.ok(tasks.some(task => task.definition.command === 'build'), 'active project supplies a build task');
 
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest));
+  const manifestDocument = vscode.window.activeTextEditor!.document;
+  const typeOffset = manifestDocument.getText().indexOf('Type="') + 'Type="'.length;
+  const completion = await vscode.commands.executeCommand<vscode.CompletionList>(
+    'vscode.executeCompletionItemProvider', manifest, manifestDocument.positionAt(typeOffset), '"'
+  );
+  assert.ok(completion.items.some(item => item.label === 'Application'));
+  assert.ok(completion.items.some(item => item.label === 'Library'));
   const valid = await vscode.commands.executeCommand<boolean>('ngin.validate');
   assert.equal(valid, true);
+
+  const staleManifest = await vscode.workspace.openTextDocument({
+    language: 'ngin', content: '<Project Name="Legacy" Type="Module" Linkage="HeaderOnly" />'
+  });
+  const fixes = await vscode.commands.executeCommand<(vscode.CodeAction | vscode.Command)[]>(
+    'vscode.executeCodeActionProvider', staleManifest.uri, new vscode.Range(0, 0, 0, staleManifest.getText().length)
+  );
+  assert.ok(fixes.some(fix => fix.title === 'Change product type to Library'));
+  assert.ok(fixes.some(fix => fix.title === 'Change library linkage to Interface'));
 
   const analyzerManifest = path.join(workspace, 'Examples', 'Hello.Analyzer', 'Hello.Analyzer.nginproj');
   const analyzerProject = {

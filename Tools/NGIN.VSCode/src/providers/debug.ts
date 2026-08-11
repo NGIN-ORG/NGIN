@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
-import { createNativeDebugConfiguration } from '../core/debugConfiguration';
+import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../core/debugConfiguration';
 import { stagedExecutablePath } from '../core/paths';
 import type { SourceAnalysisProvider } from './sourceAnalysis';
 
@@ -14,6 +14,7 @@ interface NginDebugConfiguration extends vscode.DebugConfiguration {
   args?: string[];
   launch?: string;
   preStage?: boolean;
+  test?: boolean;
 }
 
 async function fileExists(candidate: string): Promise<boolean> {
@@ -51,7 +52,7 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       : activeOwner ?? this.controller.activeProject;
     if (!project) throw new Error(configuration.project
       ? `NGIN debug project is not discovered: ${configuration.project}`
-      : 'No NGIN project owns the active source file and no Build target is pinned.');
+      : 'No NGIN project owns the active source file and no project is selected.');
     const context = this.controller.contextForProject(project, {
       configuration: configuration.configuration,
       target: configuration.target,
@@ -69,7 +70,7 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       if (!staged) return undefined;
     }
 
-    if (!configuration.launch && graph.launches.length > 1) {
+    if (!configuration.test && !configuration.launch && graph.launches.length > 1) {
       const remembered = this.extensionContext.workspaceState.get<Record<string, string>>('ngin.debugLaunches', {})[project.manifest];
       configuration.launch = graph.launches.find(launch => (launch.name ?? launch.identity) === remembered)
         ? remembered
@@ -86,6 +87,10 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       throw new Error(`The staged executable was not found at ${program}. Run NGIN: Stage and inspect the NGIN output.`);
     }
     const configuredDebugger = vscode.workspace.getConfiguration('ngin').get<string>('debug.miDebuggerPath', '').trim();
+    if (configuration.test) {
+      return createNativeTestDebugConfiguration(
+        graph, context, program, configuration, process.platform, path.delimiter, configuredDebugger);
+    }
     return createNativeDebugConfiguration(graph, context, program, configuration, process.platform, path.delimiter, configuredDebugger);
   }
 }

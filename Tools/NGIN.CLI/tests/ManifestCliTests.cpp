@@ -1,6 +1,7 @@
 #include "AuthoredManifest.hpp"
 #include "ActionDiagnostics.hpp"
 #include "ManifestCli.hpp"
+#include "ManifestArtifacts.hpp"
 #include "ManifestFormatter.hpp"
 #include "ManifestPaths.hpp"
 #include "PackageModel.hpp"
@@ -100,6 +101,15 @@ TEST_CASE("Action diagnostics preserve tool identity and source ranges as struct
     CHECK_THAT(json, ContainsSubstring(R"("state":"complete")"));
     CHECK_THAT(json, ContainsSubstring(R"("line":8)"));
     CHECK_THAT(json, ContainsSubstring(R"("fixes":[])"));
+}
+
+TEST_CASE("editor metadata carries authoritative enumeration choices")
+{
+    const auto metadata = GenerateManifestArtifacts().at("manifest-editor-metadata.json");
+    CHECK_THAT(metadata, ContainsSubstring(R"("name": "Type", "type": "enumeration", "required": true, "values": ["Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "External"])"));
+    CHECK_THAT(metadata, ContainsSubstring(R"("name": "Linkage", "type": "enumeration", "required": false, "values": ["Static", "Shared", "Interface"])"));
+    CHECK_THAT(metadata, !ContainsSubstring(R"("Module")"));
+    CHECK_THAT(metadata, !ContainsSubstring(R"("HeaderOnly")"));
 }
 
 TEST_CASE("portable path and glob authoring is rooted deterministic and "

@@ -33,6 +33,7 @@ async function candidateFromUri(
       hasAnalyze: /<Analyze\b/u.test(source),
       hasFormat: /<Format\b/u.test(source),
       hasTesting: /<Testing\b/u.test(source) || identity.type === 'Test',
+      hasLaunch: /<Launch\b/u.test(source),
       workspaceManifest,
       workspaceChoices
     };

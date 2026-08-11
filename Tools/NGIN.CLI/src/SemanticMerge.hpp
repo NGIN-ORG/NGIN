@@ -78,7 +78,7 @@ namespace NGIN::CLI
         std::vector<std::string> prerelease{};
 
         [[nodiscard]] friend auto operator==(const SemanticVersion &, const SemanticVersion &) -> bool = default;
-        [[nodiscard]] friend auto operator<=>(const SemanticVersion &left, const SemanticVersion &right)
+        friend auto operator<=>(const SemanticVersion &left, const SemanticVersion &right)
             -> std::strong_ordering;
     };
 

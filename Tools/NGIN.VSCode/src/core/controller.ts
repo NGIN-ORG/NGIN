@@ -14,8 +14,9 @@ import { lifecycleArguments, selectionArguments } from './commandArguments';
 import { discoverAll, chooseInitialProject } from './discovery';
 import { projectsForFile } from './projectOwnership';
 import { parseCompositionGraph } from './graph';
-import { projectOutputDirectory } from './paths';
+import { contextKey, projectOutputDirectory } from './paths';
 import { parseCompilerDiagnostics } from './diagnostics';
+import { shouldLoadGraph } from './cliCompatibility';
 
 interface PersistedSelection {
   projectManifest?: string;
@@ -29,6 +30,21 @@ interface PersistedSelection {
 
 const stateKey = 'ngin.activeSelection';
 
+export interface ExecuteOptions {
+  progress?: boolean;
+  announceFailure?: boolean;
+  token?: vscode.CancellationToken;
+}
+
+function operationLabel(command: string, project: string): string {
+  const verbs: Record<string, string> = {
+    restore: 'Restoring packages', lock: 'Locking dependencies', configure: 'Preparing build files',
+    build: 'Building', stage: 'Staging', run: 'Running', test: 'Testing', publish: 'Publishing',
+    analyze: 'Analyzing', format: 'Formatting'
+  };
+  return `${verbs[command] ?? command} ${project}…`;
+}
+
 export class NginController implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<ContextSnapshot>();
   private readonly disposables: vscode.Disposable[] = [];
@@ -38,11 +54,15 @@ export class NginController implements vscode.Disposable {
   private graphValue?: CompositionGraph;
   private graphErrorValue?: string;
   private busyValue?: string;
+  private busyProjectManifestValue?: string;
   private graphGeneration = 0;
   private configuredValue = false;
   private configurationInvalidatedAt = 0;
   private lastOperationValue?: ContextSnapshot['lastOperation'];
   private projectSelections: Record<string, Omit<PersistedSelection, 'projects' | 'projectManifest'>> = {};
+  private readonly reportedIncompatibleExecutables = new Set<string>();
+  private readonly backgroundGraphCache = new Map<string, CompositionGraph | null>();
+  private readonly backgroundGraphRequests = new Map<string, Promise<CompositionGraph | undefined>>();
 
   readonly onDidChange = this.changed.event;
 
@@ -55,6 +75,7 @@ export class NginController implements vscode.Disposable {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('ngin.executable') || event.affectsConfiguration('ngin.build.outputRoot')) {
+          if (event.affectsConfiguration('ngin.executable')) this.reportedIncompatibleExecutables.clear();
           void this.refreshDiscovery();
         }
       })
@@ -69,7 +90,8 @@ export class NginController implements vscode.Disposable {
   get snapshot(): ContextSnapshot {
     return {
       context: this.contextValue, graph: this.graphValue, graphError: this.graphErrorValue,
-      busy: this.busyValue, configured: this.configuredValue, lastOperation: this.lastOperationValue
+      busy: this.busyValue, busyProjectManifest: this.busyProjectManifestValue,
+      configured: this.configuredValue, lastOperation: this.lastOperationValue
     };
   }
 
@@ -97,6 +119,8 @@ export class NginController implements vscode.Disposable {
 
   async refreshDiscovery(preserveSelection = true): Promise<void> {
     const previous = this.contextValue;
+    this.backgroundGraphCache.clear();
+    this.backgroundGraphRequests.clear();
     this.discoveriesValue = await discoverAll();
     const candidate = preserveSelection
       ? chooseInitialProject(this.discoveriesValue, previous?.projectManifest, vscode.window.activeTextEditor?.document.uri.fsPath)
@@ -278,29 +302,46 @@ export class NginController implements vscode.Disposable {
       this.graphErrorValue = message;
       this.configuredValue = false;
       if (error instanceof CliFailure) this.applyDiagnostics(error.result.diagnostics, path.dirname(context.projectManifest));
+      this.reportCliCompatibility(error);
       this.emit();
-      if (announceErrors) void vscode.window.showErrorMessage(message);
+      if (announceErrors) void this.showFailure('load', context.projectName);
       return undefined;
     }
   }
 
   async graphForContext(context: NginContext, announceErrors = false): Promise<CompositionGraph | undefined> {
     if (context.projectManifest === this.contextValue?.projectManifest) {
-      return this.graphValue ?? this.refreshGraph(announceErrors);
+      return shouldLoadGraph(this.graphValue, this.graphErrorValue)
+        ? this.refreshGraph(announceErrors)
+        : this.graphValue;
     }
-    try {
-      const result = await this.cli.run(
-        ['graph', ...selectionArguments(context), '--format', 'json'],
-        context.workspaceFolder,
-        { cwd: path.dirname(context.projectManifest) }
-      );
-      this.applyDiagnostics(result.diagnostics, path.dirname(context.projectManifest));
-      return parseCompositionGraph(result.stdout);
-    } catch (error) {
-      if (error instanceof CliFailure) this.applyDiagnostics(error.result.diagnostics, path.dirname(context.projectManifest));
-      if (announceErrors) void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
-      return undefined;
-    }
+    const key = contextKey(context);
+    if (this.backgroundGraphCache.has(key)) return this.backgroundGraphCache.get(key) ?? undefined;
+    const existing = this.backgroundGraphRequests.get(key);
+    if (existing) return existing;
+    const request = (async (): Promise<CompositionGraph | undefined> => {
+      try {
+        const result = await this.cli.run(
+          ['graph', ...selectionArguments(context), '--format', 'json'],
+          context.workspaceFolder,
+          { cwd: path.dirname(context.projectManifest) }
+        );
+        this.applyDiagnostics(result.diagnostics, path.dirname(context.projectManifest));
+        const graph = parseCompositionGraph(result.stdout);
+        this.backgroundGraphCache.set(key, graph);
+        return graph;
+      } catch (error) {
+        if (error instanceof CliFailure) this.applyDiagnostics(error.result.diagnostics, path.dirname(context.projectManifest));
+        this.backgroundGraphCache.set(key, null);
+        this.reportCliCompatibility(error);
+        if (announceErrors) void this.showFailure('load', context.projectName);
+        return undefined;
+      } finally {
+        this.backgroundGraphRequests.delete(key);
+      }
+    })();
+    this.backgroundGraphRequests.set(key, request);
+    return request;
   }
 
   async validate(announce = true): Promise<boolean> {
@@ -317,13 +358,43 @@ export class NginController implements vscode.Disposable {
         { cwd: path.dirname(manifest) }
       );
       this.applyDiagnostics(result.diagnostics, path.dirname(manifest));
-      if (announce) void vscode.window.showInformationMessage(`${path.basename(manifest)} is valid.`);
+      if (announce) void vscode.window.setStatusBarMessage(`$(pass) ${path.basename(manifest)} is valid`, 3000);
       return true;
     } catch (error) {
       if (error instanceof CliFailure) this.applyDiagnostics(error.result.diagnostics, path.dirname(manifest));
-      if (announce) void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+      if (announce) void this.showFailure('validate', path.basename(manifest));
       return false;
     }
+  }
+
+  private async showFailure(command: string, project: string): Promise<void> {
+    const subject = `${command} ${project}`;
+    const action = await vscode.window.showErrorMessage(
+      `Could not ${subject}. Check Problems or NGIN Output for details.`,
+      'Open Problems',
+      'Show Output'
+    );
+    if (action === 'Open Problems') await vscode.commands.executeCommand('workbench.actions.view.problems');
+    if (action === 'Show Output') this.cli.showOutput();
+  }
+
+  private reportCliCompatibility(error: unknown): void {
+    if (!(error instanceof CliFailure) || !error.unsupportedOption) return;
+    const executable = error.result.command;
+    if (this.reportedIncompatibleExecutables.has(executable)) return;
+    this.reportedIncompatibleExecutables.add(executable);
+    void vscode.window.showErrorMessage(
+      `NGIN Tools cannot use '${executable}' because it does not support ${error.unsupportedOption}. `
+        + 'Build or install the current NGIN CLI, then update NGIN: Executable.',
+      'Open Settings',
+      'Show Output'
+    ).then(async action => {
+      if (action === 'Open Settings') {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'ngin.executable');
+      } else if (action === 'Show Output') {
+        this.cli.showOutput();
+      }
+    });
   }
 
   requireContext(): NginContext {
@@ -335,13 +406,13 @@ export class NginController implements vscode.Disposable {
     command: string,
     extra: string[] = [],
     refreshGraph = false,
-    contextOverride?: NginContext
+    contextOverride?: NginContext,
+    options: ExecuteOptions = {}
   ): Promise<CliResult | undefined> {
     const context = contextOverride ?? this.requireContext();
-    return vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `NGIN: ${command} ${context.projectName}`, cancellable: true },
-      async (_progress, token) => {
+    const operation = async (token: vscode.CancellationToken): Promise<CliResult | undefined> => {
         this.busyValue = command;
+        this.busyProjectManifestValue = context.projectManifest;
         this.emit();
         try {
           const result = await this.cli.run(
@@ -365,7 +436,6 @@ export class NginController implements vscode.Disposable {
           }
           if (refreshGraph && context.projectManifest === this.contextValue?.projectManifest) await this.refreshGraph(false);
           this.lastOperationValue = { projectManifest: context.projectManifest, command, state: 'succeeded', completedAt: Date.now() };
-          void vscode.window.showInformationMessage(`NGIN ${command} completed for ${context.projectName}.`);
           return result;
         } catch (error) {
           this.lastOperationValue = {
@@ -377,14 +447,26 @@ export class NginController implements vscode.Disposable {
             this.applyDiagnosticCollection(this.compilerDiagnostics,
               parseCompilerDiagnostics(`${error.result.stdout}\n${error.result.stderr}`), path.dirname(context.projectManifest), 'Compiler');
           }
-          this.cli.showOutput();
-          void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+          if (options.announceFailure !== false) void this.showFailure(command, context.projectName);
           return undefined;
         } finally {
           this.busyValue = undefined;
+          this.busyProjectManifestValue = undefined;
           this.emit();
         }
+    };
+    if (options.progress === false || options.token) {
+      if (options.token) return operation(options.token);
+      const source = new vscode.CancellationTokenSource();
+      try {
+        return await operation(source.token);
+      } finally {
+        source.dispose();
       }
+    }
+    return vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Window, title: operationLabel(command, context.projectName), cancellable: false },
+      async (_progress, token) => operation(token)
     );
   }
 }

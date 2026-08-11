@@ -2,11 +2,26 @@
 
 ## Unreleased
 
+- Redesigned project navigation, default-project context, Explorer decorations,
+  lifecycle feedback, onboarding, input flows, and the Project Overview.
+- Added schema-derived manifest choices, project creation, manifest and analyzer
+  Quick Fix providers, and native VS Code Testing Run/Debug profiles.
+- Removed normal success notifications and unsolicited modal tooling prompts.
+- Prevented failed Composition Graph requests from re-running during tree
+  refreshes and added one-time guidance when the selected CLI is incompatible.
+- Made project rows select on click, added Configure/Build/Run/Debug status-bar
+  actions, replaced Product Files with role-based groups, and added direct C++
+  source/header creation commands.
+- Added a persistent Project/Files view toggle so non-product files and folders
+  can be edited and managed without leaving the NGIN project pane.
+- Hide and guard Run/Debug unless the selected project declares resolved Launch
+  intent, while keeping Configure and Build available for libraries.
+
 - Added one compact Projects view with a project-scoped file browser, inline
   Build, Run, and Debug buttons, project context actions, and optional
   Composition Details.
-- Added source ownership inference without mutating the pinned Build target,
-  plus a searchable Build-target switcher and remembered ambiguous ownership.
+- Added source ownership inference without mutating the default fallback
+  project, plus a searchable project picker and remembered ambiguous ownership.
 - Added automatic open/save analysis through the CLI's structured Action
   diagnostics protocol, with cancellation, debouncing, per-file narrowing,
   header translation-unit selection, and full-project analysis.

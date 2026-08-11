@@ -89,215 +89,415 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "ngin.projects",
+        "when": "workspaceFolderCount == 0",
+        "contents": "Open a folder containing an NGIN project to get started.\n[Open Folder](command:workbench.action.files.openFolder)\n[Open Getting Started](command:ngin.openWalkthrough)"
+      },
+      {
+        "view": "ngin.projects",
+        "when": "workspaceFolderCount > 0 && !ngin.hasProjects",
+        "contents": "No NGIN projects were found in this workspace.\n[Create NGIN Project](command:ngin.createProject)\n[Refresh Projects](command:ngin.refresh)\n[Read the NGIN Tools Guide](command:ngin.openDocumentation)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "ngin.gettingStarted",
+        "title": "Get started with NGIN",
+        "description": "Set up the CLI, open or create a project, and run the native C++ workflow.",
+        "steps": [
+          {
+            "id": "configureCli",
+            "title": "Find the NGIN CLI",
+            "description": "NGIN Tools uses the repository development build when available, then `ngin` on PATH. [Review NGIN settings](command:ngin.openSettings).",
+            "media": { "markdown": "media/walkthrough/cli.md" },
+            "completionEvents": ["onCommand:ngin.openSettings"]
+          },
+          {
+            "id": "openProject",
+            "title": "Open or create a project",
+            "description": "Open a workspace with a `.nginproj`, or [create an NGIN project](command:ngin.createProject).",
+            "media": { "markdown": "media/walkthrough/project.md" },
+            "completionEvents": ["onCommand:ngin.createProject", "onContext:ngin.hasProject"]
+          },
+          {
+            "id": "buildProject",
+            "title": "Build, run, and debug",
+            "description": "Click a project in the Projects view to select it, then use Configure, Build, Run, or Debug in the status bar. Press F5 to debug the project owning the active file.",
+            "media": { "markdown": "media/walkthrough/build.md" },
+            "completionEvents": ["onCommand:ngin.build", "onCommand:ngin.run", "onCommand:ngin.debug"]
+          },
+          {
+            "id": "enableTooling",
+            "title": "Enable analyzers and formatters",
+            "description": "Projects can provide verified tooling through NGIN Actions. [Enable project tooling](command:ngin.enableProjectTooling) when your project declares it.",
+            "media": { "markdown": "media/walkthrough/tooling.md" },
+            "completionEvents": ["onCommand:ngin.enableProjectTooling"]
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "ngin.refresh",
-        "title": "NGIN: Refresh Workspace",
+        "title": "Refresh Workspace",
+        "category": "NGIN",
         "icon": "$(refresh)"
       },
       {
         "command": "ngin.refreshGraph",
-        "title": "NGIN: Refresh Composition Graph",
+        "title": "Refresh Composition Graph",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(refresh)"
       },
       {
-        "command": "ngin.switchBuildTarget",
-        "title": "NGIN: Switch Build Target"
+        "command": "ngin.showFilesView",
+        "title": "Show Files View",
+        "category": "NGIN",
+        "icon": "$(files)"
+      },
+      {
+        "command": "ngin.showProjectView",
+        "title": "Show Project View",
+        "category": "NGIN",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "ngin.setDefaultProject",
+        "title": "Select Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasProjects"
       },
       {
         "command": "ngin.selectConfiguration",
-        "title": "NGIN: Select Configuration"
+        "title": "Select Configuration",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.selectTarget",
-        "title": "NGIN: Select Target"
+        "title": "Select Platform Target",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.selectToolchain",
-        "title": "NGIN: Select Toolchain"
+        "title": "Select Toolchain",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.selectPreset",
-        "title": "NGIN: Run Preset"
+        "title": "Run Preset",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.setOption",
-        "title": "NGIN: Set Option Override"
+        "title": "Set Option Override",
+        "category": "NGIN",
+        "enablement": "ngin.hasGraph && !ngin.busy"
       },
       {
         "command": "ngin.clearOptions",
-        "title": "NGIN: Clear Option Overrides"
+        "title": "Clear Option Overrides",
+        "category": "NGIN",
+        "enablement": "ngin.hasGraph && !ngin.busy"
       },
       {
         "command": "ngin.validate",
-        "title": "NGIN: Validate"
+        "title": "Validate",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.validateManifest",
-        "title": "NGIN: Validate Manifest"
+        "title": "Validate Manifest",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.restore",
-        "title": "NGIN: Restore Packages"
+        "title": "Restore Packages",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.lock",
-        "title": "NGIN: Lock Dependencies",
+        "title": "Lock Dependencies",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(lock)"
       },
       {
         "command": "ngin.configure",
-        "title": "NGIN: Configure",
+        "title": "Configure",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(gear)"
       },
       {
         "command": "ngin.build",
-        "title": "NGIN: Build",
+        "title": "Build",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(tools)"
       },
       {
         "command": "ngin.rebuild",
-        "title": "NGIN: Rebuild"
+        "title": "Rebuild",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.clean",
-        "title": "NGIN: Clean Output"
+        "title": "Clean Output",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.stage",
-        "title": "NGIN: Stage"
+        "title": "Stage",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.run",
-        "title": "NGIN: Run",
+        "title": "Run",
+        "category": "NGIN",
+        "enablement": "ngin.canLaunch && !ngin.busy",
         "icon": "$(play)"
       },
       {
+        "command": "ngin.runWithArguments",
+        "title": "Run with Arguments",
+        "category": "NGIN",
+        "enablement": "ngin.canLaunch && !ngin.busy"
+      },
+      {
         "command": "ngin.debug",
-        "title": "NGIN: Debug",
+        "title": "Debug",
+        "category": "NGIN",
+        "enablement": "ngin.canLaunch && !ngin.busy",
         "icon": "$(debug-alt)"
       },
       {
         "command": "ngin.test",
-        "title": "NGIN: Test"
+        "title": "Test",
+        "category": "NGIN",
+        "enablement": "ngin.hasTesting && !ngin.busy"
       },
       {
         "command": "ngin.publish",
-        "title": "NGIN: Publish"
+        "title": "Publish",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.analyze",
-        "title": "NGIN: Analyze Project"
+        "title": "Analyze Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasAnalyze && !ngin.busy"
       },
       {
         "command": "ngin.enableProjectTooling",
-        "title": "NGIN: Enable Project Tooling"
+        "title": "Enable Analyzers and Formatters",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.analyzeFile",
-        "title": "NGIN: Analyze File"
+        "title": "Analyze File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.formatSources",
-        "title": "NGIN: Run Format Actions"
+        "title": "Run Format Actions",
+        "category": "NGIN",
+        "enablement": "ngin.hasFormat && !ngin.busy"
       },
       {
         "command": "ngin.formatFile",
-        "title": "NGIN: Format File"
+        "title": "Format File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.formatManifest",
-        "title": "NGIN: Format Manifest"
+        "title": "Format Manifest",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.showGraph",
-        "title": "NGIN: Show Composition Graph"
+        "title": "Open Resolved Project JSON",
+        "category": "NGIN",
+        "enablement": "ngin.hasGraph"
       },
       {
         "command": "ngin.inspect",
-        "title": "NGIN: Inspect Project"
+        "title": "Inspect Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.diff",
-        "title": "NGIN: Diff Composition Against Project"
+        "title": "Diff Composition Against Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.explain",
-        "title": "NGIN: Explain Selection"
+        "title": "Explain Selection",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.openManifest",
-        "title": "NGIN: Open Project Manifest"
+        "title": "Open Project Manifest",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.openGraphSource",
-        "title": "NGIN: Open Declaring Source"
+        "title": "Open Declaring Source",
+        "category": "NGIN",
+        "enablement": "ngin.hasGraph"
       },
       {
         "command": "ngin.showOutput",
-        "title": "NGIN: Show Output"
+        "title": "Show Output",
+        "category": "NGIN"
       },
       {
         "command": "ngin.cancel",
-        "title": "NGIN: Cancel Active Operation"
+        "title": "Cancel Active Operation",
+        "category": "NGIN",
+        "enablement": "ngin.busy"
       },
       {
         "command": "ngin.openDashboard",
-        "title": "NGIN: Open Project Dashboard"
+        "title": "Open Project Overview",
+        "category": "NGIN",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "ngin.createProject",
+        "title": "Create Project",
+        "category": "NGIN",
+        "enablement": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "ngin.openSettings",
+        "title": "Open Settings",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.openDocumentation",
+        "title": "Open Documentation",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.openWalkthrough",
+        "title": "Open Getting Started",
+        "category": "NGIN"
       },
       {
         "command": "ngin.addPackage",
-        "title": "NGIN: Add Package"
+        "title": "Add Package",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.addProjectReference",
-        "title": "NGIN: Add Project Reference"
+        "title": "Add Project Reference",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.addAction",
-        "title": "NGIN: Add Action"
+        "title": "Add Action",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.editProduct",
-        "title": "NGIN: Edit Product"
+        "title": "Edit Product",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.newSourceFile",
+        "title": "New C++ Source File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "ngin.newHeaderFile",
+        "title": "New C++ Header File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(new-file)"
       },
       {
         "command": "ngin.newFile",
-        "title": "NGIN: New Project File",
+        "title": "New File…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(new-file)"
       },
       {
         "command": "ngin.newFolder",
-        "title": "NGIN: New Project Folder",
+        "title": "New Project Folder",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(new-folder)"
       },
       {
         "command": "ngin.includeFile",
-        "title": "NGIN: Include in Product"
+        "title": "Include in Product",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.excludeFile",
-        "title": "NGIN: Exclude from Product"
+        "title": "Exclude from Product",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.renameFile",
-        "title": "NGIN: Rename Project Item"
+        "title": "Rename Project Item",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.duplicateFile",
-        "title": "NGIN: Duplicate Project File"
+        "title": "Duplicate Project File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.deleteFile",
-        "title": "NGIN: Delete Project Item"
+        "title": "Delete Project Item",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.revealFile",
-        "title": "NGIN: Reveal in File Explorer"
+        "title": "Reveal in File Explorer",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
         "command": "ngin.revealOwningProject",
-        "title": "NGIN: Reveal Owning Project"
+        "title": "Reveal Owning Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       }
     ],
     "submenus": [
@@ -309,22 +509,32 @@
     "menus": {
       "view/title": [
         {
+          "command": "ngin.showFilesView",
+          "when": "view == ngin.projects && ngin.projectsViewMode == project",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ngin.showProjectView",
+          "when": "view == ngin.projects && ngin.projectsViewMode == files",
+          "group": "navigation@1"
+        },
+        {
           "command": "ngin.refresh",
           "when": "view == ngin.projects",
-          "group": "navigation"
-        },
-        {
-          "command": "ngin.refreshGraph",
-          "when": "view == ngin.projects",
-          "group": "navigation"
-        },
-        {
-          "command": "ngin.openDashboard",
-          "when": "view == ngin.projects",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
+        {
+          "command": "ngin.newSourceFile",
+          "when": "view == ngin.projects && viewItem == nginSourcesGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.newHeaderFile",
+          "when": "view == ngin.projects && viewItem == nginHeadersGroup",
+          "group": "inline@1"
+        },
         {
           "command": "ngin.build",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
@@ -332,12 +542,12 @@
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
           "group": "inline@2"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
           "group": "inline@3"
         },
         {
@@ -347,12 +557,12 @@
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
           "group": "1_lifecycle@2"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
           "group": "1_lifecycle@3"
         },
         {
@@ -386,24 +596,39 @@
           "group": "2_tooling@3"
         },
         {
-          "command": "ngin.switchBuildTarget",
+          "command": "ngin.setDefaultProject",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "3_project@1"
         },
         {
-          "command": "ngin.openManifest",
+          "command": "ngin.openDashboard",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "3_project@2"
         },
         {
+          "command": "ngin.openManifest",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "3_project@3"
+        },
+        {
           "command": "ngin.newFile",
           "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProjectDirectory.unselected)",
-          "group": "3_project@3"
+          "group": "3_project@6"
+        },
+        {
+          "command": "ngin.newSourceFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginSourcesGroup)",
+          "group": "3_project@4"
+        },
+        {
+          "command": "ngin.newHeaderFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginHeadersGroup)",
+          "group": "3_project@5"
         },
         {
           "command": "ngin.newFolder",
           "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProjectDirectory.unselected)",
-          "group": "3_project@4"
+          "group": "3_project@5"
         },
         {
           "command": "ngin.restore",
@@ -527,6 +752,34 @@
         {
           "command": "ngin.cancel",
           "when": "ngin.busy"
+        },
+        {
+          "command": "ngin.openGraphSource",
+          "when": "false"
+        },
+        {
+          "command": "ngin.includeFile",
+          "when": "false"
+        },
+        {
+          "command": "ngin.excludeFile",
+          "when": "false"
+        },
+        {
+          "command": "ngin.renameFile",
+          "when": "false"
+        },
+        {
+          "command": "ngin.duplicateFile",
+          "when": "false"
+        },
+        {
+          "command": "ngin.deleteFile",
+          "when": "false"
+        },
+        {
+          "command": "ngin.revealFile",
+          "when": "false"
         }
       ]
     },
@@ -546,6 +799,10 @@
         "ngin.analysis.mode": {
           "type": "string",
           "enum": ["off", "openAndSave"],
+          "enumDescriptions": [
+            "Do not run project analyzers automatically.",
+            "Analyze C and C++ files when they are opened or saved."
+          ],
           "default": "openAndSave",
           "description": "Run resolved project analyzers when a C/C++ file is opened or saved."
         },
@@ -563,12 +820,23 @@
         "ngin.revealOutputOnRun": {
           "type": "boolean",
           "default": false,
-          "description": "Reveal the NGIN output channel when starting a lifecycle command. Failures always reveal it."
+          "description": "Reveal the NGIN output channel when starting a lifecycle command. Failure messages provide an action to open it."
         },
         "ngin.statusBar.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the pinned Build/Run target and its current state in the status bar."
+          "description": "Show the selected NGIN project plus Configure, Build, Run, and Debug actions in the status bar."
+        },
+        "ngin.decorations.mode": {
+          "type": "string",
+          "enum": ["off", "minimal", "detailed"],
+          "enumDescriptions": [
+            "Do not decorate files in the Explorer.",
+            "Decorate only exceptional NGIN files such as generated inputs.",
+            "Decorate included, excluded, generated, and project-owned files."
+          ],
+          "default": "minimal",
+          "description": "Controls NGIN file decorations in the Explorer."
         },
         "ngin.cpp.enabled": {
           "type": "boolean",
@@ -628,7 +896,7 @@
             "properties": {
               "project": {
                 "type": "string",
-                "description": "Optional .nginproj path; defaults to the project owning the active source file, then the pinned Build target."
+                "description": "Optional .nginproj path; defaults to the project owning the active source file, then the default project."
               },
               "configuration": {
                 "type": "string",
@@ -653,6 +921,11 @@
                 "type": "boolean",
                 "default": true,
                 "description": "Build and stage before starting the native debugger."
+              },
+              "test": {
+                "type": "boolean",
+                "default": false,
+                "description": "Debug the resolved NGIN TestPlan instead of a Launch definition."
               }
             }
           }

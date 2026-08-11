@@ -30,7 +30,8 @@ export async function enumerateProjectFiles(
   projectDirectory: string,
   projectManifest: string,
   graph?: CompositionGraph,
-  limit = 5000
+  limit = 5000,
+  respectProjectBoundaries = true
 ): Promise<ProjectFileEntry[]> {
   const selected = new Map<string, { kind: string; generated: boolean; relative: string }>();
   const external: ProjectFileEntry[] = [];
@@ -56,7 +57,8 @@ export async function enumerateProjectFiles(
       const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
       if (entry.isDirectory()) {
         const childEntries = await entries(absolute);
-        const boundary = childEntries.some(child => child.isFile() && child.name.endsWith('.nginproj'));
+        const boundary = respectProjectBoundaries
+          && childEntries.some(child => child.isFile() && child.name.endsWith('.nginproj'));
         const children = boundary ? undefined : await visit(absolute);
         result.push({ name: entry.name, path: absolute, relativePath: relative, directory: true, state: boundary ? 'boundary' : 'unselected', children });
       } else {

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CliResult } from '../model';
 import { parseCliDiagnostics } from './diagnostics';
+import { describeCliFailure, unsupportedSelectionOption } from './cliCompatibility';
 
 export interface RunOptions {
   cwd?: string;
@@ -15,10 +16,12 @@ export interface RunOptions {
 }
 
 export class CliFailure extends Error {
+  readonly unsupportedOption: string | undefined;
+
   constructor(public readonly result: CliResult) {
-    const detail = result.stderr.trim() || result.stdout.trim() || `NGIN exited with code ${result.exitCode}`;
-    super(detail);
+    super(describeCliFailure(result));
     this.name = 'CliFailure';
+    this.unsupportedOption = unsupportedSelectionOption(result);
   }
 }
 
