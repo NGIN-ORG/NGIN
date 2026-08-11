@@ -24,6 +24,7 @@ import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
 import { projectCanLaunch } from '../../core/projectCapabilities';
+import { formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter } from '../../core/outputPresentation';
 import type { CompositionGraph, NginContext, ProjectCandidate } from '../../model';
 
 function graph(): CompositionGraph {
@@ -123,6 +124,56 @@ test('compiler diagnostics are parsed independently from manifest diagnostics', 
   assert.equal(values.length, 2);
   assert.equal(values[0].code, '-Wunused-value');
   assert.equal(values[1].code, 'C2065');
+});
+
+test('lifecycle presentation keeps build and run output compact', () => {
+  let now = 0;
+  let output = '';
+  const args = [
+    'run', '--project', 'C:\\work\\NGIN.UI.Gallery.Hosted.nginproj', '--configuration', 'Debug',
+    '--target', 'host', '--toolchain', 'default', '--output', 'C:\\work\\build'
+  ];
+  const presenter = new LifecycleOutputPresenter({
+    command: 'run', args, label: 'NGIN.UI.Gallery.Hosted', append: value => { output += value; }, now: () => now
+  });
+  const event = (name: string, target = 'NGIN.UI.Gallery.Hosted') =>
+    `\x1eNGIN ${JSON.stringify({ event: name, kind: 'NGIN.EditorEvent', target })}\n`;
+
+  presenter.accept('stdout', event('build-start', 'NGIN.UI.Gallery.Shared'));
+  presenter.accept('stdout', 'F:/work/SmartPointers.hpp:36:15: warning: unknown attribute [-Wunknown-attributes]\n');
+  now = 1400;
+  presenter.accept('stdout', event('build-end', 'NGIN.UI.Gallery.Shared'));
+  presenter.accept('stdout', event('build-start'));
+  now = 1600;
+  presenter.accept('stdout', event('build-end'));
+  presenter.accept('stdout', event('run-start'));
+  presenter.accept('stdout',
+    '[2026-08-11T22:20:54.876135100+0200][Info][Kernel] state transition -> ServicesBuilt '
+    + '{host="NGIN.UI.Gallery.Hosted"} (F:/work/Kernel.cpp:498)\n'
+    + '[2026-08-11T22:20:55.354906500+0200][Info][ModuleLoader] module started: NGIN.UI.Runtime '
+    + '{host="NGIN.UI.Gallery.Hosted"} (F:/work/Kernel.cpp:498)\n');
+  now = 6300;
+  presenter.accept('stdout', event('run-end'));
+  presenter.complete(0);
+
+  assert.match(output, /> ngin run NGIN\.UI\.Gallery\.Hosted --configuration Debug/u);
+  assert.match(output, /BUILD\n  ✓ NGIN\.UI\.Gallery\.Shared\s+1\.4s/u);
+  assert.match(output, /✓ NGIN\.UI\.Gallery\.Hosted\s+0\.2s/u);
+  assert.match(output, /⚠ 1 warning/u);
+  assert.match(output, /RUN\n  22:20:54\s+Kernel\s+Services built/u);
+  assert.match(output, /22:20:55\s+ModuleLoader\s+Started NGIN\.UI\.Runtime/u);
+  assert.doesNotMatch(output, /SmartPointers\.hpp|Kernel\.cpp|\[Info\]/u);
+  assert.match(output, /Process exited with code 0/u);
+  assert.match(output, /Completed in 6\.3s/u);
+});
+
+test('lifecycle display uses command syntax instead of a configuration tagline', () => {
+  assert.equal(formatLifecycleCommand(
+    ['build', '--configuration', 'Release', '--target', 'linux-arm64', '--toolchain', 'clang'], 'Demo App'
+  ), '> ngin build "Demo App" --configuration Release --target linux-arm64 --toolchain clang');
+  assert.equal(formatRuntimeLine(
+    '[2026-08-11T22:20:55.354906500+0200][Info][Kernel] kernel entered Running state (Kernel.cpp:10)'
+  ), '');
 });
 
 test('Composition Graph parsing rejects incomplete envelopes', () => {

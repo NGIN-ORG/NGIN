@@ -423,7 +423,10 @@ export class NginController implements vscode.Disposable {
               token,
               requireTrust: true,
               exclusive: true,
-              revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false)
+              revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false),
+              ...(['configure', 'build', 'stage', 'run', 'test', 'publish'].includes(command)
+                ? { presentation: 'lifecycle' as const, label: context.projectName }
+                : {})
             }
           );
           this.applyDiagnostics(result.diagnostics, path.dirname(context.projectManifest));

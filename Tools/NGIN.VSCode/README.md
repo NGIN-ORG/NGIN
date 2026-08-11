@@ -96,6 +96,13 @@ shown only for projects with resolved Launch intent; libraries and other
 non-launchable products retain Configure and Build without offering actions
 that the CLI cannot execute.
 
+Lifecycle output uses compact `BUILD`, `RUN`, and `TEST` sections. Successful
+backend steps are reduced to target, duration, and warning counts; compiler
+warnings and errors remain available in the Problems view. Runtime records use
+short timestamps and omit repetitive host and source metadata at Info level.
+The unabridged process stream is retained under the selected output directory
+at `diagnostics/<command>.log`.
+
 The Microsoft C/C++ extension is required for native debugging. When installed,
 NGIN also supplies compile-database-backed IntelliSense. Headers use the
 closest translation unit and graph facts provide a fallback before the first

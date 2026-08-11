@@ -332,7 +332,12 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       args.push('--output', context.outputDirectory);
     }
     try {
-      await cli.run(args, context.workspaceFolder, { cwd: path.dirname(context.projectManifest), requireTrust: true, revealOutput: true, exclusive: true });
+      await cli.run(args, context.workspaceFolder, {
+        cwd: path.dirname(context.projectManifest), requireTrust: true, revealOutput: true, exclusive: true,
+        ...(['configure', 'build', 'stage', 'run', 'test', 'publish'].includes(selected.command ?? 'build')
+          ? { presentation: 'lifecycle' as const, label: context.projectName }
+          : {})
+      });
       await controller.refreshGraph(false);
     } catch (error) {
       cli.showOutput();

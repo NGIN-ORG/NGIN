@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import type { CliResult } from '../model';
 import { parseCliDiagnostics } from './diagnostics';
 import { describeCliFailure, unsupportedSelectionOption } from './cliCompatibility';
+import { LifecycleOutputPresenter } from './outputPresentation';
 
 export interface RunOptions {
   cwd?: string;
@@ -13,6 +14,7 @@ export interface RunOptions {
   revealOutput?: boolean;
   label?: string;
   exclusive?: boolean;
+  presentation?: 'lifecycle';
 }
 
 export class CliFailure extends Error {
@@ -124,26 +126,38 @@ export class NginCli implements vscode.Disposable {
     }
     const cwd = options.cwd ?? workspaceFolder;
     const command = [executable, ...args].map(quoteForDisplay).join(' ');
-    this.output.appendLine(`\n> ${command}`);
+    const presenter = options.presentation === 'lifecycle' && options.label
+      ? new LifecycleOutputPresenter({
+          command: args[0] ?? '', args, label: options.label, append: value => this.output.append(value)
+        })
+      : undefined;
+    if (!presenter) this.output.appendLine(`\n> ${command}`);
     if (options.revealOutput) this.output.show(true);
 
     return new Promise<CliResult>((resolve, reject) => {
       let stdout = '';
       let stderr = '';
       let settled = false;
-      const child = spawn(executable, args, { cwd, windowsHide: true, shell: false });
+      const child = spawn(executable, args, {
+        cwd,
+        windowsHide: true,
+        shell: false,
+        env: presenter ? { ...process.env, NGIN_EDITOR_EVENTS: '1' } : process.env
+      });
       this.active.add(child);
 
       const cancellation = options.token?.onCancellationRequested(() => this.terminate(child));
       child.stdout.on('data', chunk => {
         const value = chunk.toString();
         stdout += value;
-        this.output.append(value);
+        if (presenter) presenter.accept('stdout', value);
+        else this.output.append(value);
       });
       child.stderr.on('data', chunk => {
         const value = chunk.toString();
         stderr += value;
-        this.output.append(value);
+        if (presenter) presenter.accept('stderr', value);
+        else this.output.append(value);
       });
       child.on('error', error => {
         if (settled) return;
@@ -154,7 +168,7 @@ export class NginCli implements vscode.Disposable {
         this.signalIdle();
         reject(new Error(`Unable to start NGIN CLI '${executable}': ${error.message}`));
       });
-      child.on('close', (code, signal) => {
+      child.on('close', async (code, signal) => {
         if (settled) return;
         settled = true;
         cancellation?.dispose();
@@ -170,9 +184,25 @@ export class NginCli implements vscode.Disposable {
           stderr,
           diagnostics: parseCliDiagnostics(stderr)
         };
+        if (presenter) {
+          presenter.complete(result.exitCode);
+          await this.writeLifecycleLog(args, command, presenter.rawOutput);
+        }
         if (result.exitCode === 0) resolve(result);
         else reject(new CliFailure(result));
       });
     });
+  }
+
+  private async writeLifecycleLog(args: string[], command: string, output: string): Promise<void> {
+    const outputIndex = args.indexOf('--output');
+    if (outputIndex < 0 || !args[outputIndex + 1]) return;
+    try {
+      const directory = path.join(args[outputIndex + 1], 'diagnostics');
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(path.join(directory, `${args[0] ?? 'operation'}.log`), `> ${command}\n${output}`, 'utf8');
+    } catch {
+      // Presentation logging must never change the lifecycle command result.
+    }
   }
 }

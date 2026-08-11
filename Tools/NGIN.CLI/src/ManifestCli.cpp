@@ -43,6 +43,26 @@ namespace NGIN::CLI
 {
     namespace
     {
+        [[nodiscard]] auto EditorEventsEnabled() -> bool
+        {
+#if defined(_WIN32)
+            char value[2]{};
+            return GetEnvironmentVariableA("NGIN_EDITOR_EVENTS", value, static_cast<DWORD>(std::size(value))) == 1 &&
+                   value[0] == '1';
+#else
+            const auto *value = std::getenv("NGIN_EDITOR_EVENTS");
+            return value != nullptr && std::string_view{value} == "1";
+#endif
+        }
+
+        auto EmitEditorEvent(const std::string_view event, const std::string_view target = {}) -> void
+        {
+            if (!EditorEventsEnabled()) return;
+            CanonicalValue::Object fields{{"event", std::string{event}}, {"kind", "NGIN.EditorEvent"}};
+            if (!target.empty()) fields.emplace("target", std::string{target});
+            std::cout << '\x1e' << "NGIN " << SerializeCanonical(fields) << '\n' << std::flush;
+        }
+
         [[nodiscard]] auto ReadText(const fs::path &path) -> std::string
         {
             std::ifstream input(path, std::ios::binary);
@@ -1292,6 +1312,7 @@ namespace NGIN::CLI
                 fs::is_regular_file(prepared.binary / "compile_commands.json") && fs::is_regular_file(statePath) &&
                 ReadText(statePath) == configureState)
                 return;
+            EmitEditorEvent("configure-start", prepared.build.targetName);
             PrepareIsolatedPackages(prepared, quietOutput);
             auto command = "cmake -S " + QuoteProcessArgument(prepared.generated) + " -B " +
                            QuoteProcessArgument(prepared.binary) +
@@ -1318,6 +1339,7 @@ namespace NGIN::CLI
             else
                 Execute(command);
             WriteText(statePath, configureState);
+            EmitEditorEvent("configure-end", prepared.build.targetName);
         }
 
         auto ConfigureTree(PreparedBuild &prepared, const bool force = false) -> void
@@ -1330,8 +1352,10 @@ namespace NGIN::CLI
         {
             for (auto &child : prepared.projectDependencies) Build(*child);
             Configure(prepared);
+            EmitEditorEvent("build-start", prepared.build.targetName);
             Execute("cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
                     QuoteProcessArgument(prepared.build.targetName));
+            EmitEditorEvent("build-end", prepared.build.targetName);
         }
 
         [[nodiscard]] auto ProductArtifact(const PreparedBuild &prepared) -> fs::path
@@ -1408,9 +1432,11 @@ namespace NGIN::CLI
             for (auto &[_, item] : destinations) stage.plan->items.push_back(std::move(item));
             std::ranges::sort(stage.plan->items, {}, &StagePlanItem::identity);
             stage.plan->plan.identity = FingerprintStagePlan(*stage.plan);
+            EmitEditorEvent("stage-start", prepared.build.targetName);
             const auto executed = ExecuteStagePlan(*stage.plan);
             if (PrintDiagnostics(executed.diagnostics, prepared.composition.projectDirectory) != 0)
                 throw std::runtime_error("staging failed");
+            EmitEditorEvent("stage-end", prepared.build.targetName);
             return PreparedStage{
                 .build = std::move(prepared), .bindings = std::move(bindings), .plan = std::move(*stage.plan)};
         }
@@ -1804,8 +1830,10 @@ namespace NGIN::CLI
                                      "but none is configured");
         auto processArguments = launch.plan->arguments;
         processArguments.insert(processArguments.end(), arguments.trailing.begin(), arguments.trailing.end());
+        EmitEditorEvent("run-start", staged.build.build.targetName);
         ExecuteProcess(launch.plan->executable, processArguments, fs::path{launch.plan->workingDirectory},
                        launch.plan->environment);
+        EmitEditorEvent("run-end", staged.build.build.targetName);
         return 0;
     }
 
@@ -1817,8 +1845,10 @@ namespace NGIN::CLI
             throw std::runtime_error("TestPlan derivation failed");
         auto processArguments = test.plan->arguments;
         processArguments.insert(processArguments.end(), arguments.trailing.begin(), arguments.trailing.end());
+        EmitEditorEvent("test-start", staged.build.build.targetName);
         ExecuteProcess(test.plan->executable, processArguments, staged.bindings.stageRoot, {},
                        test.plan->timeoutSeconds);
+        EmitEditorEvent("test-end", staged.build.build.targetName);
         return 0;
     }
 
@@ -1836,7 +1866,9 @@ namespace NGIN::CLI
             throw std::runtime_error("PublishPlan derivation failed");
         const auto configuration = staged.build.output / ("CPack-" + name + ".cmake");
         WriteText(configuration, GenerateCPackConfiguration(*publish.plan));
+        EmitEditorEvent("publish-start", name);
         Execute("cpack --config " + QuoteProcessArgument(configuration));
+        EmitEditorEvent("publish-end", name);
         return 0;
     }
 
