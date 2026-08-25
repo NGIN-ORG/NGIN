@@ -1,7 +1,9 @@
-#include <NGIN/UI/Accessibility/Windows/Windows.hpp>
 #include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UI/Hosting/Hosting.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
+#if defined(NGIN_PLATFORM_WINDOWS)
+#include <NGIN/UI/Accessibility/Windows/Windows.hpp>
+#endif
 
 #include <iostream>
 #include <optional>
@@ -130,8 +132,10 @@ auto main(const int argc, char **argv) -> int {
                   .applicationName =
                       NGIN::Text::String{"NGIN.UI Gallery Hosted"},
                   .enableRendererValidation = true,
+#if defined(NGIN_PLATFORM_WINDOWS)
                   .accessibility =
                       Accessibility::Windows::CreateAccessibilityBackend(),
+#endif
               },
       });
   if (!hosting) {
