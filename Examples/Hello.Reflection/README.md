@@ -14,7 +14,10 @@ ngin build --project Examples/Hello.Reflection/Hello.Reflection.nginproj --confi
 ngin run --project Examples/Hello.Reflection/Hello.Reflection.nginproj --configuration Debug --lock build/manual/Hello.Reflection/ngin.lock --output build/manual/Hello.Reflection
 ```
 
-LLVM and libclang are required for MetaGen. Generated files remain under the
-selected build output and should not be edited. The workspace requires the
-generator's host PackageInstance to match an explicit dependency lock before
-the Action can execute.
+MetaGen uses the target's selected compiler for preprocessing and does not
+require LLVM or libclang. Generated descriptors, the module aggregate,
+`ReflectionModel` JSON, and its ownership manifest remain under the selected
+build output and should not be edited. The workspace requires the generator's
+host PackageInstance to match an explicit dependency lock before the Action can
+execute. See the [MetaGen guide](../../docs/guides/reflection-metagen.md) for the
+annotation contract and supported syntax.

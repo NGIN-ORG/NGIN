@@ -45,7 +45,7 @@ The project tooling and application libraries are separate.
 | `NGIN.Base` | Foundational types and low-level utilities |
 | `NGIN.Core` | Optional application host with services, modules, and lifecycle management |
 | `NGIN.Reflection` | Runtime reflection APIs |
-| `NGIN.Reflection.MetaGen` | Clang-based reflection metadata generation |
+| `NGIN.Reflection.MetaGen` | Compiler-preprocessed, Clang-free reflection metadata generation |
 | `NGIN.ECS` | Entity-component-system library |
 | `NGIN.UI` | Backend-neutral application UI toolkit |
 | `NGIN.UI.Backend.SDL3` | SDL3 windowing and rendering backend |

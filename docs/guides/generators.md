@@ -34,5 +34,7 @@ ngin graph --format json
 ```
 
 For a complete working example, see
-[Hello.Reflection](../../Examples/Hello.Reflection). Package authors should use
-the [package manifest reference](../reference/package-manifest.md).
+[Hello.Reflection](../../Examples/Hello.Reflection). The
+[reflection generator guide](reflection-metagen.md) specifies MetaGen's
+annotations, supported syntax, diagnostics, and deterministic outputs. Package
+authors should use the [package manifest reference](../reference/package-manifest.md).

@@ -16,6 +16,7 @@ Start with the path that matches what you are trying to do.
 - [Packages](guides/packages.md)
 - [Workspaces](guides/workspaces.md)
 - [Generators](guides/generators.md)
+- [Reflection metadata generation](guides/reflection-metagen.md)
 - [Staging and launch](guides/staging-and-launch.md)
 - [Publishing](guides/publishing.md)
 - [Tooling and quality checks](guides/tooling.md)

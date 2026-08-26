@@ -1658,11 +1658,9 @@ Prove strictness, determinism, safety, explainability, and completeness.
   adapter, resolver, and plan coverage.
 - Hello.Native validates, builds, stages, and runs. Hello.Hosted validates and
   builds through the standard workspace flow. Hello.Reflection validates,
-  resolves and authorizes its locked Generate Action, builds its nested CMake
-  packages without Windows path overflow, and reaches MetaGen. The final
-  generator invocation reports the repository's explicit unavailable stub
-  because LLVM/libclang development support is not installed; this is an
-  external generator prerequisite, not a manifest or adapter failure.
+  resolves and authorizes its locked Generate Action, and builds its nested
+  CMake packages without Windows path overflow. MetaGen now preprocesses with
+  the target compiler and has no LLVM/libclang prerequisite.
 - Locked ClangTidy Analyze and ClangFormat Format Actions execute successfully;
   the analyzer emits its intentional fixture warning and the formatter emits
   the proposed formatting without modifying the source.

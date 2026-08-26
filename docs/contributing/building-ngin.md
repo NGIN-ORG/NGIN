@@ -9,7 +9,8 @@ NGIN uses CMake presets for repository development.
 - Ninja
 - a C++23-capable compiler
 
-LLVM and libclang are required only for reflection metadata generation.
+Reflection metadata generation has no additional compiler-library dependency;
+it preprocesses annotated headers with the target's selected C++ compiler.
 
 ## Configure and build
 

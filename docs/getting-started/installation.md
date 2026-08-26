@@ -7,8 +7,8 @@ NGIN is currently built from source. It requires:
 - Ninja
 - a C++23-capable compiler
 
-Reflection generation additionally requires LLVM and libclang. The CLI and
-ordinary native projects do not.
+Reflection generation uses the same C++ compiler selected for the target and
+does not require LLVM, libclang, or a compiler SDK.
 
 ## Build the CLI
 
