@@ -22,20 +22,25 @@ case "$target" in
   hello-native)
     "$cli" build \
       --project "$repo_root/Examples/Hello.Native/Hello.Native.nginproj" \
-      --profile Debug \
+      --configuration Debug \
       --output "$repo_root/build/manual/Hello.Native"
     ;;
   hello-hosted)
     "$cli" build \
       --project "$repo_root/Examples/Hello.Hosted/Hello.Hosted.nginproj" \
-      --profile Debug \
+      --configuration Debug \
       --output "$repo_root/build/manual/Hello.Hosted"
     ;;
   hello-reflection)
     cmake --build "$repo_root/build/dev" --target ngin_reflection_metagen
+    "$cli" package lock \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --configuration Debug \
+      --output "$repo_root/build/manual/Hello.Reflection/ngin.lock"
     "$cli" build \
       --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
-      --profile Debug \
+      --configuration Debug \
+      --lock "$repo_root/build/manual/Hello.Reflection/ngin.lock" \
       --output "$repo_root/build/manual/Hello.Reflection"
     ;;
   *)

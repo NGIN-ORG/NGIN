@@ -9,17 +9,17 @@ cli="$repo_root/build/dev/Tools/NGIN.CLI/ngin"
 smoke_project() {
   local project="$1"
   local output="$2"
-  local profile="${3:-Debug}"
-  "$cli" validate --project "$project" --profile "$profile"
-  "$cli" build --project "$project" --profile "$profile" --output "$output"
+  local configuration="${3:-Debug}"
+  "$cli" validate --project "$project" --configuration "$configuration"
+  "$cli" build --project "$project" --configuration "$configuration" --output "$output"
 }
 
 smoke_run_project() {
   local project="$1"
   local output="$2"
-  local profile="${3:-Debug}"
-  smoke_project "$project" "$output" "$profile"
-  "$cli" run --project "$project" --profile "$profile" --output "$output"
+  local configuration="${3:-Debug}"
+  smoke_project "$project" "$output" "$configuration"
+  "$cli" run --project "$project" --configuration "$configuration" --output "$output"
 }
 
 case "$target" in
@@ -47,9 +47,23 @@ case "$target" in
     ;;
   hello-reflection)
     cmake --build "$repo_root/build/dev" --target ngin_reflection_metagen
-    smoke_run_project \
-      "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
-      "$repo_root/build/manual/Hello.Reflection"
+    "$cli" validate \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --configuration Debug
+    "$cli" package lock \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --configuration Debug \
+      --output "$repo_root/build/manual/Hello.Reflection/ngin.lock"
+    "$cli" build \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --configuration Debug \
+      --lock "$repo_root/build/manual/Hello.Reflection/ngin.lock" \
+      --output "$repo_root/build/manual/Hello.Reflection"
+    "$cli" run \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --configuration Debug \
+      --lock "$repo_root/build/manual/Hello.Reflection/ngin.lock" \
+      --output "$repo_root/build/manual/Hello.Reflection"
     ;;
   *)
     echo "unknown test target: $target" >&2
