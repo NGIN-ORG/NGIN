@@ -60,7 +60,8 @@ available on `PATH`; publishing additionally requires CPack.
 source-file ownership, automatic structured analyzer diagnostics and fixes,
 native Explorer commands, lifecycle tasks, Testing integration, staged native
 debugging, compile-database-backed C++ IntelliSense, onboarding, project
-creation, direct C++ source/header creation, status-bar lifecycle actions, and
-direct XML authoring support. Clicking a project selects it for normal
-lifecycle commands. The CLI and Composition Graph remain the semantic
-authority; the extension does not contain a second resolver.
+creation, direct C++ source/header creation, one project-context status item,
+a searchable Project Actions hub, and direct XML authoring support. Active-file
+ownership drives normal commands; an explicit default project is only the
+fallback. The CLI and Composition Graph remain the semantic authority; the
+extension does not contain a second resolver.

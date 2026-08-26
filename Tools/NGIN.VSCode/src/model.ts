@@ -19,6 +19,7 @@ export interface NginContext {
   configuration: string;
   target: string;
   toolchain: string;
+  launch?: string;
   preset?: string;
   options: Readonly<Record<string, string>>;
   outputDirectory: string;
@@ -234,5 +235,5 @@ export interface ContextSnapshot {
   busy?: string;
   busyProjectManifest?: string;
   configured?: boolean;
-  lastOperation?: { projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; message?: string };
+  lastOperation?: { projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; durationMs: number; message?: string };
 }

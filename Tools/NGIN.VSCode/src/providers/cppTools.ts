@@ -13,6 +13,7 @@ import {
   createBrowseConfiguration,
   createFallbackConfiguration,
   createSourceConfiguration,
+  findCompileCommand,
   parseCompileCommands,
   selectCompileCommand,
   type CompileCommandEntry
@@ -32,16 +33,37 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
   readonly extensionId = 'ngin.ngin-tools';
   private api?: CppToolsApi;
   private readonly entries = new Map<string, { modified: number; values: CompileCommandEntry[] }>();
-  private readonly configuring = new Map<string, Promise<void>>();
   private readonly owners = new Map<string, ProjectConfigurationContext | null>();
+  private readonly preparing = new Map<string, Promise<void>>();
   private readonly subscription: vscode.Disposable;
+  private generation = 0;
+  private lastGraph?: CompositionGraph;
+  private lastContext = '';
 
   constructor(private readonly controller: NginController) {
-    this.subscription = controller.onDidChange(() => {
+    this.subscription = controller.onDidChange(snapshot => {
+      const context = snapshot.context;
+      const contextKey = context
+        ? [context.projectManifest, context.configuration, context.target, context.toolchain, context.launch, snapshot.configured].join('|')
+        : '';
+      if (this.lastGraph === snapshot.graph && this.lastContext === contextKey) return;
+      this.lastGraph = snapshot.graph;
+      this.lastContext = contextKey;
+      this.generation++;
+      const generation = this.generation;
       this.owners.clear();
+      this.preparing.clear();
       if (this.api) {
         this.api.didChangeCustomConfiguration(this);
         this.api.didChangeCustomBrowseConfiguration(this);
+      }
+      if (context && snapshot.graph) {
+        void this.loadEntries(context).then(entries => {
+          if (generation === this.generation && entries.length) {
+            this.api?.didChangeCustomConfiguration(this);
+            this.api?.didChangeCustomBrowseConfiguration(this);
+          }
+        });
       }
     });
   }
@@ -59,23 +81,7 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
     this.api?.dispose();
   }
 
-  private async configure(context: NginContext): Promise<void> {
-    const candidate = compileCommandsPath(context);
-    const existing = this.configuring.get(candidate);
-    if (existing) return existing;
-    const request = (async () => {
-      if (!vscode.workspace.isTrusted) return;
-      await this.controller.execute('configure', [], false, context, { progress: false, announceFailure: false });
-    })();
-    this.configuring.set(candidate, request);
-    try {
-      await request;
-    } finally {
-      this.configuring.delete(candidate);
-    }
-  }
-
-  private async loadEntries(context: NginContext, configureIfMissing = false): Promise<CompileCommandEntry[]> {
+  private async loadEntries(context: NginContext): Promise<CompileCommandEntry[]> {
     const candidate = compileCommandsPath(context);
     try {
       const stat = await fs.stat(candidate);
@@ -88,27 +94,50 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
       return cached.values;
     } catch {
       this.entries.delete(candidate);
-      if (configureIfMissing) {
-        await this.configure(context);
-        return this.loadEntries(context, false);
-      }
       return [];
     }
   }
 
-  private async configurationContext(file: string): Promise<ProjectConfigurationContext | undefined> {
+  private cachedConfigurationContext(file: string): ProjectConfigurationContext | undefined {
     const key = path.resolve(file);
     const cached = this.owners.get(key);
     if (cached !== undefined) return cached ?? undefined;
+
+    const snapshot = this.controller.snapshot;
+    const context = snapshot.context;
+    if (context && snapshot.graph
+      && (isWithin(context.outputDirectory, key) || graphOwnsFile(snapshot.graph, context, key))) {
+      const result = { context, graph: snapshot.graph };
+      this.owners.set(key, result);
+      return result;
+    }
+    if (context && snapshot.graph) {
+      const cachedEntries = this.entries.get(compileCommandsPath(context));
+      if (cachedEntries && findCompileCommand(cachedEntries.values, key)) {
+        const result = { context, graph: snapshot.graph };
+        this.owners.set(key, result);
+        return result;
+      }
+    }
+    return undefined;
+  }
+
+  private async resolveConfigurationContext(file: string): Promise<ProjectConfigurationContext | undefined> {
+    const snapshot = this.controller.snapshot;
+    if (snapshot.context) {
+      const entries = await this.loadEntries(snapshot.context);
+      if (findCompileCommand(entries, file)) {
+        const graph = snapshot.graph ?? await this.controller.graphForContext(snapshot.context, false);
+        if (graph) return { context: snapshot.context, graph };
+      }
+    }
 
     for (const project of this.controller.projects) {
       const context = this.controller.contextForProject(project);
       if (!isWithin(context.outputDirectory, file)) continue;
       const graph = await this.controller.graphForContext(context, false);
       if (graph) {
-        const result = { context, graph };
-        this.owners.set(key, result);
-        return result;
+        return { context, graph };
       }
     }
 
@@ -119,20 +148,51 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
       return graph && graphOwnsFile(graph, context, file) ? { context, graph } : undefined;
     }))).filter((value): value is ProjectConfigurationContext => Boolean(value));
     const activeManifest = this.controller.snapshot.context?.projectManifest;
-    const result = matches.find(match => match.context.projectManifest === activeManifest) ?? matches[0];
-    this.owners.set(key, result ?? null);
-    return result;
+    const authored = matches.find(match => match.context.projectManifest === activeManifest) ?? matches[0];
+    if (authored) return authored;
+
+    for (const project of this.controller.projects) {
+      if (project.manifest === activeManifest) continue;
+      const context = this.controller.contextForProject(project);
+      if (!findCompileCommand(await this.loadEntries(context), file)) continue;
+      const graph = await this.controller.graphForContext(context, false);
+      if (graph) return { context, graph };
+    }
+    return undefined;
   }
 
-  async canProvideConfiguration(uri: vscode.Uri): Promise<boolean> {
-    return Boolean(await this.configurationContext(uri.fsPath));
+  private prepareConfiguration(file: string): void {
+    const key = path.resolve(file);
+    if (this.preparing.has(key)) return;
+    const generation = this.generation;
+    const request = this.resolveConfigurationContext(key).catch(() => undefined).then(owner => {
+      if (generation !== this.generation) return;
+      this.owners.set(key, owner ?? null);
+      this.api?.didChangeCustomConfiguration(this);
+    });
+    this.preparing.set(key, request);
+    const clean = (): void => {
+      if (this.preparing.get(key) === request) this.preparing.delete(key);
+    };
+    void request.then(clean, clean);
   }
 
-  async provideConfigurations(uris: vscode.Uri[]): Promise<SourceFileConfigurationItem[]> {
+  async canProvideConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken): Promise<boolean> {
+    if (this.cachedConfigurationContext(uri.fsPath)) return true;
+    if (this.owners.has(path.resolve(uri.fsPath))) return false;
+    if (!token?.isCancellationRequested) this.prepareConfiguration(uri.fsPath);
+    return false;
+  }
+
+  async provideConfigurations(uris: vscode.Uri[], token?: vscode.CancellationToken): Promise<SourceFileConfigurationItem[]> {
     const configurations = await Promise.all(uris.map(async uri => {
-      const owner = await this.configurationContext(uri.fsPath);
-      if (!owner) return undefined;
-      const entries = await this.loadEntries(owner.context, true);
+      if (token?.isCancellationRequested) return undefined;
+      const owner = this.cachedConfigurationContext(uri.fsPath);
+      if (!owner) {
+        if (!this.owners.has(path.resolve(uri.fsPath))) this.prepareConfiguration(uri.fsPath);
+        return undefined;
+      }
+      const entries = await this.loadEntries(owner.context);
       const entry = selectCompileCommand(entries, uri.fsPath);
       return {
         uri,

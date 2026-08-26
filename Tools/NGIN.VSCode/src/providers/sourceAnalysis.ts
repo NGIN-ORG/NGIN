@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { isTransientAnalysisFailure } from '../core/analysisPolicy';
 import { parseActionDiagnostics } from '../core/actionDiagnostics';
 import { CliFailure, type NginCli } from '../core/cli';
 import { lifecycleArguments, selectionArguments, dependencyLockPath } from '../core/commandArguments';
@@ -221,7 +222,6 @@ export class SourceAnalysisProvider implements vscode.Disposable {
     this.activeByProject.get(context.projectManifest)?.cancel();
     this.activeByProject.set(context.projectManifest, token);
     this.setSummary(context.projectManifest, { state: 'analyzing', diagnostics: this.summary(context.projectManifest).diagnostics });
-    const status = vscode.window.setStatusBarMessage(`$(loading~spin) NGIN: Analyzing ${files.length === 1 ? path.basename(files[0]) : context.projectName}`);
     try {
       const extra = files.flatMap(file => ['--file', file]);
       const result = await this.cli.run(
@@ -232,7 +232,6 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       this.controller.markConfigured(context);
       return parseActionDiagnostics(result.stdout).diagnostics;
     } finally {
-      status.dispose();
       if (this.activeByProject.get(context.projectManifest) === token) this.activeByProject.delete(context.projectManifest);
       token.dispose();
     }
@@ -270,6 +269,14 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         message: values.length ? `${values.length} problem${values.length === 1 ? '' : 's'}` : 'No problems'
       });
     } catch (error) {
+      if (isTransientAnalysisFailure(error)) {
+        this.setSummary(context.projectManifest, {
+          state: 'idle', diagnostics: this.summary(context.projectManifest).diagnostics,
+          message: 'Waiting for the active NGIN operation'
+        });
+        this.scheduleVisibleEditors();
+        return;
+      }
       if (error instanceof CliFailure && /dependency lock (?:does not match|is invalid)|requires a locked PackageInstance/iu.test(error.message)) {
         const answer = await vscode.window.showWarningMessage(
           `Project tooling for ${context.projectName} has an outdated dependency lock.`,
@@ -285,7 +292,6 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         message: error instanceof Error ? error.message : String(error)
       });
       if (announceFailures && !/cancel/iu.test(error instanceof Error ? error.message : String(error))) {
-        this.cli.showOutput();
         const action = await vscode.window.showErrorMessage(
           `Analysis failed for ${context.projectName}. Check NGIN Output for details.`,
           'Show Output'
@@ -330,6 +336,14 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       }
       await this.execute(context, [document.uri.fsPath], false, false);
     } catch (error) {
+      if (isTransientAnalysisFailure(error)) {
+        this.setSummary(context.projectManifest, {
+          state: 'idle', diagnostics: this.summary(context.projectManifest).diagnostics,
+          message: 'Waiting for the active NGIN operation'
+        });
+        this.schedule(document, 750);
+        return;
+      }
       this.setSummary(context.projectManifest, { state: 'failed', diagnostics: 0, message: error instanceof Error ? error.message : String(error) });
     }
   }

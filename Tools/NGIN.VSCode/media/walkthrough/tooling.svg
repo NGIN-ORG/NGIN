@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="260" viewBox="0 0 640 260" role="img" aria-labelledby="title description">
+  <title id="title">Native NGIN diagnostics</title>
+  <desc id="description">Analyzer warnings appear as source squiggles and in the native Problems view with a Quick Fix.</desc>
+  <style>
+    .bg{fill:#f3f3f3}.panel{fill:#fff;stroke:#c8c8c8}.text{fill:#242424;font:15px monospace}.ui{fill:#242424;font:14px sans-serif}.muted{fill:#616161;font:13px sans-serif}.warn{fill:#9d6b00}.squiggle{stroke:#d7a100;fill:none;stroke-width:2}
+    @media(prefers-color-scheme:dark){.bg{fill:#1e1e1e}.panel{fill:#252526;stroke:#4b4b4b}.text,.ui{fill:#f0f0f0}.muted{fill:#b7b7b7}.warn{fill:#cca700}.squiggle{stroke:#cca700}}
+    @media(forced-colors:active){.bg,.panel{fill:Canvas}.panel{stroke:CanvasText}.text,.ui,.muted{fill:CanvasText}.warn{fill:Highlight}.squiggle{stroke:Highlight}}
+  </style>
+  <rect class="bg" width="640" height="260" rx="8"/>
+  <rect class="panel" x="48" y="25" width="544" height="130" rx="5"/>
+  <text class="muted" x="72" y="52">main.cpp</text>
+  <text class="text" x="72" y="83">int answer = 42;</text>
+  <path class="squiggle" d="M179 89 l5 3 5-3 5 3 5-3 5 3 5-3"/>
+  <text class="warn" x="72" y="124">⚠</text><text class="ui" x="96" y="124">42 is a magic number</text><text class="muted" x="340" y="124">Quick Fix…</text>
+  <rect class="panel" x="48" y="170" width="544" height="64" rx="5"/>
+  <text class="ui" x="72" y="196" font-weight="600">PROBLEMS</text>
+  <text class="warn" x="72" y="220">⚠</text><text class="ui" x="96" y="220">readability-magic-numbers</text><text class="muted" x="350" y="220">NGIN.Tooling.ClangTidy</text>
+</svg>

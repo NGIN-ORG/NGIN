@@ -23,12 +23,18 @@ interface PersistedSelection {
   configuration?: string;
   target?: string;
   toolchain?: string;
+  launch?: string;
+  launches?: Record<string, string>;
   preset?: string;
   options?: Record<string, string>;
   projects?: Record<string, Omit<PersistedSelection, 'projects' | 'projectManifest'>>;
 }
 
 const stateKey = 'ngin.activeSelection';
+
+function launchSelectionKey(configuration: string, target: string, toolchain: string): string {
+  return [configuration, target, toolchain].join('|');
+}
 
 export interface ExecuteOptions {
   progress?: boolean;
@@ -138,6 +144,9 @@ export class NginController implements vscode.Disposable {
       ?? 'Debug';
     const target = selection.target ?? remembered.target ?? choices?.defaults.target ?? choices?.targets[0] ?? 'host';
     const toolchain = selection.toolchain ?? remembered.toolchain ?? choices?.defaults.toolchain ?? choices?.toolchains[0] ?? 'default';
+    const rememberedLaunch = remembered.launches
+      ? remembered.launches[launchSelectionKey(configuration, target, toolchain)]
+      : remembered.launch;
     const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(project.manifest));
     const workspaceFolder = folder?.uri.fsPath ?? project.directory;
     const outputRoot = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(project.manifest)).get<string>('build.outputRoot', 'build/ngin');
@@ -149,6 +158,7 @@ export class NginController implements vscode.Disposable {
       configuration,
       target,
       toolchain,
+      launch: selection.launch || rememberedLaunch,
       preset: selection.preset ?? remembered.preset,
       options: { ...(selection.options ?? remembered.options ?? {}) },
       outputDirectory: projectOutputDirectory(workspaceFolder, project, configuration, target, toolchain, outputRoot)
@@ -174,10 +184,12 @@ export class NginController implements vscode.Disposable {
     await this.refreshGraph(false);
   }
 
-  async updateSelection(change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'preset' | 'options'>>): Promise<void> {
+  async updateSelection(change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'launch' | 'preset' | 'options'>>): Promise<void> {
     if (!this.project || !this.contextValue) return;
     const defined = Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined));
-    this.contextValue = this.contextForProject(this.project, { ...this.contextValue, ...defined });
+    const selection = { ...this.contextValue, ...defined };
+    if ((change.configuration || change.target || change.toolchain) && change.launch === undefined) delete selection.launch;
+    this.contextValue = this.contextForProject(this.project, selection);
     this.graphValue = undefined;
     this.graphErrorValue = undefined;
     this.configuredValue = false;
@@ -186,13 +198,49 @@ export class NginController implements vscode.Disposable {
     await this.refreshGraph(true);
   }
 
+  async updateProjectSelection(
+    project: ProjectCandidate,
+    change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'launch' | 'preset' | 'options'>>
+  ): Promise<void> {
+    if (this.project?.manifest === project.manifest) {
+      await this.updateSelection(change);
+      return;
+    }
+    const current = this.contextForProject(project);
+    const defined = Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined));
+    const selection = { ...current, ...defined };
+    if ((change.configuration || change.target || change.toolchain) && change.launch === undefined) delete selection.launch;
+    const next = this.contextForProject(project, selection);
+    const previous = this.projectSelections[project.manifest] ?? {};
+    const launches = { ...(previous.launches ?? {}) };
+    if (next.launch) launches[launchSelectionKey(next.configuration, next.target, next.toolchain)] = next.launch;
+    this.projectSelections[project.manifest] = {
+      configuration: next.configuration,
+      target: next.target,
+      toolchain: next.toolchain,
+      launch: next.launch,
+      launches,
+      preset: next.preset,
+      options: { ...next.options }
+    };
+    this.backgroundGraphCache.clear();
+    this.backgroundGraphRequests.clear();
+    await this.persist();
+    this.emit();
+  }
+
   private async persist(): Promise<void> {
     const context = this.contextValue;
     if (!context) return;
+    const previous = this.projectSelections[context.projectManifest] ?? {};
+    const launches = { ...(previous.launches ?? {}) };
+    if (context.launch) launches[launchSelectionKey(context.configuration, context.target, context.toolchain)] = context.launch;
     this.projectSelections[context.projectManifest] = {
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
+      launch: context.launch,
+      launches,
       preset: context.preset,
       options: { ...context.options }
     };
@@ -201,6 +249,8 @@ export class NginController implements vscode.Disposable {
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
+      launch: context.launch,
+      launches,
       preset: context.preset,
       options: context.options,
       projects: this.projectSelections
@@ -411,6 +461,7 @@ export class NginController implements vscode.Disposable {
   ): Promise<CliResult | undefined> {
     const context = contextOverride ?? this.requireContext();
     const operation = async (token: vscode.CancellationToken): Promise<CliResult | undefined> => {
+        const startedAt = Date.now();
         this.busyValue = command;
         this.busyProjectManifestValue = context.projectManifest;
         this.emit();
@@ -423,7 +474,7 @@ export class NginController implements vscode.Disposable {
               token,
               requireTrust: true,
               exclusive: true,
-              revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', true),
+              revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false),
               ...(['configure', 'build', 'stage', 'run', 'test', 'publish'].includes(command)
                 ? { presentation: 'lifecycle' as const, label: context.projectName }
                 : {})
@@ -438,11 +489,16 @@ export class NginController implements vscode.Disposable {
             this.configurationInvalidatedAt = 0;
           }
           if (refreshGraph && context.projectManifest === this.contextValue?.projectManifest) await this.refreshGraph(false);
-          this.lastOperationValue = { projectManifest: context.projectManifest, command, state: 'succeeded', completedAt: Date.now() };
+          const completedAt = Date.now();
+          this.lastOperationValue = {
+            projectManifest: context.projectManifest, command, state: 'succeeded', completedAt,
+            durationMs: completedAt - startedAt
+          };
           return result;
         } catch (error) {
           this.lastOperationValue = {
             projectManifest: context.projectManifest, command, state: 'failed', completedAt: Date.now(),
+            durationMs: Date.now() - startedAt,
             message: error instanceof Error ? error.message : String(error)
           };
           if (error instanceof CliFailure) {
@@ -468,7 +524,7 @@ export class NginController implements vscode.Disposable {
       }
     }
     return vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: operationLabel(command, context.projectName), cancellable: false },
+      { location: vscode.ProgressLocation.Window, title: operationLabel(command, context.projectName), cancellable: true },
       async (_progress, token) => operation(token)
     );
   }

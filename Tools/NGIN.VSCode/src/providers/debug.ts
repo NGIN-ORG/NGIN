@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
 import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../core/debugConfiguration';
 import { stagedExecutablePath } from '../core/paths';
+import type { ProjectCandidate } from '../model';
 import type { SourceAnalysisProvider } from './sourceAnalysis';
 
 interface NginDebugConfiguration extends vscode.DebugConfiguration {
@@ -28,12 +29,37 @@ async function fileExists(candidate: string): Promise<boolean> {
 export class NginDebugProvider implements vscode.DebugConfigurationProvider {
   constructor(
     private readonly controller: NginController,
-    private readonly sourceAnalysis: SourceAnalysisProvider,
-    private readonly extensionContext: vscode.ExtensionContext
+    private readonly sourceAnalysis: SourceAnalysisProvider
   ) {}
 
   provideDebugConfigurations(): vscode.ProviderResult<vscode.DebugConfiguration[]> {
     return [{ type: 'ngin', request: 'launch', name: 'NGIN: Debug Current Project', preStage: true }];
+  }
+
+  async selectLaunch(project = this.controller.activeProject): Promise<string | undefined> {
+    if (!project) throw new Error('No NGIN project is available.');
+    const context = this.sourceAnalysis.contextForProject(project);
+    const graph = await this.controller.graphForContext(context, true);
+    if (!graph?.launches.length) {
+      void vscode.window.showInformationMessage(`${project.name} declares no Launch configurations.`);
+      return undefined;
+    }
+    const remembered = context.launch;
+    const selected = await vscode.window.showQuickPick(
+      graph.launches.map(launch => {
+        const identity = launch.name ?? launch.identity;
+        return {
+          label: identity,
+          description: identity === remembered ? 'selected' : launch.default ? 'default' : undefined,
+          detail: launch.executable ? `Executable: ${launch.executable}` : undefined,
+          identity
+        };
+      }),
+      { title: `Select Launch for ${graph.product.name}`, placeHolder: remembered, matchOnDetail: true }
+    );
+    if (!selected) return undefined;
+    await this.controller.updateProjectSelection(project, { launch: selected.identity, preset: undefined });
+    return selected.identity;
   }
 
   async resolveDebugConfiguration(
@@ -70,8 +96,12 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       if (!staged) return undefined;
     }
 
+    if (!configuration.test && !configuration.launch && context.launch
+      && graph.launches.some(launch => (launch.name ?? launch.identity) === context.launch)) {
+      configuration.launch = context.launch;
+    }
     if (!configuration.test && !configuration.launch && graph.launches.length > 1) {
-      const remembered = this.extensionContext.workspaceState.get<Record<string, string>>('ngin.debugLaunches', {})[project.manifest];
+      const remembered = context.launch;
       configuration.launch = graph.launches.find(launch => (launch.name ?? launch.identity) === remembered)
         ? remembered
         : await vscode.window.showQuickPick(
@@ -79,8 +109,7 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
           { title: `Select a Launch for ${graph.product.name}` }
         ).then(value => value?.label);
       if (!configuration.launch) return undefined;
-      const rememberedLaunches = this.extensionContext.workspaceState.get<Record<string, string>>('ngin.debugLaunches', {});
-      await this.extensionContext.workspaceState.update('ngin.debugLaunches', { ...rememberedLaunches, [project.manifest]: configuration.launch });
+      await this.controller.updateProjectSelection(project, { launch: configuration.launch, preset: undefined });
     }
     const program = stagedExecutablePath(context, graph.product.name, graph.selection.targetOperatingSystem);
     if (!await fileExists(program)) {

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import type { NginController } from '../../../core/controller';
+import type { CompositionGraph, ContextSnapshot, NginContext } from '../../../model';
+import { NginCppConfigurationProvider } from '../../../providers/cppTools';
 
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension('ngin.ngin-tools');
@@ -9,8 +14,11 @@ export async function run(): Promise<void> {
   assert.equal(extension.isActive, true);
 
   const commands = await vscode.commands.getCommands(true);
-  for (const command of ['ngin.setDefaultProject', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.lock', 'ngin.analyzeFile', 'ngin.revealOwningProject', 'ngin.showGraph', 'ngin.openDashboard']) {
+  for (const command of ['ngin.setDefaultProject', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.selectLaunch', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.showGraph', 'ngin.openDashboard']) {
     assert.ok(commands.includes(command), `${command} is registered`);
+  }
+  for (const command of ['ngin.newFile', 'ngin.newFolder', 'ngin.renameFile', 'ngin.duplicateFile', 'ngin.deleteFile', 'ngin.revealFile']) {
+    assert.equal(commands.includes(command), false, `${command} is retired in favor of the native Explorer`);
   }
 
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -32,8 +40,60 @@ export async function run(): Promise<void> {
   assert.match(graphDocument?.getText() ?? '', /"kind": "NGIN\.CompositionGraph"/);
   assert.match(graphDocument?.getText() ?? '', /"name": "Hello\.Native"/);
 
+  const composition = JSON.parse(graphDocument!.getText()) as CompositionGraph;
+  const providerOutput = await fs.mkdtemp(path.join(tmpdir(), 'ngin-cpp-provider-'));
+  const providerContext: NginContext = {
+    workspaceFolder: workspace,
+    workspaceManifest: path.join(workspace, 'NGIN.ngin'),
+    projectManifest: manifest.fsPath,
+    projectName: 'Hello.Native',
+    configuration: 'Debug', target: 'host', toolchain: 'default', options: {},
+    outputDirectory: providerOutput
+  };
+  const providerEvents = new vscode.EventEmitter<ContextSnapshot>();
+  const cppProvider = new NginCppConfigurationProvider({
+    snapshot: { context: providerContext, graph: composition },
+    onDidChange: providerEvents.event
+  } as unknown as NginController);
+  const nativeSource = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Native', 'src', 'main.cpp'));
+  const providerStarted = Date.now();
+  assert.equal(await cppProvider.canProvideConfiguration(nativeSource), true);
+  const provided = await cppProvider.provideConfigurations([nativeSource]);
+  assert.equal(provided.length, 1, 'graph fallback supplies IntelliSense without a compile database');
+  assert.ok(Date.now() - providerStarted < 2_000, 'IntelliSense provider responds within the C/C++ deadline');
+
+  const packageSource = path.join(workspace, 'Packages', 'NGIN.UI', 'src', 'NGIN', 'UI', 'Controls.cpp');
+  const packageInclude = path.join(workspace, 'Packages', 'NGIN.UI', 'include');
+  await fs.mkdir(path.join(providerOutput, 'cmake'), { recursive: true });
+  await fs.writeFile(path.join(providerOutput, 'cmake', 'compile_commands.json'), JSON.stringify([{
+    directory: workspace,
+    file: packageSource,
+    arguments: ['/usr/bin/c++', '-I', packageInclude, '-std=c++23', '-c', packageSource]
+  }]), 'utf8');
+  const dependencyUri = vscode.Uri.file(packageSource);
+  assert.equal(await cppProvider.canProvideConfiguration(dependencyUri), false,
+    'dependency ownership is prepared asynchronously');
+  const dependencyDeadline = Date.now() + 2_000;
+  while (!await cppProvider.canProvideConfiguration(dependencyUri) && Date.now() < dependencyDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const dependencyConfiguration = await cppProvider.provideConfigurations([dependencyUri]);
+  assert.equal(dependencyConfiguration.length, 1, 'active build compile entry owns dependency source');
+  assert.ok(dependencyConfiguration[0].configuration.includePath.includes(packageInclude),
+    'dependency source receives include paths from its exact compile command');
+  cppProvider.dispose();
+  providerEvents.dispose();
+  await fs.rm(providerOutput, { recursive: true, force: true });
+
   const tasks = await vscode.tasks.fetchTasks({ type: 'ngin' });
   assert.ok(tasks.some(task => task.definition.command === 'build'), 'active project supplies a build task');
+
+  const hostedSource = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Hosted', 'src', 'main.cpp'));
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostedSource));
+  await vscode.commands.executeCommand('ngin.revealOwningProject', hostedSource);
+  const tasksAfterReveal = await vscode.tasks.fetchTasks({ type: 'ngin' });
+  assert.ok(tasksAfterReveal.some(task => task.name.includes('Hello.Native')),
+    'selecting a project tree row does not change the default project');
 
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest));
   const manifestDocument = vscode.window.activeTextEditor!.document;

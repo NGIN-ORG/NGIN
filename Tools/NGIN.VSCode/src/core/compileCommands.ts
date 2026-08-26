@@ -68,14 +68,18 @@ function commonDirectoryDepth(left: string, right: string): number {
 }
 
 export function selectCompileCommand(entries: CompileCommandEntry[], file: string): CompileCommandEntry | undefined {
-  const normalized = normalizeForComparison(file);
-  const exact = entries.find(entry => normalizeForComparison(entryFile(entry)) === normalized);
+  const exact = findCompileCommand(entries, file);
   if (exact) return exact;
   return [...entries].sort((left, right) => {
     const rightDepth = commonDirectoryDepth(file, entryFile(right));
     const leftDepth = commonDirectoryDepth(file, entryFile(left));
     return rightDepth - leftDepth || entryFile(left).localeCompare(entryFile(right));
   })[0];
+}
+
+export function findCompileCommand(entries: CompileCommandEntry[], file: string): CompileCommandEntry | undefined {
+  const normalized = normalizeForComparison(file);
+  return entries.find(entry => normalizeForComparison(entryFile(entry)) === normalized);
 }
 
 function takeValue(args: string[], index: number, prefixes: string[]): { value?: string; consumed: number } {

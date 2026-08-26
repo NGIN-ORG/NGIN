@@ -7,8 +7,6 @@ import { displayOptionValue } from './core/graph';
 import {
   insertBuildItem,
   kindForPath,
-  removeExactBuildItemIncludes,
-  updateExactBuildItemPaths,
   updateProjectAttributes,
   type OffsetEdit
 } from './core/manifestEdits';
@@ -17,8 +15,9 @@ import { isWithin } from './core/paths';
 import { attributeChoices, childElementNames, loadManifestMetadata } from './core/manifestMetadata';
 import { createProjectTemplate } from './core/projectTemplates';
 import { projectCanLaunch } from './core/projectCapabilities';
+import { graphOwnsFile } from './core/projectOwnership';
 import type { ProjectFileEntry } from './core/projectFiles';
-import type { GraphBuildItem, ProjectCandidate } from './model';
+import type { GraphBuildItem, GraphNamedNode, ProjectCandidate } from './model';
 import { NginDebugProvider } from './providers/debug';
 import { NginCppConfigurationProvider } from './providers/cppTools';
 import { SourceAnalysisProvider } from './providers/sourceAnalysis';
@@ -27,9 +26,9 @@ import { NginTaskProvider } from './providers/tasks';
 import { NginTestingProvider } from './providers/testing';
 import { AnalyzerCodeActionProvider, ManifestCodeActionProvider } from './providers/codeActions';
 import { registerManifestCompletion } from './manifestCompletion';
-import { ProjectsTreeProvider, type ProjectsViewMode } from './ui/tree';
+import { ProjectsTreeProvider } from './ui/tree';
 import { StatusBarController } from './ui/statusBar';
-import { DashboardController } from './ui/dashboard';
+import { openProjectActions } from './ui/projectActions';
 import { back, inputStep, pickStep } from './ui/inputFlow';
 
 async function openJson(title: string, value: unknown): Promise<void> {
@@ -54,7 +53,7 @@ async function choose(
     void vscode.window.showWarningMessage(`The active workspace declares no ${title.toLowerCase()} choices.`);
     return undefined;
   }
-  return vscode.window.showQuickPick(values.map(value => ({ label: value, description: value === active ? 'active' : undefined })), {
+  return vscode.window.showQuickPick(values.map(value => ({ label: value, description: value === active ? 'selected' : undefined })), {
     title: `Select NGIN ${title}`,
     placeHolder: active
   }).then(item => item?.label);
@@ -106,17 +105,14 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   const cli = new NginCli();
   const controller = new NginController(extensionContext, cli, diagnostics, compilerDiagnostics);
   const sourceAnalysis = new SourceAnalysisProvider(extensionContext, controller, cli, sourceDiagnostics);
-  const projectsViewMode = extensionContext.workspaceState.get<ProjectsViewMode>('ngin.projectsViewMode', 'project');
-  const projectsTree = new ProjectsTreeProvider(controller, sourceAnalysis, projectsViewMode);
+  const projectsTree = new ProjectsTreeProvider(controller, sourceAnalysis);
   const decorations = new NginFileDecorationProvider(controller);
   const status = new StatusBarController(controller, sourceAnalysis);
   const tasks = new NginTaskProvider(controller, cli);
-  const debug = new NginDebugProvider(controller, sourceAnalysis, extensionContext);
+  const debug = new NginDebugProvider(controller, sourceAnalysis);
   const cppTools = new NginCppConfigurationProvider(controller);
-  const dashboard = new DashboardController(controller, sourceAnalysis);
   const testing = new NginTestingProvider(controller, sourceAnalysis);
   const projectsView = vscode.window.createTreeView('ngin.projects', { treeDataProvider: projectsTree, showCollapseAll: true });
-  projectsView.description = projectsViewMode === 'files' ? 'Files' : 'Project';
   const canLaunch = (project: ProjectCandidate | undefined): boolean => {
     const snapshot = controller.snapshot;
     return projectCanLaunch(project, snapshot.graph, snapshot.context?.projectManifest);
@@ -128,6 +124,32 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       : `${project.name} has no Launch configuration. Add Launch intent or select a launchable project.`;
     const action = await vscode.window.showInformationMessage(message, 'Build Project');
     if (action === 'Build Project') await vscode.commands.executeCommand('ngin.build', project);
+  };
+  const effectiveProject = async (argument?: unknown): Promise<ProjectCandidate | undefined> => {
+    const requested = projectArgument(argument);
+    if (requested) return requested;
+    const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
+    return activeFile ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.activeProject : controller.activeProject;
+  };
+  let cliVerified = false;
+  const updateContextKeys = async (): Promise<void> => {
+    const snapshot = controller.snapshot;
+    const effective = await effectiveProject();
+    const effectiveGraph = effective?.manifest === snapshot.context?.projectManifest ? snapshot.graph : undefined;
+    await Promise.all([
+      vscode.commands.executeCommand('setContext', 'ngin.busy', Boolean(snapshot.busy)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasProject', Boolean(effective)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasGraph', Boolean(snapshot.graph)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasProjects', controller.projects.length > 0),
+      vscode.commands.executeCommand('setContext', 'ngin.hasGraphError', Boolean(snapshot.graphError)),
+      vscode.commands.executeCommand('setContext', 'ngin.canLaunch', projectCanLaunch(effective, effectiveGraph, effective?.manifest)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasTesting', Boolean(effectiveGraph?.testing) || effectiveGraph?.product.type === 'Test' || Boolean(effective?.hasTesting)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasAnalyze', Boolean(effectiveGraph?.actions.some(action => action.kind === 'Analyze')) || Boolean(effective?.hasAnalyze)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasFormat', Boolean(effectiveGraph?.actions.some(action => action.kind === 'Format')) || Boolean(effective?.hasFormat)),
+      vscode.commands.executeCommand('setContext', 'ngin.cliReady', cliVerified || Boolean(snapshot.graph)),
+      vscode.commands.executeCommand('setContext', 'ngin.hasSuccessfulBuild', snapshot.lastOperation?.command === 'build' && snapshot.lastOperation.state === 'succeeded'),
+      vscode.commands.executeCommand('setContext', 'ngin.hasSuccessfulRun', snapshot.lastOperation?.command === 'run' && snapshot.lastOperation.state === 'succeeded')
+    ]);
   };
 
   extensionContext.subscriptions.push(
@@ -142,13 +164,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     decorations,
     status,
     cppTools,
-    dashboard,
     testing,
-    projectsView.onDidChangeSelection(event => {
-      const node = event.selection[0];
-      const project = node?.contextValue?.startsWith('nginProjectRoot') ? node.project : undefined;
-      if (project && controller.activeProject?.manifest !== project.manifest) void controller.selectProject(project);
-    }),
     registerManifestCompletion(extensionContext),
     vscode.window.registerFileDecorationProvider(decorations),
     vscode.tasks.registerTaskProvider('ngin', tasks),
@@ -163,38 +179,83 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       new ManifestCodeActionProvider(metadata),
       { providedCodeActionKinds: ManifestCodeActionProvider.providedCodeActionKinds }
     ),
-    controller.onDidChange(snapshot => {
-      void vscode.commands.executeCommand('setContext', 'ngin.busy', Boolean(snapshot.busy));
-      void vscode.commands.executeCommand('setContext', 'ngin.hasProject', Boolean(snapshot.context));
-      void vscode.commands.executeCommand('setContext', 'ngin.hasGraph', Boolean(snapshot.graph));
-      void vscode.commands.executeCommand('setContext', 'ngin.hasProjects', controller.projects.length > 0);
-      void vscode.commands.executeCommand('setContext', 'ngin.hasGraphError', Boolean(snapshot.graphError));
-      void vscode.commands.executeCommand('setContext', 'ngin.canLaunch', canLaunch(controller.activeProject));
-      void vscode.commands.executeCommand('setContext', 'ngin.hasTesting', Boolean(snapshot.graph?.testing) || snapshot.graph?.product.type === 'Test');
-      void vscode.commands.executeCommand('setContext', 'ngin.hasAnalyze', Boolean(snapshot.graph?.actions.some(action => action.kind === 'Analyze')));
-      void vscode.commands.executeCommand('setContext', 'ngin.hasFormat', Boolean(snapshot.graph?.actions.some(action => action.kind === 'Format')));
+    controller.onDidChange(() => void updateContextKeys()),
+    vscode.window.onDidChangeActiveTextEditor(() => void updateContextKeys()),
+    sourceAnalysis.onDidChange(projectManifest => {
+      const summary = sourceAnalysis.summary(projectManifest);
+      void vscode.commands.executeCommand('setContext', 'ngin.toolingDecided', summary.state !== 'idle');
+    }),
+    vscode.debug.onDidStartDebugSession(session => {
+      if (session.configuration.type === 'ngin' || session.configuration.name?.startsWith('NGIN:')) {
+        void vscode.commands.executeCommand('setContext', 'ngin.hasSuccessfulRun', true);
+      }
     })
   );
 
   register(extensionContext, 'ngin.refresh', () => controller.refreshDiscovery());
-  const setProjectsViewMode = async (mode: ProjectsViewMode): Promise<void> => {
-    projectsTree.setMode(mode);
-    projectsView.description = mode === 'files' ? 'Files' : 'Project';
-    await extensionContext.workspaceState.update('ngin.projectsViewMode', mode);
-    await vscode.commands.executeCommand('setContext', 'ngin.projectsViewMode', mode);
-  };
-  register(extensionContext, 'ngin.showFilesView', () => setProjectsViewMode('files'));
-  register(extensionContext, 'ngin.showProjectView', () => setProjectsViewMode('project'));
+  register(extensionContext, 'ngin.showFilesView', () => vscode.commands.executeCommand('workbench.view.explorer'));
+  register(extensionContext, 'ngin.showProjectView', () => vscode.commands.executeCommand('ngin.projects.focus'));
   register(extensionContext, 'ngin.refreshGraph', () => controller.refreshGraph(true));
   register(extensionContext, 'ngin.showOutput', () => cli.showOutput());
   register(extensionContext, 'ngin.cancel', () => cli.cancel());
-  register(extensionContext, 'ngin.openDashboard', () => dashboard.open());
+  register(extensionContext, 'ngin.projectActions', (argument?: unknown) =>
+    openProjectActions(controller, sourceAnalysis, projectArgument(argument)));
+  register(extensionContext, 'ngin.openDashboard', (argument?: unknown) =>
+    openProjectActions(controller, sourceAnalysis, projectArgument(argument)));
   register(extensionContext, 'ngin.openSettings', () =>
     vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ngin.ngin-tools'));
   register(extensionContext, 'ngin.openDocumentation', () =>
     vscode.env.openExternal(vscode.Uri.parse('https://github.com/NGIN-ORG/NGIN/blob/main/Tools/NGIN.VSCode/README.md')));
   register(extensionContext, 'ngin.openWalkthrough', () =>
     vscode.commands.executeCommand('workbench.action.openWalkthrough', 'ngin.ngin-tools#ngin.gettingStarted'));
+  register(extensionContext, 'ngin.checkSetup', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    const workspaceFolder = project
+      ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(project.manifest))?.uri.fsPath ?? project.directory
+      : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceFolder) {
+      const action = await vscode.window.showInformationMessage('Open a folder to check NGIN setup.', 'Open Folder');
+      if (action === 'Open Folder') await vscode.commands.executeCommand('workbench.action.files.openFolder');
+      return;
+    }
+    let executable = await cli.resolveExecutable(workspaceFolder);
+    let version = 'Unavailable';
+    let cliReady = false;
+    try {
+      const result = await cli.run(['--version'], workspaceFolder, { cwd: workspaceFolder });
+      executable = result.command;
+      version = result.stdout.trim() || 'Version not reported';
+      cliReady = true;
+    } catch {
+      // The action list below exposes Settings and Output as remediation.
+    }
+    cliVerified = cliReady;
+    await vscode.commands.executeCommand('setContext', 'ngin.cliReady', cliReady);
+    const context = project ? sourceAnalysis.contextForProject(project) : undefined;
+    const graph = context ? await controller.graphForContext(context, false) : undefined;
+    const items: Array<vscode.QuickPickItem & { command?: string }> = [
+      { label: 'Setup status', kind: vscode.QuickPickItemKind.Separator },
+      { label: `${cliReady ? '$(pass)' : '$(error)'} NGIN CLI`, description: version, detail: executable },
+      { label: `${vscode.workspace.isTrusted ? '$(pass)' : '$(warning)'} Workspace trust`, description: vscode.workspace.isTrusted ? 'Trusted' : 'Trust is required to run project tools' },
+      { label: `${project ? '$(pass)' : '$(warning)'} Project discovery`, description: project ? project.name : 'No NGIN project found' },
+      ...(project ? [{
+        label: `${graph ? '$(pass)' : '$(error)'} Project model`,
+        description: graph ? `${graph.product.type} · ${context?.configuration}` : 'Could not resolve the Composition Graph',
+        detail: !graph && controller.snapshot.graphError ? controller.snapshot.graphError.split(/\r?\n/u)[0] : undefined
+      }] : []),
+      { label: 'Actions', kind: vscode.QuickPickItemKind.Separator },
+      { label: '$(settings-gear) Open NGIN Settings', description: 'Configure the CLI path and extension behavior', command: 'ngin.openSettings' },
+      { label: '$(refresh) Refresh Workspace', description: 'Discover projects and reload the model', command: 'ngin.refresh' },
+      { label: '$(output) Show NGIN Output', description: 'Read detailed setup and command output', command: 'ngin.showOutput' }
+    ];
+    const selected = await vscode.window.showQuickPick(items, {
+      title: 'NGIN: Check Setup',
+      placeHolder: cliReady && project && graph ? 'Setup is ready' : 'Choose an action to resolve setup issues',
+      matchOnDescription: true,
+      matchOnDetail: true
+    });
+    if (selected?.command) await vscode.commands.executeCommand(selected.command);
+  });
 
   register(extensionContext, 'ngin.createProject', async () => {
     const folders = vscode.workspace.workspaceFolders ?? [];
@@ -212,10 +273,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     let type = '';
     let relativeDirectory = '';
     let step = 1;
-    while (step <= 3) {
+    while (step <= 4) {
       if (step === 1) {
         const value = await inputStep({
-          title: 'Create NGIN project', step, totalSteps: 3, value: name,
+          title: 'Create NGIN project', step, totalSteps: 4, value: name,
           prompt: 'Project name', placeholder: 'MyApp',
           validate: candidate => /^[A-Za-z_][A-Za-z0-9_.-]*$/u.test(candidate.trim())
             ? undefined : 'Use a name beginning with a letter or underscore.'
@@ -228,7 +289,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         continue;
       }
       if (step === 2) {
-        const value = await pickStep({ title: 'Create NGIN project', step, totalSteps: 3 },
+        const value = await pickStep({ title: 'Create NGIN project', step, totalSteps: 4 },
           productTypes.map(candidate => ({
             label: candidate,
             description: candidate === 'Application' ? 'Executable application'
@@ -243,18 +304,29 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         step++;
         continue;
       }
-      const value = await inputStep({
-        title: 'Create NGIN project', step, totalSteps: 3, value: relativeDirectory,
-        prompt: 'Folder relative to the workspace', placeholder: name,
-        validate: candidate => {
-          if (!candidate.trim()) return 'Enter a project folder or . for the workspace root.';
-          const target = path.resolve(folder.uri.fsPath, candidate.trim());
-          return isWithin(folder.uri.fsPath, target) ? undefined : 'The project must stay inside the workspace folder.';
-        }
-      });
-      if (value === undefined) return;
-      if (value === back) { step--; continue; }
-      relativeDirectory = value.trim();
+      if (step === 3) {
+        const value = await inputStep({
+          title: 'Create NGIN project', step, totalSteps: 4, value: relativeDirectory,
+          prompt: 'Folder relative to the workspace', placeholder: name,
+          validate: candidate => {
+            if (!candidate.trim()) return 'Enter a project folder or . for the workspace root.';
+            const target = path.resolve(folder.uri.fsPath, candidate.trim());
+            return isWithin(folder.uri.fsPath, target) ? undefined : 'The project must stay inside the workspace folder.';
+          }
+        });
+        if (value === undefined) return;
+        if (value === back) { step--; continue; }
+        relativeDirectory = value.trim();
+        step++;
+        continue;
+      }
+      const confirmation = await pickStep({ title: 'Create NGIN project', step, totalSteps: 4 }, [{
+        label: 'Create project',
+        description: `${type} · ${relativeDirectory}/${name}.nginproj`,
+        value: true
+      }]);
+      if (confirmation === undefined) return;
+      if (confirmation === back) { step--; continue; }
       step++;
     }
 
@@ -301,21 +373,34 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.selectProject', setDefaultProject);
   register(extensionContext, 'ngin.setDefaultProject', setDefaultProject);
 
-  register(extensionContext, 'ngin.selectConfiguration', async (value?: string) => {
-    const context = controller.requireContext();
-    const selected = value ?? await choose('Configuration', controller.activeProject?.workspaceChoices?.configurations ?? [], context.configuration);
-    if (selected) await controller.updateSelection({ configuration: selected, preset: undefined });
+  register(extensionContext, 'ngin.selectConfiguration', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? controller.activeProject;
+    if (!project) throw new Error('No NGIN project is available.');
+    const context = sourceAnalysis.contextForProject(project);
+    const selected = typeof argument === 'string'
+      ? argument
+      : await choose('Configuration', project.workspaceChoices?.configurations ?? [], context.configuration);
+    if (selected) await controller.updateProjectSelection(project, { configuration: selected, preset: undefined });
   });
-  register(extensionContext, 'ngin.selectTarget', async (value?: string) => {
-    const context = controller.requireContext();
-    const selected = value ?? await choose('Platform Target', controller.activeProject?.workspaceChoices?.targets ?? [], context.target);
-    if (selected) await controller.updateSelection({ target: selected, preset: undefined });
+  register(extensionContext, 'ngin.selectTarget', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? controller.activeProject;
+    if (!project) throw new Error('No NGIN project is available.');
+    const context = sourceAnalysis.contextForProject(project);
+    const selected = typeof argument === 'string'
+      ? argument
+      : await choose('Platform Target', project.workspaceChoices?.targets ?? [], context.target);
+    if (selected) await controller.updateProjectSelection(project, { target: selected, preset: undefined });
   });
-  register(extensionContext, 'ngin.selectToolchain', async (value?: string) => {
-    const context = controller.requireContext();
-    const selected = value ?? await choose('Toolchain', controller.activeProject?.workspaceChoices?.toolchains ?? [], context.toolchain);
-    if (selected) await controller.updateSelection({ toolchain: selected, preset: undefined });
+  register(extensionContext, 'ngin.selectToolchain', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? controller.activeProject;
+    if (!project) throw new Error('No NGIN project is available.');
+    const context = sourceAnalysis.contextForProject(project);
+    const selected = typeof argument === 'string'
+      ? argument
+      : await choose('Toolchain', project.workspaceChoices?.toolchains ?? [], context.toolchain);
+    if (selected) await controller.updateProjectSelection(project, { toolchain: selected, preset: undefined });
   });
+  register(extensionContext, 'ngin.selectLaunch', (argument?: unknown) => debug.selectLaunch(projectArgument(argument)));
   register(extensionContext, 'ngin.selectPreset', async (value?: string) => {
     const presets = controller.activeProject?.workspaceChoices?.presets ?? [];
     const selected = value
@@ -369,13 +454,13 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   });
   for (const command of ['restore', 'configure', 'build', 'stage', 'test'] as const) {
     register(extensionContext, `ngin.${command}`, async (argument?: unknown) => {
-      const project = projectArgument(argument);
+      const project = await effectiveProject(argument);
       const context = project ? sourceAnalysis.contextForProject(project) : undefined;
       return controller.execute(command, [], false, context);
     });
   }
-  register(extensionContext, 'ngin.lock', (argument?: unknown) => {
-    const project = projectArgument(argument);
+  register(extensionContext, 'ngin.lock', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
     return controller.execute('lock', [], false, project ? sourceAnalysis.contextForProject(project) : undefined);
   });
   const ensureDependencyLock = async (context = controller.requireContext()): Promise<boolean> => {
@@ -393,8 +478,8 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       return Boolean(await controller.execute('lock', [], false, context));
     }
   };
-  register(extensionContext, 'ngin.analyze', (argument?: unknown) => sourceAnalysis.analyzeProject(projectArgument(argument)));
-  register(extensionContext, 'ngin.enableProjectTooling', (argument?: unknown) => sourceAnalysis.enableProjectTooling(projectArgument(argument)));
+  register(extensionContext, 'ngin.analyze', async (argument?: unknown) => sourceAnalysis.analyzeProject(await effectiveProject(argument)));
+  register(extensionContext, 'ngin.enableProjectTooling', async (argument?: unknown) => sourceAnalysis.enableProjectTooling(await effectiveProject(argument)));
   register(extensionContext, 'ngin.analyzeFile', async (argument?: unknown) => {
     const uri = resourceArgument(argument);
     if (!uri) return;
@@ -402,7 +487,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     return sourceAnalysis.analyzeDocument(document);
   });
   register(extensionContext, 'ngin.formatSources', async (argument?: unknown) => {
-    const project = projectArgument(argument);
+    const project = await effectiveProject(argument);
     const context = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     if (await ensureDependencyLock(context)) return controller.execute('format', [], false, context);
     return undefined;
@@ -417,19 +502,29 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     return undefined;
   });
   register(extensionContext, 'ngin.run', async (argument?: unknown) => {
-    const project = projectArgument(argument);
-    const selected = project ?? controller.activeProject;
+    const selected = await effectiveProject(argument);
     if (!selected) throw new Error('No NGIN project is selected.');
     if (!canLaunch(selected)) return explainNotLaunchable(selected);
-    const context = sourceAnalysis.contextForProject(selected);
+    let context = sourceAnalysis.contextForProject(selected);
+    const graph = await controller.graphForContext(context, true);
+    if (!graph) return;
+    if (graph.launches.length > 1 && !context.launch) {
+      if (!await debug.selectLaunch(selected)) return;
+      context = sourceAnalysis.contextForProject(selected);
+    }
     await controller.execute('run', [], false, context);
   });
   register(extensionContext, 'ngin.runWithArguments', async (argument?: unknown) => {
-    const project = projectArgument(argument);
-    const selected = project ?? controller.activeProject;
+    const selected = await effectiveProject(argument);
     if (!selected) throw new Error('No NGIN project is selected.');
     if (!canLaunch(selected)) return explainNotLaunchable(selected);
-    const context = sourceAnalysis.contextForProject(selected);
+    let context = sourceAnalysis.contextForProject(selected);
+    const graph = await controller.graphForContext(context, true);
+    if (!graph) return;
+    if (graph.launches.length > 1 && !context.launch) {
+      if (!await debug.selectLaunch(selected)) return;
+      context = sourceAnalysis.contextForProject(selected);
+    }
     const args = await vscode.window.showInputBox({
       title: `Run ${context.projectName} with arguments`,
       prompt: 'Arguments appended to the selected launch configuration',
@@ -439,15 +534,19 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const trailing = args.trim() ? ['--', ...args.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(value => value.replace(/^"|"$/g, '')) ?? []] : [];
     await controller.execute('run', trailing, false, context);
   });
-  register(extensionContext, 'ngin.publish', async () => {
-    const publishes = controller.snapshot.graph?.publishes ?? [];
+  register(extensionContext, 'ngin.publish', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
+    const context = sourceAnalysis.contextForProject(project);
+    const graph = await controller.graphForContext(context, true);
+    const publishes = graph?.publishes ?? [];
     const selected = publishes.length <= 1 ? publishes[0]?.name : await choose('Publish', publishes.map(item => item.name ?? item.identity), undefined);
-    await controller.execute('publish', selected ? [selected] : []);
+    await controller.execute('publish', selected ? [selected] : [], false, context);
   });
   register(extensionContext, 'ngin.debug', async (argument?: unknown) => {
     const project = projectArgument(argument);
     const owner = project ?? await sourceAnalysis.projectForFile(vscode.window.activeTextEditor?.document.uri.fsPath ?? '', false);
-    const selected = owner && canLaunch(owner) ? owner : controller.activeProject;
+    const selected = owner ?? controller.activeProject;
     if (!selected) throw new Error('No NGIN project is available to debug.');
     if (!canLaunch(selected)) return explainNotLaunchable(selected);
     return vscode.debug.startDebugging(undefined, {
@@ -475,23 +574,25 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     void vscode.window.setStatusBarMessage(`$(trash) Removed build output for ${current.projectName}`, 3000);
     return true;
   };
-  register(extensionContext, 'ngin.clean', (argument?: unknown) => {
-    const project = projectArgument(argument);
+  register(extensionContext, 'ngin.clean', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
     return clean(true, project ? sourceAnalysis.contextForProject(project) : controller.requireContext());
   });
-  register(extensionContext, 'ngin.rebuild', async () => {
-    if (await clean(true)) await controller.execute('build');
+  register(extensionContext, 'ngin.rebuild', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
+    if (await clean(true, current)) await controller.execute('build', [], false, current);
   });
 
   register(extensionContext, 'ngin.showGraph', async (argument?: unknown) => {
-    const project = projectArgument(argument);
+    const project = await effectiveProject(argument);
     const context = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const graph = await controller.graphForContext(context, true);
     if (!graph) throw new Error(`${context.projectName} has no resolved Composition Graph.`);
     return openJson('Composition Graph', graph);
   });
   register(extensionContext, 'ngin.inspect', async (argument?: unknown) => {
-    const project = projectArgument(argument);
+    const project = await effectiveProject(argument);
     const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     try {
       const result = await cli.run(['inspect', ...selectionArguments(current), '--format', 'json'], current.workspaceFolder, {
@@ -503,8 +604,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
   });
-  register(extensionContext, 'ngin.diff', async () => {
-    const current = controller.requireContext();
+  register(extensionContext, 'ngin.diff', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
+    const current = sourceAnalysis.contextForProject(project);
     const selected = await vscode.window.showOpenDialog({
       title: 'Compare Composition Graph Against Project', canSelectMany: false, filters: { 'NGIN projects': ['nginproj'] }
     });
@@ -523,9 +626,13 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
   });
-  register(extensionContext, 'ngin.explain', async (identity?: string) => {
-    const current = controller.requireContext();
-    const selected = identity ?? await vscode.window.showInputBox({ title: 'Explain Composition Identity', prompt: 'Graph identity' });
+  register(extensionContext, 'ngin.explain', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
+    const current = sourceAnalysis.contextForProject(project);
+    const selected = typeof argument === 'string'
+      ? argument
+      : await vscode.window.showInputBox({ title: 'Explain Composition Identity', prompt: 'Graph identity' });
     if (!selected) return;
     try {
       const result = await cli.run(['explain', selected, ...selectionArguments(current), '--format', 'json'], current.workspaceFolder, {
@@ -538,18 +645,21 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     }
   });
   register(extensionContext, 'ngin.openManifest', async (argument?: unknown) => {
-    const project = projectArgument(argument);
+    const project = await effectiveProject(argument);
     const manifest = project?.manifest ?? controller.requireContext().projectManifest;
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(manifest));
     await vscode.window.showTextDocument(document);
   });
-  register(extensionContext, 'ngin.openGraphSource', async (item?: GraphBuildItem) => {
-    const current = controller.requireContext();
+  register(extensionContext, 'ngin.openGraphSource', async (item?: GraphBuildItem | GraphNamedNode, argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
+    const current = sourceAnalysis.contextForProject(project);
     const projectDirectory = path.dirname(current.projectManifest);
     const provenance = item?.provenance;
+    const itemPath = item && 'path' in item && typeof item.path === 'string' ? item.path : undefined;
     const source = provenance?.document
       ? path.resolve(current.workspaceFolder, provenance.document)
-      : item?.path ? path.resolve(projectDirectory, item.path) : current.projectManifest;
+      : itemPath ? path.resolve(projectDirectory, itemPath) : current.projectManifest;
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
     const line = Math.max(0, (provenance?.line ?? 1) - 1);
     const column = Math.max(0, (provenance?.column ?? 1) - 1);
@@ -575,8 +685,8 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     }
   });
 
-  const author = async (args: string[]): Promise<void> => {
-    const current = controller.requireContext();
+  const author = async (args: string[], project?: ProjectCandidate): Promise<void> => {
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     try {
       const openManifest = vscode.workspace.textDocuments.find(document => document.uri.fsPath === current.projectManifest);
       if (openManifest?.isDirty && !await openManifest.save()) throw new Error('Save the active project manifest before running an authoring command.');
@@ -584,13 +694,15 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         cwd: path.dirname(current.projectManifest), requireTrust: true, revealOutput: true, exclusive: true
       });
       await controller.refreshDiscovery();
-      await controller.refreshGraph(false);
+      if (controller.activeProject?.manifest === current.projectManifest) await controller.refreshGraph(false);
     } catch (error) {
       cli.showOutput();
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
   };
-  register(extensionContext, 'ngin.addPackage', async () => {
+  register(extensionContext, 'ngin.addPackage', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
     let name = '';
     let constraint: 'default' | 'compatible' | 'exact' = 'default';
     let version = '';
@@ -632,7 +744,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     }
     const args = ['add', 'package', name];
     if (constraint !== 'default') args.push(constraint === 'exact' ? '--exact' : '--compatible', version);
-    await author(args);
+    await author(args, project);
   });
   register(extensionContext, 'ngin.addProjectReference', async () => {
     const selected = await vscode.window.showOpenDialog({
@@ -745,6 +857,16 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   };
   register(extensionContext, 'ngin.includeFile', (argument: unknown) => changeMembership(argument, true));
   register(extensionContext, 'ngin.excludeFile', (argument: unknown) => changeMembership(argument, false));
+  register(extensionContext, 'ngin.changeMembership', async (argument?: unknown) => {
+    const uri = resourceArgument(argument);
+    if (!uri) return;
+    const project = await sourceAnalysis.projectForFile(uri.fsPath);
+    if (!project) return void vscode.window.showWarningMessage(`${path.basename(uri.fsPath)} is not owned by an NGIN project.`);
+    const context = sourceAnalysis.contextForProject(project);
+    const graph = await controller.graphForContext(context, true);
+    if (!graph) return;
+    await changeMembership(uri, !graphOwnsFile(graph, context, uri.fsPath));
+  });
 
   const createProjectFile = async (
     argument?: unknown,
@@ -771,6 +893,15 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (!isWithin(projectDirectory, target)) throw new Error('The new file must remain inside its project.');
     const uri = vscode.Uri.file(target);
     if (await exists(uri)) throw new Error(`A file already exists at ${target}.`);
+    const confirmation = await vscode.window.showQuickPick([{
+      label: `Create ${path.basename(target)}`,
+      description: relativeManifestPath(projectDirectory, target),
+      detail: `Create the file and add it to ${path.basename(current.projectManifest)}`
+    }], {
+      title: preset?.title ?? 'New Project File',
+      placeHolder: 'Confirm the authored file and manifest change'
+    });
+    if (!confirmation) return;
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target)));
     const workspaceEdit = new vscode.WorkspaceEdit();
     workspaceEdit.createFile(uri, {
@@ -785,96 +916,12 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     controller.refreshPresentation();
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
   };
-  register(extensionContext, 'ngin.newFile', (argument?: unknown) => createProjectFile(argument));
   register(extensionContext, 'ngin.newSourceFile', (argument?: unknown) => createProjectFile(argument, {
     kind: 'Source', path: 'src/NewSource.cpp', title: 'New C++ Source File', extension: '.cpp'
   }));
   register(extensionContext, 'ngin.newHeaderFile', (argument?: unknown) => createProjectFile(argument, {
     kind: 'Header', path: 'include/NewHeader.hpp', title: 'New C++ Header File', extension: '.hpp', contents: '#pragma once\n'
   }));
-  register(extensionContext, 'ngin.newFolder', async (argument?: unknown) => {
-    const project = projectArgument(argument);
-    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
-    const entry = projectFileArgument(argument);
-    const projectDirectory = path.dirname(current.projectManifest);
-    const base = entry?.directory ? entry.path : entry ? path.dirname(entry.path) : projectDirectory;
-    const name = await vscode.window.showInputBox({ title: 'New Project Folder', prompt: 'Folder name or relative path' });
-    if (!name) return;
-    const target = path.resolve(base, name);
-    if (!isWithin(projectDirectory, target)) throw new Error('The new folder must remain inside its project.');
-    await vscode.workspace.fs.createDirectory(vscode.Uri.file(target));
-    controller.refreshPresentation();
-  });
-  register(extensionContext, 'ngin.renameFile', async (argument: unknown) => {
-    const entry = projectFileArgument(argument);
-    if (!entry) return;
-    const project = projectArgument(argument);
-    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
-    const projectDirectory = path.dirname(current.projectManifest);
-    const name = await vscode.window.showInputBox({ title: 'Rename Project Item', value: entry.name });
-    if (!name || name === entry.name) return;
-    const target = path.resolve(path.dirname(entry.path), name);
-    if (!isWithin(projectDirectory, target)) throw new Error('The renamed item must remain inside its project.');
-    const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
-    const before = relativeManifestPath(projectDirectory, entry.path);
-    const after = relativeManifestPath(projectDirectory, target);
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    workspaceEdit.renameFile(vscode.Uri.file(entry.path), vscode.Uri.file(target), { overwrite: false });
-    addOffsetEdits(workspaceEdit, manifest, updateExactBuildItemPaths(manifest.getText(), before, after));
-    if (!await vscode.workspace.applyEdit(workspaceEdit)) throw new Error('VS Code could not rename the project item.');
-    controller.refreshPresentation();
-  });
-  register(extensionContext, 'ngin.duplicateFile', async (argument: unknown) => {
-    const entry = projectFileArgument(argument);
-    if (!entry || entry.directory) return;
-    const extension = path.extname(entry.name);
-    const stem = path.basename(entry.name, extension);
-    const name = await vscode.window.showInputBox({ title: 'Duplicate Project File', value: `${stem}.copy${extension}` });
-    if (!name) return;
-    const target = path.resolve(path.dirname(entry.path), name);
-    const project = projectArgument(argument);
-    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
-    const projectDirectory = path.dirname(current.projectManifest);
-    if (!isWithin(projectDirectory, target)) throw new Error('The duplicate must remain inside its project.');
-    const targetUri = vscode.Uri.file(target);
-    if (await exists(targetUri)) throw new Error(`A file already exists at ${target}.`);
-    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(entry.path));
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    workspaceEdit.createFile(targetUri, { contents: bytes });
-    if (entry.state === 'selected') {
-      const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
-      const relative = relativeManifestPath(projectDirectory, target);
-      const membership = insertBuildItem(manifest.getText(), (entry.kind as 'Source' | 'Header' | 'CxxModule' | 'Resource' | undefined) ?? kindForPath(relative), 'Include', relative);
-      if (membership) addOffsetEdits(workspaceEdit, manifest, [membership]);
-    }
-    if (!await vscode.workspace.applyEdit(workspaceEdit)) throw new Error('VS Code could not duplicate the project file.');
-    controller.refreshPresentation();
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(targetUri));
-  });
-  register(extensionContext, 'ngin.deleteFile', async (argument: unknown) => {
-    const entry = projectFileArgument(argument);
-    if (!entry) return;
-    const answer = await vscode.window.showWarningMessage(`Move ${entry.relativePath} to the trash?`, { modal: true }, 'Move to Trash');
-    if (answer !== 'Move to Trash') return;
-    const project = projectArgument(argument);
-    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
-    const projectDirectory = path.dirname(current.projectManifest);
-    if (!isWithin(projectDirectory, entry.path)) throw new Error('Only items inside their project can be deleted.');
-    const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
-    const relative = relativeManifestPath(projectDirectory, entry.path);
-    const edits = removeExactBuildItemIncludes(manifest.getText(), relative);
-    if (edits.length) {
-      const workspaceEdit = new vscode.WorkspaceEdit();
-      addOffsetEdits(workspaceEdit, manifest, edits);
-      await vscode.workspace.applyEdit(workspaceEdit);
-    }
-    await vscode.workspace.fs.delete(vscode.Uri.file(entry.path), { recursive: entry.directory, useTrash: true });
-    controller.refreshPresentation();
-  });
-  register(extensionContext, 'ngin.revealFile', async (argument: unknown) => {
-    const entry = projectFileArgument(argument);
-    if (entry) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(entry.path));
-  });
   register(extensionContext, 'ngin.revealOwningProject', async (argument?: unknown) => {
     const uri = resourceArgument(argument);
     if (!uri) return;
@@ -902,7 +949,6 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     });
   }));
 
-  await vscode.commands.executeCommand('setContext', 'ngin.projectsViewMode', projectsViewMode);
   await controller.initialize();
   await cppTools.initialize();
   sourceAnalysis.initialize();

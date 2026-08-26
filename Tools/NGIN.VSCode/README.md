@@ -2,148 +2,167 @@
 
 NGIN Tools makes the normal NGIN C++ loop feel native in VS Code:
 
-> Open a source file → edit → save → see diagnostics → press F5 to debug.
+> Open a source file -> edit -> save -> see diagnostics -> press F5.
 
 The extension owns editor interaction while the native `ngin` CLI remains the
-semantic authority for manifests, composition, packages, builds, Actions,
-staging, and launch intent.
+authority for manifests, composition, packages, builds, Actions, staging, and
+launch intent.
 
-## Developer experience
+## Projects and effective context
 
-The NGIN activity bar contains one compact **Projects** view. Click a project
-row to select it; use the disclosure arrow to expand it. The selected project
-drives normal Configure, Build, Run, and Debug commands. Expanded projects show
-the manifest directly, followed by clear Sources, Headers, Resources,
-dependencies, launch configurations, tooling, generated files, external
-inputs, nested projects, and issues.
+The NGIN Activity Bar contains one compact **Projects** view. It shows each
+product's manifest, sources, headers, resources, dependencies, launches,
+generated inputs, nested projects, and issues. The native Explorer remains the
+physical workspace browser.
 
-The view-title toggle switches between **Project** and **Files** modes. Project
-mode shows the build-oriented structure above. Files mode shows the complete
-physical project directory, including `.env`, notes, scripts, and files not
-included in the product. From Files mode you can create files and folders or
-rename, duplicate, and delete project-directory items. Generated output and
-repository metadata directories remain hidden to keep the tree usable. The
-chosen mode is remembered for the workspace.
+A project row reports one of two context states:
 
-Use **New C++ Source File** or **New C++ Header File** from a project's context
-menu. The commands start in `src/` and `include/`, create missing directories,
-and add the new file to the project manifest. The Sources and Headers groups
-also expose the matching new-file button and show physical files that are not
-yet included in the build.
+- **active file** means the project owns the file in the active editor and is
+  the effective project for normal commands;
+- **default** means the project is used only when the active file has no owner.
 
-The normal VS Code Explorer remains available as the workspace-wide browser.
-NGIN decorates exceptional files there, such as generated inputs,
-and contributes context menu commands to include, exclude, analyze, format,
-and reveal the owning project. Set `ngin.decorations.mode` to `detailed` to show
-ordinary included, excluded, and project-owned state.
+Selecting or expanding a tree row never changes the default project. Use **Set
+as Default Project** explicitly. Ambiguous file ownership is chosen once and
+remembered.
 
-The status bar shows the selected project and configuration, followed by
-dedicated **Configure**, **Build**, **Run**, and **Debug** actions. Clicking the
-project name opens **NGIN: Select Project**; while an operation is running,
-clicking it cancels that operation.
+Project rows expose only valid Build, Run, and Debug actions. Libraries and
+other non-launchable products do not show Run or Debug. Advanced operations
+remain in the project context menu and Command Palette.
 
-File-specific operations and F5 instead use the project that owns the active
-file. When equally specific projects own a file, the extension asks once and
-remembers the answer. Project navigation, source ownership, and the selected
-fallback project are separate concepts.
+## One project-context status item
 
-## Automatic source analysis
+NGIN contributes one status item:
 
-When a resolved Composition contains an Analyze Action, opening or saving a
-C/C++ source file analyzes the relevant translation unit. Analysis is
-debounced, obsolete work is cancelled, and only one analysis per project runs
-at a time. Headers use the closest Action translation unit.
+```text
+$(project) Hello.Native · Debug
+```
 
-Analyzer results use the CLI's structured `NGIN.ActionDiagnostics` JSON
-protocol. They appear as editor squiggles, hover text, and Problems entries
-with the analyzer identity and rule code. Manifest, compiler, and analyzer
-diagnostics use independent collections, so one operation cannot erase another
-kind of problem.
+It identifies the effective project and Configuration. Its tooltip explains
+whether that project comes from active-file ownership or the default fallback,
+and includes Target, Toolchain, analysis state, and the last operation.
 
-Analysis is not run on every keystroke. Use `ngin.analysis.mode` to disable the
-default open-and-save behavior, and `ngin.analysis.debounceMs` to change the
-save delay. **NGIN: Analyze Project** remains available for full-project and CI
-style checks.
+During work it becomes a spinner for the active operation; model or analyzer
+problems use a warning icon and accessible text. Click the item to open
+**NGIN: Project Actions**.
 
-## Trusted project tooling
+## Project Actions
 
-The extension never weakens workspace Action policy. The first time automatic
-tooling is available, a non-modal prompt asks whether to enable it. On
-approval it creates and reuses `<output>/ngin.lock`, and passes that lock to
-analyzers and formatters automatically. If dependencies change, a one-click
-**Refresh Tooling Lock** action repairs the stale lock.
+The searchable action hub groups commands by purpose:
 
-Use **NGIN: Enable Analyzers and Formatters** to enable tooling after previously
-declining, or **NGIN: Lock Dependencies** for explicit lock maintenance.
+- **Lifecycle:** Build, Run, Debug, and Test;
+- **Build context:** Configuration, Target, Toolchain, and Launch;
+- **Project:** manifest, default selection, packages, and semantic C++ file creation;
+- **Diagnostics:** Problems, NGIN Output, and Check Setup;
+- **Advanced:** Configure, Stage, restore, lock, inspect, explain, diff,
+  publish, analyze, and format.
 
-## Build, run, and debug
+Impossible actions are omitted. Configuration and Launch choices are remembered
+per project build context. All individual commands remain searchable through
+the Command Palette for expert and keyboard workflows.
 
-Build, Debug, analysis, and other consuming operations configure automatically
-when their generated state is missing or stale. Unchanged configurations are
-reused. **NGIN: Configure** remains available as an explicit regeneration and
-troubleshooting command.
+## Files and authoring
 
-F5 debugs the project owning the active source file and falls back to the
-selected project. Debugging builds and stages the product, resolves Launch
-arguments, environment, working directory, and staged library paths, then
-hands off to `cppvsdbg` on Windows or `cppdbg` with GDB/LLDB elsewhere. Multiple
-Launch definitions get a remembered picker. Ctrl+F5 uses the same resolved
-configuration without stopping in the debugger.
+Use Explorer for physical navigation, rename, delete, and other filesystem
+operations. NGIN adds semantic Explorer/editor actions for analysis, formatting,
+product membership, and revealing the owning project.
 
-**NGIN: Run** starts immediately with the selected Launch definition. Use
-**NGIN: Run with Arguments** to append one-off arguments. Run and Debug are
-shown only for projects with resolved Launch intent; libraries and other
-non-launchable products retain Configure and Build without offering actions
-that the CLI cannot execute.
-
-Lifecycle commands reveal the NGIN output channel by default and use compact
-`CONFIGURE`, `BUILD`, `STAGE`, `RUN`, and `TEST` sections. Active targets and
-filtered Ninja `[current/total]` updates provide live progress without exposing
-backend command noise. Successful steps retain durations and warning counts;
-compiler warnings and errors remain available in the Problems view. Runtime
-records use short timestamps and omit repetitive host and source metadata at
-Info level. The unabridged process stream is retained under the selected output
-directory at `diagnostics/<command>.log`. Set `ngin.revealOutputOnRun` to
-`false` to keep the current output channel selected when a lifecycle command
-starts.
-
-The Microsoft C/C++ extension is required for native debugging. When installed,
-NGIN also supplies compile-database-backed IntelliSense. Headers use the
-closest translation unit and graph facts provide a fallback before the first
-configuration.
-
-## Project overview and composition details
-
-The optional Project Overview is an accessible, keyboard-navigable action hub
-for readiness, configuration, target, toolchain, analysis, recent operations,
-launches, packages, and build inputs. It updates without resetting focus or
-scroll position. Raw composition internals remain available through the
-collapsed **Advanced composition** node, resolved-project JSON, Inspect,
-Explain, and Diff commands.
-
-## Onboarding, quick fixes, and tests
-
-The Projects view provides native welcome content for empty workspaces, and the
-single **Get started with NGIN** walkthrough covers CLI discovery, project
-creation, build/debug, and verified tooling. **NGIN: Create Project** creates a
-direct product-first manifest from CLI-generated editor metadata.
-
-Manifest diagnostics offer Quick Fix actions for invalid product and linkage
-values, package restore, and required product fields. Analyzer diagnostics can
-apply structured fix inventories, including safe Fix All edits when an Action
-provides them.
-
-Test-capable NGIN projects appear in VS Code's Testing view with native Run and
-Debug profiles. NGIN remains responsible for deriving the TestPlan, staging the
-product, and executing it.
-
-## XML authoring
+**Update Product Membership** inspects the resolved graph and performs the one
+valid Include or Exclude edit. **New C++ Source File** and **New C++ Header
+File** show the target and manifest change before creating anything, then add
+the new file to the product without rewriting unrelated XML.
 
 `.ngin`, `.nginproj`, and `.nginpkg` files receive syntax highlighting,
-metadata-driven completion and hovers, CLI validation on save, and
-comment-preserving formatting. Package, project-reference, Action, Product,
-Option, and exact file-membership edits preserve the authored XML rather than
-creating a second editor-side semantic model.
+metadata-driven completion and hovers, CLI validation on save, Quick Fixes, and
+comment-preserving formatting.
+
+## Build, run, debug, and test
+
+Build, Run, Debug, Test, and analysis configure automatically when generated
+state is missing or stale. **Configure Project** forces regeneration for
+troubleshooting.
+
+F5 debugs the project owning the active source file and falls back to the
+default project only when the active file has no owner. Ctrl+F5 uses the same
+ownership rule. When several Launch
+definitions are valid, NGIN asks once and remembers the choice for that
+project, Configuration, Target, and Toolchain. Run and Debug share the same
+selection.
+
+Lifecycle progress appears on the project and the single status item. Routine
+success stays quiet. Failures populate Problems and offer **Open Problems** and
+**Show Output** without forcing Output to take focus. Detailed process logs are
+retained at `<output>/diagnostics/<command>.log`. Set
+`ngin.revealOutputOnRun` to `true` if lifecycle Output should open on start.
+
+`ngin.output.verbosity` controls what the NGIN Output channel retains:
+
+- `compact` (default) keeps lifecycle summaries, user-requested output, and
+  failures while hiding successful background commands and JSON payloads;
+- `commands` also records background CLI command lines;
+- `trace` records raw stdout/stderr and protocol payloads for troubleshooting.
+
+Test-capable products participate in VS Code's native Testing view. Debugging
+uses `cppvsdbg` on Windows and `cppdbg` with GDB or LLDB elsewhere. The Microsoft
+C/C++ extension supplies the native adapters and receives compile-database-backed
+IntelliSense configuration from NGIN. Opening a file never starts Configure:
+NGIN responds immediately with graph-derived fallback settings, then uses an
+existing compile database after Build or Configure has generated one. Exact
+compile entries also associate package and dependency sources with the active
+application, so navigating from a compiler diagnostic retains the same include
+paths, definitions, compiler, and language mode used by that build.
+
+## Analysis and trusted tooling
+
+When a resolved Composition contains an Analyze Action, opening or saving a
+C/C++ source file schedules debounced analysis. Obsolete work is cancelled and
+only one analysis per project runs at a time. Results appear as squiggles,
+hover text, Problems entries, and supported Quick Fixes.
+
+Project analyzers and formatters require workspace trust and one explicit
+enable decision. Approval creates and reuses the selected output's dependency
+lock. A stale lock offers **Refresh Tooling Lock**; policy is never bypassed.
+Analysis waits and retries quietly while another NGIN lifecycle operation owns
+the CLI.
+
+## Getting started and setup
+
+The Projects welcome state offers one primary **Create NGIN Project** action,
+plus **Check Setup** and **Open Getting Started**. The four-step walkthrough uses
+theme-aware illustrations and completes from verified CLI, discovered project,
+successful lifecycle, and tooling-decision state.
+
+**NGIN: Check Setup** reports:
+
+- resolved CLI path and version;
+- workspace trust;
+- project discovery;
+- Composition Graph readiness;
+- direct Settings, Refresh, and Output actions.
+
+## Important commands
+
+```text
+NGIN: Open Project Actions
+NGIN: Set Default Project
+NGIN: Select Configuration
+NGIN: Select Platform Target
+NGIN: Select Toolchain
+NGIN: Select Launch
+NGIN: Build
+NGIN: Run
+NGIN: Run with Arguments
+NGIN: Debug
+NGIN: Test
+NGIN: Analyze File
+NGIN: Analyze Project
+NGIN: Format File
+NGIN: Check Setup
+NGIN: Open Resolved Project JSON
+NGIN: Inspect Project
+NGIN: Create Project
+NGIN: New C++ Source File
+NGIN: New C++ Header File
+```
 
 ## Build and install
 
@@ -165,28 +184,6 @@ development build and then `ngin` on `PATH`. Extension output defaults to:
 
 Change the root with `ngin.build.outputRoot`.
 
-## Important commands
-
-```text
-NGIN: Select Project
-NGIN: Build
-NGIN: Run
-NGIN: Run with Arguments
-NGIN: Debug
-NGIN: Test
-NGIN: Analyze File
-NGIN: Analyze Project
-NGIN: Format File
-NGIN: Enable Analyzers and Formatters
-NGIN: Open Resolved Project JSON
-NGIN: Open Project Overview
-NGIN: Create Project
-NGIN: Show Files View
-NGIN: Show Project View
-NGIN: New C++ Source File
-NGIN: New C++ Header File
-```
-
-See the [extension implementation plan](../../docs/plans/vscode-extension-reimagining-plan.md),
+See the [UI/UX refresh plan](../../docs/plans/vscode-extension-ui-ux-refresh-plan.md),
 [tooling guide](../../docs/guides/tooling.md), and
 [CLI reference](../../docs/reference/cli.md).

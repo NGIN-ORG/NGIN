@@ -7,6 +7,7 @@ import {
   createBrowseConfiguration,
   createFallbackConfiguration,
   createSourceConfiguration,
+  findCompileCommand,
   parseCompileCommands,
   selectCompileCommand,
   splitCommandLine
@@ -32,6 +33,10 @@ import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
 import { projectCanLaunch } from '../../core/projectCapabilities';
+import { projectActionDescriptors } from '../../core/projectActions';
+import { statusPresentation } from '../../core/statusPresentation';
+import { isTransientAnalysisFailure } from '../../core/analysisPolicy';
+import { outputPolicy } from '../../core/outputPolicy';
 import {
   formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter, parseNinjaProgress
 } from '../../core/outputPresentation';
@@ -53,6 +58,92 @@ function graph(): CompositionGraph {
     launches: [], testing: null, publishes: [], edges: []
   };
 }
+
+function projectContext(project: ProjectCandidate): NginContext {
+  return {
+    workspaceFolder: path.resolve('workspace'),
+    projectManifest: project.manifest,
+    projectName: project.name,
+    configuration: 'Debug',
+    target: 'host',
+    toolchain: 'default',
+    options: {},
+    outputDirectory: path.resolve('workspace', 'build', project.name)
+  };
+}
+
+test('project actions prioritize valid lifecycle work and progressively disclose expert commands', () => {
+  const project: ProjectCandidate = {
+    manifest: path.resolve('workspace', 'App.nginproj'), directory: path.resolve('workspace'),
+    name: 'App', type: 'Application', hasLaunch: true, hasTesting: true
+  };
+  const actions = projectActionDescriptors({
+    project, context: projectContext(project), canLaunch: true, canTest: true,
+    hasAnalyze: true, hasFormat: false, graphReady: true, canPublish: true,
+    configurationChoices: 2, targetChoices: 1, toolchainChoices: 1
+  });
+  assert.deepEqual(actions.filter(action => action.group === 'Lifecycle').map(action => action.label), [
+    'Build Project', 'Run Project', 'Debug Project', 'Test Project'
+  ]);
+  assert.equal(actions.find(action => action.label === 'Select Configuration')?.description, 'Debug');
+  assert.ok(actions.some(action => action.group === 'Advanced' && action.command === 'ngin.showGraph'));
+  assert.ok(actions.some(action => action.command === 'ngin.analyze'));
+  assert.equal(actions.some(action => action.command === 'ngin.formatSources'), false);
+
+  const busy = projectActionDescriptors({
+    project, context: projectContext(project), canLaunch: true, canTest: true,
+    hasAnalyze: true, hasFormat: true, graphReady: true, canPublish: false,
+    configurationChoices: 0, targetChoices: 0, toolchainChoices: 0, busy: 'build'
+  });
+  assert.deepEqual(busy.map(action => action.command), ['ngin.cancel', 'ngin.showOutput']);
+});
+
+test('status presentation explains active-file, fallback, busy, and issue states', () => {
+  const project: ProjectCandidate = {
+    manifest: path.resolve('workspace', 'App.nginproj'), directory: path.resolve('workspace'), name: 'App'
+  };
+  const context = projectContext(project);
+  const active = statusPresentation({ context, project, reason: 'activeFile' });
+  assert.equal(active.text, '$(project) App · Debug');
+  assert.match(active.tooltip, /owns the active file/u);
+  assert.match(active.accessibilityLabel, /active file project/u);
+
+  const fallback = statusPresentation({
+    context, project, reason: 'default',
+    lastOperation: { command: 'build', state: 'succeeded', completedAt: 1, durationMs: 1250 }
+  });
+  assert.match(fallback.tooltip, /Default because/u);
+  assert.match(fallback.tooltip, /in 1\.3s/u);
+
+  const busy = statusPresentation({ context, project, reason: 'operation', operation: 'build' });
+  assert.equal(busy.text, '$(loading~spin) App · build');
+  assert.match(busy.accessibilityLabel, /build in progress/u);
+
+  const issue = statusPresentation({ context, project, reason: 'default', graphError: 'invalid manifest' });
+  assert.equal(issue.text, '$(warning) App · Debug');
+  assert.match(issue.accessibilityLabel, /issue/u);
+});
+
+test('analysis contention and cancellation are retryable rather than user-facing failures', () => {
+  assert.equal(isTransientAnalysisFailure(new Error('Another NGIN operation is already running. Cancel it or wait for it to finish.')), true);
+  assert.equal(isTransientAnalysisFailure(new Error('NGIN operation was cancelled.')), true);
+  assert.equal(isTransientAnalysisFailure(new Error('clang-tidy returned malformed diagnostics')), false);
+});
+
+test('compact output hides successful machine payloads while trace remains available', () => {
+  const graph = ['graph', '--format', 'json'];
+  assert.deepEqual(outputPolicy(graph, false, false, 'compact'), {
+    appendCommand: false, streamRaw: false, appendLifecycleTrace: false, machineReadable: true
+  });
+  assert.deepEqual(outputPolicy(graph, false, false, 'commands'), {
+    appendCommand: true, streamRaw: false, appendLifecycleTrace: false, machineReadable: true
+  });
+  assert.deepEqual(outputPolicy(graph, false, false, 'trace'), {
+    appendCommand: true, streamRaw: true, appendLifecycleTrace: false, machineReadable: true
+  });
+  assert.equal(outputPolicy(['manifest', 'format'], false, true, 'compact').streamRaw, true);
+  assert.equal(outputPolicy(['build'], true, false, 'trace').appendLifecycleTrace, true);
+});
 
 test('workspace choices and project rules are read without creating a semantic model', () => {
   const source = `<Workspace Name="Demo">
@@ -225,6 +316,13 @@ test('compile command parsing handles quoted compiler paths and maps configurati
   assert.deepEqual(splitCommandLine(`"${args[0]}" "${sourceFile}"`), [args[0], sourceFile]);
 });
 
+test('an exact compile command identifies package sources owned through an application build', () => {
+  const packageSource = path.resolve('workspace', 'Packages', 'Example', 'src', 'Control.cpp');
+  const entries = [{ directory: path.dirname(packageSource), file: packageSource, arguments: ['c++', '-I../include', '-c', packageSource] }];
+  assert.equal(findCompileCommand(entries, packageSource), entries[0]);
+  assert.equal(findCompileCommand(entries, path.resolve('workspace', 'App', 'main.cpp')), undefined);
+});
+
 test('compile command parsing preserves escaped definition quotes and following includes', () => {
   const directory = path.resolve('project with spaces');
   const compiler = path.join(directory, 'tool chain', 'clang++.exe');
@@ -281,6 +379,9 @@ test('selection keys are deterministic and output paths are bounded', () => {
     '--toolchain', 'default', '--option', 'A=1', '--option', 'B=2', '--output', lock
   ]);
   assert.deepEqual(lifecycleArguments('analyze', base).slice(-4), ['--output', output, '--lock', lock]);
+  const runArguments = lifecycleArguments('run', { ...base, launch: 'diagnostics' });
+  assert.equal(runArguments[runArguments.indexOf('--launch') + 1], 'diagnostics');
+  assert.equal(runArguments[runArguments.indexOf('--output') + 1], output);
 });
 
 test('structured Action diagnostics retain source, rule, and precise range', () => {

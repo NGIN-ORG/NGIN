@@ -1,0 +1,110 @@
+import * as path from 'node:path';
+import type { NginContext, ProjectCandidate } from '../model';
+
+export type ProjectActionGroup = 'Lifecycle' | 'Build context' | 'Project' | 'Diagnostics' | 'Advanced';
+
+export interface ProjectActionDescriptor {
+  group: ProjectActionGroup;
+  label: string;
+  description?: string;
+  detail?: string;
+  icon?: string;
+  command: string;
+  argument?: unknown;
+}
+
+export interface ProjectActionState {
+  project: ProjectCandidate;
+  context: NginContext;
+  canLaunch: boolean;
+  canTest: boolean;
+  hasAnalyze: boolean;
+  hasFormat: boolean;
+  graphReady: boolean;
+  canPublish: boolean;
+  configurationChoices: number;
+  targetChoices: number;
+  toolchainChoices: number;
+  selectedLaunch?: string;
+  busy?: string;
+  graphError?: string;
+  lastOperation?: { command: string; state: 'succeeded' | 'failed' };
+}
+
+export const projectActionGroupOrder: ProjectActionGroup[] = ['Lifecycle', 'Build context', 'Project', 'Diagnostics', 'Advanced'];
+
+export function projectActionDescriptors(state: ProjectActionState): ProjectActionDescriptor[] {
+  const project = state.project;
+  const result: ProjectActionDescriptor[] = [];
+  if (state.busy) {
+    result.push(
+      { group: 'Lifecycle', label: 'Cancel active operation', description: state.busy, icon: 'debug-stop', command: 'ngin.cancel' },
+      { group: 'Diagnostics', label: 'Show NGIN Output', description: 'Follow operation details', icon: 'output', command: 'ngin.showOutput' }
+    );
+    return result;
+  }
+
+  result.push({ group: 'Lifecycle', label: 'Build Project', description: project.name, icon: 'tools', command: 'ngin.build', argument: project });
+  if (state.canLaunch) {
+    result.push(
+      { group: 'Lifecycle', label: 'Run Project', description: project.name, icon: 'play', command: 'ngin.run', argument: project },
+      { group: 'Lifecycle', label: 'Debug Project', description: project.name, icon: 'debug-alt', command: 'ngin.debug', argument: project }
+    );
+  }
+  if (state.canTest) {
+    result.push({ group: 'Lifecycle', label: 'Test Project', description: project.name, icon: 'beaker', command: 'ngin.test', argument: project });
+  }
+
+  if (state.configurationChoices) result.push(
+    { group: 'Build context', label: 'Select Configuration', description: state.context.configuration, icon: 'symbol-parameter', command: 'ngin.selectConfiguration', argument: project }
+  );
+  if (state.targetChoices) result.push(
+    { group: 'Build context', label: 'Select Target', description: state.context.target, icon: 'device-desktop', command: 'ngin.selectTarget', argument: project }
+  );
+  if (state.toolchainChoices) result.push(
+    { group: 'Build context', label: 'Select Toolchain', description: state.context.toolchain, icon: 'tools', command: 'ngin.selectToolchain', argument: project }
+  );
+  if (state.canLaunch) {
+    result.push({
+      group: 'Build context', label: 'Select Launch', description: state.selectedLaunch || 'Choose the Run and Debug launch',
+      icon: 'run', command: 'ngin.selectLaunch', argument: project
+    });
+  }
+
+  result.push(
+    { group: 'Project', label: 'Open Manifest', description: path.basename(project.manifest), icon: 'file-code', command: 'ngin.openManifest', argument: project },
+    { group: 'Project', label: 'Set as Default Project', description: 'Used when the active file has no owner', icon: 'pinned', command: 'ngin.setDefaultProject', argument: project },
+    { group: 'Project', label: 'Add Package', description: 'Add a semantic package dependency', icon: 'package', command: 'ngin.addPackage', argument: project },
+    { group: 'Project', label: 'New C++ Source File', description: 'Create and include a source file', icon: 'new-file', command: 'ngin.newSourceFile', argument: project },
+    { group: 'Project', label: 'New C++ Header File', description: 'Create and include a header', icon: 'new-file', command: 'ngin.newHeaderFile', argument: project }
+  );
+
+  result.push(
+    { group: 'Diagnostics', label: 'Open Problems', description: state.graphError ? 'Project model issue' : undefined, icon: 'warning', command: 'workbench.actions.view.problems' },
+    { group: 'Diagnostics', label: 'Show NGIN Output', description: state.lastOperation ? `${state.lastOperation.command} ${state.lastOperation.state}` : 'Detailed command output', icon: 'output', command: 'ngin.showOutput' },
+    { group: 'Diagnostics', label: 'Check Setup', description: 'CLI path, version, workspace, and project readiness', icon: 'pulse', command: 'ngin.checkSetup', argument: project }
+  );
+
+  result.push(
+    { group: 'Advanced', label: 'Configure Project', description: 'Force regeneration for troubleshooting', icon: 'gear', command: 'ngin.configure', argument: project },
+    { group: 'Advanced', label: 'Stage Project', description: 'Prepare the runtime layout', icon: 'package', command: 'ngin.stage', argument: project },
+    { group: 'Advanced', label: 'Restore Packages', icon: 'cloud-download', command: 'ngin.restore', argument: project },
+    { group: 'Advanced', label: 'Lock Dependencies', icon: 'lock', command: 'ngin.lock', argument: project },
+    { group: 'Advanced', label: 'Inspect Project', icon: 'inspect', command: 'ngin.inspect', argument: project }
+  );
+  if (state.graphReady) result.push(
+    { group: 'Advanced', label: 'Open Resolved Project JSON', description: 'Resolved Composition Graph', icon: 'json', command: 'ngin.showGraph', argument: project },
+    { group: 'Advanced', label: 'Explain Composition Identity', icon: 'question', command: 'ngin.explain', argument: project },
+    { group: 'Advanced', label: 'Diff Composition', icon: 'diff', command: 'ngin.diff', argument: project }
+  );
+  if (state.canPublish) result.push(
+    { group: 'Advanced', label: 'Publish Project', icon: 'package', command: 'ngin.publish', argument: project }
+  );
+  if (state.hasAnalyze) {
+    result.push({ group: 'Advanced', label: 'Analyze Project', icon: 'search', command: 'ngin.analyze', argument: project });
+  }
+  if (state.hasFormat) {
+    result.push({ group: 'Advanced', label: 'Format Project', icon: 'wand', command: 'ngin.formatSources', argument: project });
+  }
+  return result;
+}

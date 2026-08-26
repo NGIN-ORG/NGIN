@@ -8,6 +8,8 @@
   },
   "include": [
     "src/test/**/*.ts",
+    "src/core/analysisPolicy.ts",
+    "src/core/outputPolicy.ts",
     "src/core/compileCommands.ts",
     "src/core/debugConfiguration.ts",
     "src/core/diagnostics.ts",
@@ -16,6 +18,8 @@
     "src/core/manifestText.ts",
     "src/core/paths.ts",
     "src/core/projectFiles.ts",
+    "src/core/projectActions.ts",
+    "src/core/statusPresentation.ts",
     "src/model.ts"
   ],
   "exclude": []

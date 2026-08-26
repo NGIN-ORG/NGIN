@@ -6,6 +6,7 @@ import type { CliResult } from '../model';
 import { parseCliDiagnostics } from './diagnostics';
 import { describeCliFailure, unsupportedSelectionOption } from './cliCompatibility';
 import { LifecycleOutputPresenter } from './outputPresentation';
+import { outputPolicy, type OutputVerbosity } from './outputPolicy';
 
 export interface RunOptions {
   cwd?: string;
@@ -131,7 +132,9 @@ export class NginCli implements vscode.Disposable {
           command: args[0] ?? '', args, label: options.label, append: value => this.output.append(value)
         })
       : undefined;
-    if (!presenter) this.output.appendLine(`\n> ${command}`);
+    const verbosity = vscode.workspace.getConfiguration('ngin').get<OutputVerbosity>('output.verbosity', 'compact');
+    const policy = outputPolicy(args, Boolean(presenter), Boolean(options.revealOutput), verbosity);
+    if (!presenter && policy.appendCommand) this.output.appendLine(`\n> ${command}`);
     if (options.revealOutput) this.output.show(true);
 
     return new Promise<CliResult>((resolve, reject) => {
@@ -151,13 +154,13 @@ export class NginCli implements vscode.Disposable {
         const value = chunk.toString();
         stdout += value;
         if (presenter) presenter.accept('stdout', value);
-        else this.output.append(value);
+        else if (policy.streamRaw) this.output.append(value);
       });
       child.stderr.on('data', chunk => {
         const value = chunk.toString();
         stderr += value;
         if (presenter) presenter.accept('stderr', value);
-        else this.output.append(value);
+        else if (policy.streamRaw) this.output.append(value);
       });
       child.on('error', error => {
         if (settled) return;
@@ -166,6 +169,8 @@ export class NginCli implements vscode.Disposable {
         this.active.delete(child);
         if (options.exclusive) this.exclusiveActive = false;
         this.signalIdle();
+        if (!presenter && !policy.appendCommand) this.output.appendLine(`\n> ${command}`);
+        this.output.appendLine(`Unable to start NGIN CLI: ${error.message}`);
         reject(new Error(`Unable to start NGIN CLI '${executable}': ${error.message}`));
       });
       child.on('close', async (code, signal) => {
@@ -186,7 +191,14 @@ export class NginCli implements vscode.Disposable {
         };
         if (presenter) {
           presenter.complete(result.exitCode);
+          if (policy.appendLifecycleTrace && presenter.rawOutput.trim()) {
+            this.output.append(`\nRAW CLI OUTPUT\n${presenter.rawOutput}${presenter.rawOutput.endsWith('\n') ? '' : '\n'}`);
+          }
           await this.writeLifecycleLog(args, command, presenter.rawOutput);
+        } else if (result.exitCode !== 0 && !policy.streamRaw) {
+          if (!policy.appendCommand) this.output.appendLine(`\n> ${command}`);
+          const relevant = result.stderr.trim() || (!policy.machineReadable ? result.stdout.trim() : '');
+          this.output.appendLine(relevant || `Command exited with code ${result.exitCode}.`);
         }
         if (result.exitCode === 0) resolve(result);
         else reject(new CliFailure(result));

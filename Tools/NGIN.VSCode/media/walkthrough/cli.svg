@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="260" viewBox="0 0 640 260" role="img" aria-labelledby="title description">
+  <title id="title">NGIN setup check</title>
+  <desc id="description">A native setup checklist shows a ready CLI, trusted workspace, discovered project, and resolved project model.</desc>
+  <style>
+    .bg{fill:#f3f3f3}.panel{fill:#fff;stroke:#c8c8c8}.text{fill:#242424;font:16px sans-serif}.muted{fill:#616161;font:13px sans-serif}.ok{fill:#16825d}.line{stroke:#c8c8c8}
+    @media(prefers-color-scheme:dark){.bg{fill:#1e1e1e}.panel{fill:#252526;stroke:#4b4b4b}.text{fill:#f0f0f0}.muted{fill:#b7b7b7}.line{stroke:#4b4b4b}.ok{fill:#4ec9b0}}
+    @media(forced-colors:active){.bg,.panel{fill:Canvas}.panel,.line{stroke:CanvasText}.text,.muted{fill:CanvasText}.ok{fill:Highlight}}
+  </style>
+  <rect class="bg" width="640" height="260" rx="8"/>
+  <rect class="panel" x="76" y="26" width="488" height="208" rx="5"/>
+  <text class="text" x="102" y="59" font-weight="600">NGIN: Check Setup</text>
+  <line class="line" x1="102" y1="73" x2="538" y2="73"/>
+  <g transform="translate(104 102)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">NGIN CLI</text><text class="muted" x="250" y="0">ngin 0.1.0</text></g>
+  <g transform="translate(104 137)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Workspace trust</text><text class="muted" x="250" y="0">Trusted</text></g>
+  <g transform="translate(104 172)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Project discovery</text><text class="muted" x="250" y="0">Hello.Native</text></g>
+  <g transform="translate(104 207)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Project model</text><text class="muted" x="250" y="0">Application · Debug</text></g>
+</svg>

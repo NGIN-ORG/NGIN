@@ -7,6 +7,7 @@ export function selectionArguments(context: NginContext): string[] {
   if (context.configuration) args.push('--configuration', context.configuration);
   if (context.target) args.push('--target', context.target);
   if (context.toolchain) args.push('--toolchain', context.toolchain);
+  if (context.launch) args.push('--launch', context.launch);
   for (const [name, value] of Object.entries(context.options).sort(([left], [right]) => left.localeCompare(right))) {
     args.push('--option', `${name}=${value}`);
   }

@@ -3,11 +3,10 @@ import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
 import { enumerateProjectFiles, type ProjectFileEntry } from '../core/projectFiles';
 import { kindForPath } from '../core/manifestEdits';
-import type { CompositionGraph, GraphNamedNode, ProjectCandidate } from '../model';
+import type { GraphNamedNode, ProjectCandidate } from '../model';
 import type { SourceAnalysisProvider } from '../providers/sourceAnalysis';
 
 type ChildFactory = () => NginTreeNode[] | Promise<NginTreeNode[]>;
-export type ProjectsViewMode = 'project' | 'files';
 
 export class NginTreeNode extends vscode.TreeItem {
   parent?: NginTreeNode;
@@ -18,35 +17,43 @@ export class NginTreeNode extends vscode.TreeItem {
   }
 }
 
-function group(label: string, icon: string, children: ChildFactory, description?: string): NginTreeNode {
+function group(
+  label: string,
+  icon: string,
+  children: ChildFactory,
+  description?: string,
+  id?: string
+): NginTreeNode {
   const node = new NginTreeNode(label, vscode.TreeItemCollapsibleState.Collapsed, children);
   node.iconPath = new vscode.ThemeIcon(icon);
   node.description = description;
+  node.id = id;
   return node;
 }
 
-function semanticGroup(label: string, values: GraphNamedNode[]): NginTreeNode {
-  return group(label, 'symbol-field', () => values.map(value => {
-    const node = new NginTreeNode(value.name ?? value.identity);
-    node.description = value.kind;
-    node.tooltip = value.provenance?.reason ?? value.identity;
-    node.command = { command: 'ngin.explain', title: 'Explain', arguments: [value.identity] };
-    return node;
-  }), String(values.length));
-}
-
-function compositionDetails(graph: CompositionGraph): NginTreeNode {
-  return group('Advanced composition', 'type-hierarchy-sub', () => [
-    semanticGroup('Packages', graph.packages),
-    semanticGroup('Exports', graph.exports),
-    semanticGroup('Options', graph.options),
-    semanticGroup('Capabilities', graph.capabilityBindings),
-    semanticGroup('Actions', graph.actions),
-    semanticGroup('Plugins', graph.plugins),
-    semanticGroup('Stage Contributions', graph.contributions),
-    semanticGroup('Launches', graph.launches),
-    semanticGroup('Graph Edges', graph.edges)
-  ]);
+function semanticGroup(
+  label: string,
+  icon: string,
+  values: GraphNamedNode[],
+  project: ProjectCandidate
+): NginTreeNode {
+  const node = group(label, icon, () => values.map(value => {
+    const child = new NginTreeNode(value.name ?? value.identity);
+    child.project = project;
+    child.description = value.kind;
+    child.tooltip = new vscode.MarkdownString([
+      `**${value.name ?? value.identity}**`,
+      value.kind ? `Type: ${value.kind}` : undefined,
+      value.provenance?.reason,
+      value.provenance?.document ? `Declared in ${value.provenance.document}` : undefined
+    ].filter(Boolean).join('\n\n'));
+    if (value.provenance?.document) {
+      child.command = { command: 'ngin.openGraphSource', title: 'Open Declaring Source', arguments: [value, project] };
+    }
+    return child;
+  }), String(values.length), `ngin.group:${project.manifest}:${label}`);
+  node.project = project;
+  return node;
 }
 
 function filteredEntries(
@@ -76,7 +83,13 @@ function fileGroup(
 ): NginTreeNode | undefined {
   const count = entryCount(entries);
   if (!count) return undefined;
-  const node = group(label, icon, () => entries.map(entry => fileNode(entry, project)), String(count));
+  const node = group(
+    label,
+    icon,
+    () => entries.map(entry => fileNode(entry, project)),
+    String(count),
+    `ngin.group:${project.manifest}:${label}`
+  );
   node.project = project;
   node.contextValue = contextValue;
   return node;
@@ -110,7 +123,6 @@ function fileNode(entry: ProjectFileEntry, project: ProjectCandidate): NginTreeN
   (node as NginTreeNode & { projectFile: ProjectFileEntry }).projectFile = entry;
   node.description = entry.state === 'authored' ? 'manifest'
     : entry.state === 'selected' ? entry.kind
-      : entry.state === 'unselected' && !entry.directory ? 'not included'
       : entry.state === 'generated' ? `${entry.kind ?? 'file'} · generated`
         : entry.state === 'missing' ? `${entry.kind ?? 'file'} · missing`
           : entry.state === 'boundary' ? 'nested project'
@@ -123,7 +135,7 @@ function fileNode(entry: ProjectFileEntry, project: ProjectCandidate): NginTreeN
           : entry.state === 'external' ? (entry.directory ? 'references' : 'link-external')
             : entry.state === 'boundary' ? 'root-folder'
               : entry.directory ? 'folder'
-                : entry.state === 'selected' ? 'file-code' : 'file'
+                : 'file-code'
   );
   if (!entry.directory && entry.state !== 'missing') {
     node.command = { command: 'vscode.open', title: 'Open File', arguments: [node.resourceUri] };
@@ -134,54 +146,53 @@ function fileNode(entry: ProjectFileEntry, project: ProjectCandidate): NginTreeN
 async function projectChildren(
   controller: NginController,
   analysis: SourceAnalysisProvider,
-  project: ProjectCandidate,
-  mode: ProjectsViewMode
+  project: ProjectCandidate
 ): Promise<NginTreeNode[]> {
   const context = analysis.contextForProject(project);
-  const graph = mode === 'files' ? undefined
-    : controller.activeProject?.manifest === project.manifest && controller.snapshot.graph
-      ? controller.snapshot.graph
-      : await controller.graphForContext(context, false);
+  const graph = controller.activeProject?.manifest === project.manifest && controller.snapshot.graph
+    ? controller.snapshot.graph
+    : await controller.graphForContext(context, false);
   const entries = await enumerateProjectFiles(
     project.directory,
     project.manifest,
     graph,
     5000,
-    mode === 'project',
+    true,
     path.join(context.outputDirectory, 'actions')
   );
-  if (mode === 'files') return entries.map(entry => fileNode(entry, project));
   const result: NginTreeNode[] = [];
   const graphProblem = controller.activeProject?.manifest === project.manifest ? controller.snapshot.graphError : undefined;
   if (!graph && graphProblem) {
-    const problem = new NginTreeNode('Project could not be loaded');
+    const problem = new NginTreeNode('Project model unavailable');
     problem.iconPath = new vscode.ThemeIcon('error');
     problem.description = 'Open Problems or NGIN Output';
     problem.tooltip = graphProblem;
-    problem.command = { command: 'ngin.showOutput', title: 'Show NGIN Output' };
+    problem.command = { command: 'workbench.actions.view.problems', title: 'Open Problems' };
     result.push(problem);
   }
+
   const manifest = findEntry(entries, entry => entry.state === 'authored');
-  const sources = filteredEntries(entries, entry => entry.state !== 'generated'
+  const sources = filteredEntries(entries, entry => entry.state === 'selected'
     && (inferredKind(entry) === 'Source' || inferredKind(entry) === 'CxxModule'));
-  const headers = filteredEntries(entries, entry => entry.state !== 'generated' && inferredKind(entry) === 'Header');
+  const headers = filteredEntries(entries, entry => entry.state === 'selected' && inferredKind(entry) === 'Header');
   const resources = filteredEntries(entries, entry => entry.state === 'selected' && inferredKind(entry) === 'Resource');
   const generated = filteredEntries(entries, entry => entry.state === 'generated');
   const external = filteredEntries(entries, entry => entry.state === 'external');
   const missing = filteredEntries(entries, entry => entry.state === 'missing');
   const boundaries = filteredEntries(entries, entry => entry.state === 'boundary');
+
   for (const node of [
     manifest ? fileNode(manifest, project) : undefined,
     fileGroup('Sources', 'file-code', sources, project, 'nginSourcesGroup'),
     fileGroup('Headers', 'symbol-file', headers, project, 'nginHeadersGroup'),
     fileGroup('Resources', 'file-media', resources, project),
-    graph?.packages.length ? semanticGroup('Dependencies', graph.packages) : undefined,
-    graph?.launches.length ? semanticGroup('Launch configurations', graph.launches) : undefined,
-    graph?.actions.length ? semanticGroup('Tooling', graph.actions) : undefined,
-    fileGroup('Generated files', 'sparkle', generated, project),
+    graph?.packages.length ? semanticGroup('Dependencies', 'package', graph.packages, project) : undefined,
+    graph?.launches.length ? semanticGroup('Launches', 'run', graph.launches, project) : undefined,
+    fileGroup('Generated', 'sparkle', generated, project),
     fileGroup('External inputs', 'link-external', external, project),
     fileGroup('Nested projects', 'root-folder', boundaries, project)
   ]) if (node) result.push(node);
+
   if (missing.length) {
     const issues = fileGroup('Issues', 'warning', missing, project);
     if (issues) {
@@ -189,45 +200,67 @@ async function projectChildren(
       result.push(issues);
     }
   }
-  if (graph) result.push(compositionDetails(graph));
+
   const summary = analysis.summary(project.manifest);
   if (summary.state === 'failed' && summary.message) {
-    const problem = new NginTreeNode('Tooling problem');
+    const problem = new NginTreeNode('Analyzer unavailable');
     problem.iconPath = new vscode.ThemeIcon('warning');
-    problem.description = summary.message.split(/\r?\n/u)[0];
+    problem.description = 'Show NGIN Output';
+    problem.tooltip = summary.message;
     problem.command = { command: 'ngin.showOutput', title: 'Show NGIN Output' };
     result.unshift(problem);
   }
   return result;
 }
 
+async function activeFileProject(analysis: SourceAnalysisProvider): Promise<ProjectCandidate | undefined> {
+  const file = vscode.window.activeTextEditor?.document.uri.fsPath;
+  if (!file) return undefined;
+  return analysis.projectForFile(file, false);
+}
+
 function projectNode(
   controller: NginController,
   analysis: SourceAnalysisProvider,
   project: ProjectCandidate,
-  mode: ProjectsViewMode
+  owner: ProjectCandidate | undefined
 ): NginTreeNode {
   const node = new NginTreeNode(project.name, vscode.TreeItemCollapsibleState.Collapsed,
-    () => projectChildren(controller, analysis, project, mode));
+    () => projectChildren(controller, analysis, project));
   node.project = project;
   node.id = `ngin.project:${project.manifest}`;
   node.resourceUri = vscode.Uri.file(project.manifest);
+  const fallback = controller.activeProject?.manifest === project.manifest;
+  const activeFile = owner?.manifest === project.manifest;
+  const busy = controller.snapshot.busyProjectManifest === project.manifest ? controller.snapshot.busy : undefined;
+  const graphIssue = fallback ? controller.snapshot.graphError : undefined;
   node.contextValue = [
     'nginProjectRoot',
     project.hasTesting ? 'test' : undefined,
     project.hasLaunch ? 'launch' : undefined,
     project.hasAnalyze ? 'analyze' : undefined,
-    project.hasFormat ? 'format' : undefined
+    project.hasFormat ? 'format' : undefined,
+    fallback ? 'default' : undefined,
+    activeFile ? 'activeFile' : undefined
   ].filter(Boolean).join('.');
-  node.iconPath = new vscode.ThemeIcon(project.type === 'Library' ? 'library' : 'project');
-  const active = controller.activeProject?.manifest === project.manifest;
-  const busy = controller.snapshot.busyProjectManifest === project.manifest ? controller.snapshot.busy : undefined;
+  node.iconPath = new vscode.ThemeIcon(graphIssue ? 'warning' : activeFile ? 'file-code' : fallback ? 'pinned' : project.type === 'Library' ? 'library' : 'project');
   const summary = analysis.summary(project.manifest);
-  node.description = [project.type, active ? 'selected' : undefined,
+  node.description = [
+    project.type,
+    activeFile ? 'active file' : fallback ? 'default' : undefined,
     busy ? `${busy} in progress` : undefined,
-    summary.state === 'analyzing' ? 'analyzing' : summary.state === 'ready' ? summary.message : undefined]
-    .filter(Boolean).join(' · ');
-  node.tooltip = `${project.manifest}${active ? '\nSelected NGIN project' : '\nClick to select this project'}`;
+    graphIssue ? 'model issue' : undefined,
+    summary.state === 'analyzing' ? 'analyzing' : summary.state === 'ready' ? summary.message : undefined
+  ].filter(Boolean).join(' · ');
+  const contextDescription = activeFile
+    ? 'Effective because this project owns the active file.'
+    : fallback ? 'Default when the active file has no project owner.' : 'Available NGIN project.';
+  node.tooltip = `${project.manifest}\n${contextDescription}`;
+  node.accessibilityInformation = {
+    label: [project.name, project.type ?? 'NGIN project', activeFile ? 'active file project' : fallback ? 'default project' : undefined,
+      busy ? `${busy} in progress` : undefined, graphIssue ? 'project model issue' : undefined].filter(Boolean).join(', '),
+    role: 'treeitem'
+  };
   return node;
 }
 
@@ -239,12 +272,12 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
 
   constructor(
     private readonly controller: NginController,
-    private readonly analysis: SourceAnalysisProvider,
-    private modeValue: ProjectsViewMode = 'project'
+    private readonly analysis: SourceAnalysisProvider
   ) {
     this.disposables = [
       controller.onDidChange(() => this.changed.fire(undefined)),
-      analysis.onDidChange(() => this.changed.fire(undefined))
+      analysis.onDidChange(() => this.changed.fire(undefined)),
+      vscode.window.onDidChangeActiveTextEditor(() => this.changed.fire(undefined))
     ];
   }
 
@@ -260,17 +293,8 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
     return this.projectNodes.get(manifest);
   }
 
-  get mode(): ProjectsViewMode { return this.modeValue; }
-
-  setMode(mode: ProjectsViewMode): void {
-    if (mode === this.modeValue) return;
-    this.modeValue = mode;
-    this.projectNodes.clear();
-    this.changed.fire(undefined);
-  }
-
-  private nodeFor(project: ProjectCandidate): NginTreeNode {
-    const node = projectNode(this.controller, this.analysis, project, this.modeValue);
+  private nodeFor(project: ProjectCandidate, owner: ProjectCandidate | undefined): NginTreeNode {
+    const node = projectNode(this.controller, this.analysis, project, owner);
     this.projectNodes.set(project.manifest, node);
     return node;
   }
@@ -282,16 +306,16 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
       return children;
     }
     if (element) return [];
-    if (this.controller.projects.length === 0) {
-      return [];
-    }
+    this.projectNodes.clear();
+    if (this.controller.projects.length === 0) return [];
+    const owner = await activeFileProject(this.analysis);
     if (this.controller.discoveries.length === 1) {
-      return this.controller.projects.map(project => this.nodeFor(project));
+      return this.controller.projects.map(project => this.nodeFor(project, owner));
     }
     return this.controller.discoveries.map(discovery => {
       const label = discovery.workspaceChoices?.name ?? path.basename(discovery.workspaceFolder);
-      const projects = discovery.projects.map(project => this.nodeFor(project));
-      const workspace = group(label, 'root-folder', () => projects, `${discovery.projects.length} projects`);
+      const projects = discovery.projects.map(project => this.nodeFor(project, owner));
+      const workspace = group(label, 'root-folder', () => projects, `${discovery.projects.length} projects`, `ngin.workspace:${discovery.workspaceFolder}`);
       projects.forEach(project => { project.parent = workspace; });
       workspace.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
       return workspace;
