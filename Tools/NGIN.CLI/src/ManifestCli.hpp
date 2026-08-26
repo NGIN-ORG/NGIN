@@ -20,6 +20,7 @@ namespace NGIN::CLI
         std::optional<std::string> configuration{};
         std::optional<std::string> target{};
         std::optional<std::string> toolchain{};
+        std::optional<std::string> launch{};
         std::optional<std::string> preset{};
         std::optional<std::string> packageName{};
         std::optional<std::string> exactVersion{};

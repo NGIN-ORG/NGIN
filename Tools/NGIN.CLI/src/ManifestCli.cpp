@@ -295,7 +295,10 @@ namespace NGIN::CLI
         [[nodiscard]] auto RequestedSelection(const CliArguments &arguments) -> SelectionRequest
         {
             SelectionRequest result{
-                .configuration = arguments.configuration, .target = arguments.target, .toolchain = arguments.toolchain};
+                .configuration = arguments.configuration,
+                .target = arguments.target,
+                .toolchain = arguments.toolchain,
+                .launch = arguments.launch};
             for (const auto &assignment : arguments.optionAssignments)
             {
                 const auto separator = assignment.find('=');
@@ -380,6 +383,7 @@ namespace NGIN::CLI
             WorkspaceStageCollisionPolicy stageCollision{WorkspaceStageCollisionPolicy::Error};
             bool allowSymlinks{false};
             bool providerLockRequired{false};
+            std::optional<std::string> selectedLaunch{};
             std::vector<LoadedProjectReference> projectReferences{};
             std::vector<ManifestDiagnostic> diagnostics{};
         };
@@ -626,6 +630,7 @@ namespace NGIN::CLI
                 if (!parsed.Succeeded()) throw std::runtime_error(parsed.diagnostics[0].message);
                 selection.options[name] = *parsed.value;
             }
+            loaded.selectedLaunch = requested.launch;
             std::vector<const PackageProvider *> providerViews{};
             for (const auto &provider : providers) providerViews.push_back(provider.get());
             auto hostSelection = selection;
@@ -1484,6 +1489,8 @@ namespace NGIN::CLI
                 result.target = value(index, argument);
             else if (argument == "--toolchain")
                 result.toolchain = value(index, argument);
+            else if (argument == "--launch")
+                result.launch = value(index, argument);
             else if (argument == "--preset")
                 result.preset = value(index, argument);
             else if (argument == "--exact")
@@ -1831,7 +1838,8 @@ namespace NGIN::CLI
     auto RunProject(const fs::path &root, const CliArguments &arguments) -> int
     {
         auto staged = Stage(PrepareBuild(root, arguments, "run"));
-        auto launch = DeriveLaunchPlan(*staged.build.composition.graph, staged.plan, staged.bindings);
+        auto launch = DeriveLaunchPlan(*staged.build.composition.graph, staged.plan, staged.bindings,
+                                       staged.build.composition.selectedLaunch);
         if (PrintDiagnostics(launch.diagnostics, staged.build.composition.projectDirectory) != 0 || !launch.Succeeded())
             throw std::runtime_error("LaunchPlan derivation failed");
         if (!launch.plan->secretReferences.empty())

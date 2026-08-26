@@ -14,9 +14,13 @@ Project commands accept:
 --configuration <name>
 --target <name-or-alias>
 --toolchain <name>
+--launch <name>
 --option <Name=Value>
 --preset <name>
 ```
+
+`--launch` selects a named Launch definition for `run`; it is also available to
+editor integrations that keep Run and Debug on the same launch intent.
 
 Presets expand command inputs before resolution. Their names do not enter the
 Composition Graph identity. An unknown selection is an error; it never falls

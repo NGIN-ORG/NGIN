@@ -18,7 +18,7 @@ namespace
 Selection:
   --project <file.nginproj>   --workspace <file.ngin>
   --configuration <name>     --target <name>     --toolchain <name>
-  --preset <name>             --option <Name=Value>
+  --launch <name>            --preset <name>     --option <Name=Value>
 
 Authoring:
   new <app|lib|tool|test|benchmark|plugin|external> <Name>

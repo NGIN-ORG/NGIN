@@ -147,6 +147,17 @@ TEST_CASE("presets expand concrete inputs without becoming a selection dimension
     REQUIRE_FALSE(ExpandPreset(preset, "test", SelectionRequest{}).Succeeded());
 }
 
+TEST_CASE("CLI accepts an explicit Launch selection for run workflows")
+{
+    std::vector<std::string> storage{"ngin", "run", "--project", "App.nginproj", "--launch", "diagnostics"};
+    std::vector<char *> arguments{};
+    arguments.reserve(storage.size());
+    for (auto &value : storage) arguments.push_back(value.data());
+    const auto parsed = ParseCliArguments(static_cast<int>(arguments.size()), arguments.data(), 2);
+    REQUIRE(parsed.projectPath == "App.nginproj");
+    REQUIRE(parsed.launch == "diagnostics");
+}
+
 TEST_CASE("project Refinements apply selected payloads with deterministic "
           "specificity")
 {
