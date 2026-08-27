@@ -18,7 +18,7 @@ namespace {
   if (presentation.onError) {
     presentation.onError(error);
   }
-  return std::move(error);
+  return error;
 }
 
 [[nodiscard]] auto ValueText(const F32 value) -> NGIN::Text::String {
