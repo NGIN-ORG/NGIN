@@ -1,21 +1,29 @@
 {
-  "NGIN project": {
-    "prefix": "ngin-project",
+  "NGIN executable project": {
+    "prefix": "ngin-executable",
     "body": [
-      "<Project Name=\"${1:App}\" Type=\"${2|Application,Library,Tool,Test,Benchmark,Plugin,External|}\">",
+      "<Executable Name=\"${1:Product}\">",
       "  <Build><Source Include=\"src/**/*.cpp\" /></Build>",
-      "</Project>"
+      "</Executable>"
+    ]
+  },
+  "NGIN library project": {
+    "prefix": "ngin-library",
+    "body": [
+      "<Library Name=\"${1:Product}\" Kind=\"${2|Static,Shared,Interface,Plugin|}\">",
+      "  <Build><Source Include=\"src/**/*.cpp\" /></Build>",
+      "</Library>"
     ]
   },
   "NGIN package dependency": {
     "prefix": "ngin-dependency",
-    "body": ["<Package Name=\"${1:Package}\" Compatible=\"${2:1}\" />"]
+    "body": ["<Package Name=\"${1:Package}\" Version=\"${2:1}\" />"]
   },
   "NGIN package": {
     "prefix": "ngin-package",
     "body": [
       "<Package Name=\"${1:Package}\" Version=\"${2:1.0.0}\">",
-      "  <Exports><Library Name=\"${3:Core}\" Default=\"true\" /></Exports>",
+      "  <Library Name=\"${3:Core}\" Default=\"true\" />",
       "</Package>"
     ]
   },
@@ -23,7 +31,7 @@
     "prefix": "ngin-workspace",
     "body": [
       "<Workspace Name=\"${1:Workspace}\">",
-      "  <Projects><Project Include=\"${2:apps/**/*.nginproj}\" /></Projects>",
+      "  <Discover><Projects Include=\"${2:apps/**/*.nginproj}\" /></Discover>",
       "</Workspace>"
     ]
   }

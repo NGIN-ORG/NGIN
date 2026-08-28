@@ -24,8 +24,13 @@ export interface MetadataElement {
 }
 
 export interface ManifestEditorMetadata {
+  documents: Array<{ kind: string; extension: string; roots: string[]; schema: string }>;
   namespaces: Array<{ uri: string; prefix: string }>;
   elements: MetadataElement[];
+}
+
+export function documentRoots(metadata: ManifestEditorMetadata, kind: string): readonly string[] {
+  return metadata.documents.find(document => document.kind === kind)?.roots ?? [];
 }
 
 export function loadManifestMetadata(file: string): ManifestEditorMetadata {

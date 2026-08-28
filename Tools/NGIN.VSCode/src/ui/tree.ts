@@ -187,7 +187,7 @@ async function projectChildren(
     fileGroup('Headers', 'symbol-file', headers, project, 'nginHeadersGroup'),
     fileGroup('Resources', 'file-media', resources, project),
     graph?.packages.length ? semanticGroup('Dependencies', 'package', graph.packages, project) : undefined,
-    graph?.launches.length ? semanticGroup('Launches', 'run', graph.launches, project) : undefined,
+    graph?.runs.length ? semanticGroup('Runs', 'run', graph.runs, project) : undefined,
     fileGroup('Generated', 'sparkle', generated, project),
     fileGroup('External inputs', 'link-external', external, project),
     fileGroup('Nested projects', 'root-folder', boundaries, project)
@@ -236,17 +236,17 @@ function projectNode(
   const graphIssue = fallback ? controller.snapshot.graphError : undefined;
   node.contextValue = [
     'nginProjectRoot',
-    project.hasTesting ? 'test' : undefined,
-    project.hasLaunch ? 'launch' : undefined,
+    project.hasTests ? 'test' : undefined,
+    project.hasRun ? 'run' : undefined,
     project.hasAnalyze ? 'analyze' : undefined,
     project.hasFormat ? 'format' : undefined,
     fallback ? 'default' : undefined,
     activeFile ? 'activeFile' : undefined
   ].filter(Boolean).join('.');
-  node.iconPath = new vscode.ThemeIcon(graphIssue ? 'warning' : activeFile ? 'file-code' : fallback ? 'pinned' : project.type === 'Library' ? 'library' : 'project');
+  node.iconPath = new vscode.ThemeIcon(graphIssue ? 'warning' : activeFile ? 'file-code' : fallback ? 'pinned' : project.artifactKind === 'Library' ? 'library' : 'project');
   const summary = analysis.summary(project.manifest);
   node.description = [
-    project.type,
+    project.libraryKind ?? project.artifactKind,
     activeFile ? 'active file' : fallback ? 'default' : undefined,
     busy ? `${busy} in progress` : undefined,
     graphIssue ? 'model issue' : undefined,
@@ -257,7 +257,7 @@ function projectNode(
     : fallback ? 'Default when the active file has no project owner.' : 'Available NGIN project.';
   node.tooltip = `${project.manifest}\n${contextDescription}`;
   node.accessibilityInformation = {
-    label: [project.name, project.type ?? 'NGIN project', activeFile ? 'active file project' : fallback ? 'default project' : undefined,
+    label: [project.name, project.libraryKind ?? project.artifactKind ?? 'NGIN project', activeFile ? 'active file project' : fallback ? 'default project' : undefined,
       busy ? `${busy} in progress` : undefined, graphIssue ? 'project model issue' : undefined].filter(Boolean).join(', '),
     role: 'treeitem'
   };

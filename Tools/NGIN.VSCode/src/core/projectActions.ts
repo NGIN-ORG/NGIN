@@ -16,8 +16,9 @@ export interface ProjectActionDescriptor {
 export interface ProjectActionState {
   project: ProjectCandidate;
   context: NginContext;
-  canLaunch: boolean;
+  canRun: boolean;
   canTest: boolean;
+  canBenchmark: boolean;
   hasAnalyze: boolean;
   hasFormat: boolean;
   graphReady: boolean;
@@ -25,7 +26,7 @@ export interface ProjectActionState {
   configurationChoices: number;
   targetChoices: number;
   toolchainChoices: number;
-  selectedLaunch?: string;
+  selectedRun?: string;
   busy?: string;
   graphError?: string;
   lastOperation?: { command: string; state: 'succeeded' | 'failed' };
@@ -45,7 +46,7 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
   }
 
   result.push({ group: 'Lifecycle', label: 'Build Project', description: project.name, icon: 'tools', command: 'ngin.build', argument: project });
-  if (state.canLaunch) {
+  if (state.canRun) {
     result.push(
       { group: 'Lifecycle', label: 'Run Project', description: project.name, icon: 'play', command: 'ngin.run', argument: project },
       { group: 'Lifecycle', label: 'Debug Project', description: project.name, icon: 'debug-alt', command: 'ngin.debug', argument: project }
@@ -53,6 +54,9 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
   }
   if (state.canTest) {
     result.push({ group: 'Lifecycle', label: 'Test Project', description: project.name, icon: 'beaker', command: 'ngin.test', argument: project });
+  }
+  if (state.canBenchmark) {
+    result.push({ group: 'Lifecycle', label: 'Benchmark Project', description: project.name, icon: 'dashboard', command: 'ngin.benchmark', argument: project });
   }
 
   if (state.configurationChoices) result.push(
@@ -64,10 +68,10 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
   if (state.toolchainChoices) result.push(
     { group: 'Build context', label: 'Select Toolchain', description: state.context.toolchain, icon: 'tools', command: 'ngin.selectToolchain', argument: project }
   );
-  if (state.canLaunch) {
+  if (state.canRun) {
     result.push({
-      group: 'Build context', label: 'Select Launch', description: state.selectedLaunch || 'Choose the Run and Debug launch',
-      icon: 'run', command: 'ngin.selectLaunch', argument: project
+      group: 'Build context', label: 'Select Run', description: state.selectedRun || 'Choose the Run and Debug configuration',
+      icon: 'run', command: 'ngin.selectRun', argument: project
     });
   }
 

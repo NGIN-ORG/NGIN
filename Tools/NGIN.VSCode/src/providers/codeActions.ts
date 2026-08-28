@@ -78,7 +78,7 @@ interface AttributeLocation {
 
 function rootAttributes(document: vscode.TextDocument): Map<string, AttributeLocation> {
   const source = document.getText();
-  const root = scanXmlTags(source).find(tag => !tag.closing && tag.name === 'Project');
+  const root = scanXmlTags(source).find(tag => !tag.closing && (tag.name === 'Executable' || tag.name === 'Library'));
   if (!root) return new Map();
   const text = source.slice(root.start, root.end);
   const result = new Map<string, AttributeLocation>();
@@ -122,48 +122,22 @@ export class ManifestCodeActionProvider implements vscode.CodeActionProvider {
     context: vscode.CodeActionContext
   ): vscode.CodeAction[] {
     const attributes = rootAttributes(document);
-    const type = attributes.get('Type');
-    const linkage = attributes.get('Linkage');
+    const kind = attributes.get('Kind');
     const actions: vscode.CodeAction[] = [];
     const related = context.diagnostics.filter(diagnostic => diagnostic.source === 'NGIN');
 
     if (context.only?.contains(vscode.CodeActionKind.SourceFixAll)) {
       const edit = new vscode.WorkspaceEdit();
       let count = 0;
-      if (linkage?.value === 'HeaderOnly') {
-        edit.replace(document.uri, linkage.valueRange, 'Interface');
-        count++;
-      } else if (linkage && type?.value !== 'Library') {
-        edit.delete(document.uri, linkage.fullRange);
-        count++;
-      }
       if (!count) return [];
       const fixAll = new vscode.CodeAction('Fix safe NGIN manifest values', vscode.CodeActionKind.SourceFixAll);
       fixAll.edit = edit;
       return [fixAll];
     }
 
-    if (type?.value === 'Module') {
-      actions.push(replacementAction(document, 'Change product type to Library', type, 'Library', related));
-      actions.push(replacementAction(document, 'Change product type to Plugin', type, 'Plugin', related));
-    } else if (type && !attributeChoices(this.metadata, 'project.root', 'Type').includes(type.value)) {
-      for (const value of attributeChoices(this.metadata, 'project.root', 'Type')) {
-        actions.push(replacementAction(document, `Change product type to ${value}`, type, value, related));
-      }
-    }
-
-    if (linkage?.value === 'HeaderOnly') {
-      actions.push(replacementAction(document, 'Change library linkage to Interface', linkage, 'Interface', related, true));
-    } else if (linkage && type?.value !== 'Library') {
-      const remove = new vscode.CodeAction('Remove Linkage from non-library product', vscode.CodeActionKind.QuickFix);
-      remove.edit = new vscode.WorkspaceEdit();
-      remove.edit.delete(document.uri, linkage.fullRange);
-      remove.diagnostics = related;
-      remove.isPreferred = true;
-      actions.push(remove);
-    } else if (linkage && !attributeChoices(this.metadata, 'project.root', 'Linkage').includes(linkage.value)) {
-      for (const value of attributeChoices(this.metadata, 'project.root', 'Linkage')) {
-        actions.push(replacementAction(document, `Change library linkage to ${value}`, linkage, value, related));
+    if (kind && !attributeChoices(this.metadata, 'project.library-root', 'Kind').includes(kind.value)) {
+      for (const value of attributeChoices(this.metadata, 'project.library-root', 'Kind')) {
+        actions.push(replacementAction(document, `Change library Kind to ${value}`, kind, value, related));
       }
     }
     if (related.some(diagnostic => /package|provider|restore/iu.test(diagnostic.message))) {

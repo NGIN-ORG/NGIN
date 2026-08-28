@@ -64,8 +64,8 @@ export function insertBuildItem(
 ): OffsetEdit | undefined {
   if (hasExactRule(source, kind, attribute, value)) return undefined;
   const tags = scanXmlTags(source);
-  const rootIndex = tags.findIndex(tag => !tag.closing && tag.name === 'Project');
-  if (rootIndex < 0) throw new Error('The document does not contain a Project root element.');
+  const rootIndex = tags.findIndex(tag => !tag.closing && (tag.name === 'Executable' || tag.name === 'Library'));
+  if (rootIndex < 0) throw new Error('The document does not contain an Executable or Library root element.');
   const root = tags[rootIndex];
   const escaped = encodeXmlAttribute(value);
   const nl = newline(source);
@@ -81,7 +81,7 @@ export function insertBuildItem(
       return { start: build.start, end: build.end, text: replacement };
     }
     const close = matchingClose(tags, buildIndex);
-    if (!close) throw new Error('The Project Build element is not closed.');
+    if (!close) throw new Error('The product Build element is not closed.');
     const closeLine = lineStart(source, close.start);
     const closeIsOnOwnLine = source.slice(closeLine, close.start).trim() === '';
     const offset = closeIsOnOwnLine ? closeLine : close.start;
@@ -89,10 +89,10 @@ export function insertBuildItem(
     return { start: offset, end: offset, text: `${prefix}${itemIndent}<${kind} ${attribute}="${escaped}" />${nl}` };
   }
 
-  const order = ['Metadata', 'Options', 'Dependencies', 'Build', 'Generate', 'Tooling', 'Stage', 'Launch', 'Testing', 'Publish', 'Refinements'];
+  const order = ['Metadata', 'Options', 'Uses', 'Build', 'Generate', 'Tooling', 'Stage', 'Run', 'Test', 'Benchmark', 'Publish', 'When'];
   const later = children.find(tag => order.indexOf(tag.name) > order.indexOf('Build'));
   const rootClose = matchingClose(tags, rootIndex);
-  if (!rootClose) throw new Error('The Project root element is not closed.');
+  if (!rootClose) throw new Error('The product root element is not closed.');
   const offset = lineStart(source, later?.start ?? rootClose.start);
   const rootIndent = indentation(source, root.start);
   const block = `${rootIndent}  <Build>${nl}${rootIndent}    <${kind} ${attribute}="${escaped}" />${nl}${rootIndent}  </Build>${nl}`;
@@ -142,8 +142,8 @@ export function kindForPath(value: string): BuildItemKind {
 }
 
 export function updateProjectAttributes(source: string, changes: Record<string, string | undefined>): OffsetEdit[] {
-  const root = scanXmlTags(source).find(tag => !tag.closing && tag.name === 'Project');
-  if (!root) throw new Error('The document does not contain a Project root element.');
+  const root = scanXmlTags(source).find(tag => !tag.closing && (tag.name === 'Executable' || tag.name === 'Library'));
+  if (!root) throw new Error('The document does not contain an Executable or Library root element.');
   const text = source.slice(root.start, root.end);
   const edits: OffsetEdit[] = [];
   const additions: string[] = [];

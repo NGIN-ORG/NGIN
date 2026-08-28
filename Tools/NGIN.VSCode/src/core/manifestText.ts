@@ -52,9 +52,15 @@ export function scanXmlTags(source: string): XmlTag[] {
   return tags;
 }
 
-export function rootIdentity(source: string): { name?: string; type?: string; root?: string } {
+export function rootIdentity(source: string): {
+  name?: string;
+  artifactKind?: 'Executable' | 'Library';
+  libraryKind?: string;
+  root?: string;
+} {
   const root = scanXmlTags(source).find(tag => !tag.closing);
-  return { name: root?.attributes.Name, type: root?.attributes.Type, root: root?.name };
+  const artifactKind = root?.name === 'Executable' || root?.name === 'Library' ? root.name : undefined;
+  return { name: root?.attributes.Name, artifactKind, libraryKind: root?.attributes.Kind, root: root?.name };
 }
 
 function names(source: string, element: string): string[] {
@@ -66,39 +72,40 @@ function names(source: string, element: string): string[] {
 export function parseWorkspaceChoices(source: string): WorkspaceChoices {
   const identity = rootIdentity(source);
   const tags = scanXmlTags(source);
-  const defaultsTag = tags.find(tag => !tag.closing && tag.name === 'Defaults');
-  const defaultsBody = defaultsTag
-    ? source.slice(defaultsTag.end, tags.find(tag => tag.closing && tag.name === 'Defaults' && tag.start > defaultsTag.end)?.start ?? defaultsTag.end)
-    : '';
-  const defaultTags = scanXmlTags(defaultsBody);
-  const defaultValue = (name: string) => defaultTags.find(tag => !tag.closing && tag.name === name)?.attributes.Name;
+  const profilesTag = tags.find(tag => !tag.closing && tag.name === 'Profiles');
+  const defaultProfile = profilesTag?.attributes.Default;
+  const profileTags = tags.filter(tag => !tag.closing && tag.name === 'Profile' && tag.attributes.Name);
+  const selectedProfile = profileTags.find(tag => tag.attributes.Name === defaultProfile);
 
   return {
     name: identity.name ?? 'Workspace',
-    configurations: [...new Set(names(source, 'Configuration'))],
-    targets: [...new Set(names(source, 'Target'))],
-    toolchains: [...new Set(names(source, 'Toolchain'))],
-    presets: tags
-      .filter(tag => !tag.closing && tag.name === 'Preset' && tag.attributes.Name)
-      .map(tag => ({ name: tag.attributes.Name, command: tag.attributes.Command })),
+    configurations: [...new Set(['Debug', 'Release', ...names(source, 'Configuration')])],
+    targets: [...new Set(['host', ...names(source, 'Target')])],
+    toolchains: [...new Set(['auto', ...names(source, 'Toolchain')])],
+    profiles: profileTags.map(tag => ({
+      name: tag.attributes.Name,
+      configuration: tag.attributes.Configuration,
+      target: tag.attributes.Target,
+      toolchain: tag.attributes.Toolchain,
+      run: tag.attributes.Run
+    })),
     defaults: {
-      configuration: defaultValue('Configuration'),
-      target: defaultValue('Target'),
-      toolchain: defaultValue('Toolchain')
+      configuration: selectedProfile?.attributes.Configuration ?? 'Debug',
+      target: selectedProfile?.attributes.Target ?? 'host',
+      toolchain: selectedProfile?.attributes.Toolchain ?? 'auto'
     }
   };
 }
 
 export interface ProjectRule {
-  path?: string;
   include?: string;
   exclude?: string;
 }
 
 export function parseWorkspaceProjectRules(source: string): ProjectRule[] {
   return scanXmlTags(source)
-    .filter(tag => !tag.closing && tag.name === 'Project' && (tag.attributes.Path || tag.attributes.Include))
-    .map(tag => ({ path: tag.attributes.Path, include: tag.attributes.Include, exclude: tag.attributes.Exclude }));
+    .filter(tag => !tag.closing && tag.name === 'Projects' && tag.attributes.Include)
+    .map(tag => ({ include: tag.attributes.Include, exclude: tag.attributes.Exclude }));
 }
 
 export function relativeManifestPath(projectDirectory: string, candidate: string): string {

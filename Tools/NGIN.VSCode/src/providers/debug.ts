@@ -13,7 +13,7 @@ interface NginDebugConfiguration extends vscode.DebugConfiguration {
   target?: string;
   toolchain?: string;
   args?: string[];
-  launch?: string;
+  run?: string;
   preStage?: boolean;
   test?: boolean;
 }
@@ -33,32 +33,32 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
   ) {}
 
   provideDebugConfigurations(): vscode.ProviderResult<vscode.DebugConfiguration[]> {
-    return [{ type: 'ngin', request: 'launch', name: 'NGIN: Debug Current Project', preStage: true }];
+    return [{ type: 'ngin', request: 'run', name: 'NGIN: Debug Current Project', preStage: true }];
   }
 
-  async selectLaunch(project = this.controller.activeProject): Promise<string | undefined> {
+  async selectRun(project = this.controller.activeProject): Promise<string | undefined> {
     if (!project) throw new Error('No NGIN project is available.');
     const context = this.sourceAnalysis.contextForProject(project);
     const graph = await this.controller.graphForContext(context, true);
-    if (!graph?.launches.length) {
-      void vscode.window.showInformationMessage(`${project.name} declares no Launch configurations.`);
+    if (!graph?.runs.length) {
+      void vscode.window.showInformationMessage(`${project.name} declares no Run configurations.`);
       return undefined;
     }
-    const remembered = context.launch;
+    const remembered = context.run;
     const selected = await vscode.window.showQuickPick(
-      graph.launches.map(launch => {
-        const identity = launch.name ?? launch.identity;
+      graph.runs.map(run => {
+        const identity = run.name ?? run.identity;
         return {
           label: identity,
-          description: identity === remembered ? 'selected' : launch.default ? 'default' : undefined,
-          detail: launch.executable ? `Executable: ${launch.executable}` : undefined,
+          description: identity === remembered ? 'selected' : run.default ? 'default' : undefined,
+          detail: run.executable ? `Executable: ${run.executable}` : undefined,
           identity
         };
       }),
-      { title: `Select Launch for ${graph.product.name}`, placeHolder: remembered, matchOnDetail: true }
+      { title: `Select Run for ${graph.product.name}`, placeHolder: remembered, matchOnDetail: true }
     );
     if (!selected) return undefined;
-    await this.controller.updateProjectSelection(project, { launch: selected.identity, preset: undefined });
+    await this.controller.updateProjectSelection(project, { run: selected.identity, profile: undefined });
     return selected.identity;
   }
 
@@ -96,20 +96,20 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       if (!staged) return undefined;
     }
 
-    if (!configuration.test && !configuration.launch && context.launch
-      && graph.launches.some(launch => (launch.name ?? launch.identity) === context.launch)) {
-      configuration.launch = context.launch;
+    if (!configuration.test && !configuration.run && context.run
+      && graph.runs.some(run => (run.name ?? run.identity) === context.run)) {
+      configuration.run = context.run;
     }
-    if (!configuration.test && !configuration.launch && graph.launches.length > 1) {
-      const remembered = context.launch;
-      configuration.launch = graph.launches.find(launch => (launch.name ?? launch.identity) === remembered)
+    if (!configuration.test && !configuration.run && graph.runs.length > 1) {
+      const remembered = context.run;
+      configuration.run = graph.runs.find(run => (run.name ?? run.identity) === remembered)
         ? remembered
         : await vscode.window.showQuickPick(
-          graph.launches.map(launch => ({ label: launch.name ?? launch.identity, description: launch.default ? 'default' : undefined })),
-          { title: `Select a Launch for ${graph.product.name}` }
+          graph.runs.map(run => ({ label: run.name ?? run.identity, description: run.default ? 'default' : undefined })),
+          { title: `Select a Run for ${graph.product.name}` }
         ).then(value => value?.label);
-      if (!configuration.launch) return undefined;
-      await this.controller.updateProjectSelection(project, { launch: configuration.launch, preset: undefined });
+      if (!configuration.run) return undefined;
+      await this.controller.updateProjectSelection(project, { run: configuration.run, profile: undefined });
     }
     const program = stagedExecutablePath(context, graph.product.name, graph.selection.targetOperatingSystem);
     if (!await fileExists(program)) {

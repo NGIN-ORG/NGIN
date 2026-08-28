@@ -24,16 +24,18 @@ async function candidateFromUri(
   try {
     const source = await readText(uri);
     const identity = rootIdentity(source);
-    if (identity.root !== 'Project' || !identity.name) return undefined;
+    if ((identity.root !== 'Executable' && identity.root !== 'Library') || !identity.name) return undefined;
     return {
       manifest: uri.fsPath,
       directory: path.dirname(uri.fsPath),
       name: identity.name,
-      type: identity.type,
+      artifactKind: identity.artifactKind,
+      libraryKind: identity.libraryKind as ProjectCandidate['libraryKind'],
       hasAnalyze: /<Analyze\b/u.test(source),
       hasFormat: /<Format\b/u.test(source),
-      hasTesting: /<Testing\b/u.test(source) || identity.type === 'Test',
-      hasLaunch: /<Launch\b/u.test(source),
+      hasTests: /<Test\b/u.test(source),
+      hasBenchmarks: /<Benchmark\b/u.test(source),
+      hasRun: identity.artifactKind === 'Executable',
       workspaceManifest,
       workspaceChoices
     };
@@ -50,10 +52,6 @@ async function discoverWorkspaceProjects(workspaceUri: vscode.Uri): Promise<Disc
   const projectUris: vscode.Uri[] = [];
 
   for (const rule of parseWorkspaceProjectRules(source)) {
-    if (rule.path) {
-      projectUris.push(vscode.Uri.file(path.resolve(directory.fsPath, rule.path)));
-      continue;
-    }
     if (!rule.include) continue;
     const exclude = rule.exclude ? new vscode.RelativePattern(directory, rule.exclude) : generatedDirectoryPattern;
     const matches = await vscode.workspace.findFiles(new vscode.RelativePattern(directory, rule.include), exclude);

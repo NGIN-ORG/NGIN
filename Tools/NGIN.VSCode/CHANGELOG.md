@@ -14,7 +14,7 @@
   source/header creation commands.
 - Added a persistent Project/Files view toggle so non-product files and folders
   can be edited and managed without leaving the NGIN project pane.
-- Hide and guard Run/Debug unless the selected project declares resolved Launch
+- Hide and guard Run/Debug unless the selected project declares resolved Run
   intent, while keeping Configure and Build available for libraries.
 
 - Added one compact Projects view with a project-scoped file browser, inline
@@ -36,7 +36,7 @@
 - Added incremental configure-state reuse. Build, stage, debug, and analysis
   configure implicitly when needed; explicit Configure remains available.
 - Added F5 source-project resolution, staged native debugging, remembered
-  Launch selection, and graph-derived arguments, environment, and working
+  Run selection, and graph-derived arguments, environment, and working
   directory.
 - Added compile-database-backed Microsoft C/C++ configuration with graph
   fallback data.

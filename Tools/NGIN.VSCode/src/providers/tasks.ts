@@ -9,7 +9,7 @@ interface NginTaskDefinition extends vscode.TaskDefinition {
   command: string;
 }
 
-const commands = ['configure', 'build', 'stage', 'test', 'restore'] as const;
+const commands = ['configure', 'build', 'stage', 'test', 'benchmark', 'restore'] as const;
 
 export class NginTaskProvider implements vscode.TaskProvider {
   constructor(private readonly controller: NginController, private readonly cli: NginCli) {}
@@ -40,7 +40,7 @@ export class NginTaskProvider implements vscode.TaskProvider {
       ['$ngin-file']
     );
     task.group = definition.command === 'build' ? vscode.TaskGroup.Build
-      : definition.command === 'test' ? vscode.TaskGroup.Test
+      : definition.command === 'test' || definition.command === 'benchmark' ? vscode.TaskGroup.Test
       : undefined;
     task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated, clear: false };
     return task;

@@ -6,12 +6,12 @@ NGIN Tools makes the normal NGIN C++ loop feel native in VS Code:
 
 The extension owns editor interaction while the native `ngin` CLI remains the
 authority for manifests, composition, packages, builds, Actions, staging, and
-launch intent.
+run intent.
 
 ## Projects and effective context
 
 The NGIN Activity Bar contains one compact **Projects** view. It shows each
-product's manifest, sources, headers, resources, dependencies, launches,
+product's manifest, sources, headers, resources, dependencies, Runs,
 generated inputs, nested projects, and issues. The native Explorer remains the
 physical workspace browser.
 
@@ -26,7 +26,7 @@ as Default Project** explicitly. Ambiguous file ownership is chosen once and
 remembered.
 
 Project rows expose only valid Build, Run, and Debug actions. Libraries and
-other non-launchable products do not show Run or Debug. Advanced operations
+other non-runable products do not show Run or Debug. Advanced operations
 remain in the project context menu and Command Palette.
 
 ## One project-context status item
@@ -49,14 +49,14 @@ problems use a warning icon and accessible text. Click the item to open
 
 The searchable action hub groups commands by purpose:
 
-- **Lifecycle:** Build, Run, Debug, and Test;
-- **Build context:** Configuration, Target, Toolchain, and Launch;
+- **Lifecycle:** Build, Run, Debug, Test, and Benchmark;
+- **Build context:** Configuration, Target, Toolchain, and Run;
 - **Project:** manifest, default selection, packages, and semantic C++ file creation;
 - **Diagnostics:** Problems, NGIN Output, and Check Setup;
 - **Advanced:** Configure, Stage, restore, lock, inspect, explain, diff,
   publish, analyze, and format.
 
-Impossible actions are omitted. Configuration and Launch choices are remembered
+Impossible actions are omitted. Configuration and Run choices are remembered
 per project build context. All individual commands remain searchable through
 the Command Palette for expert and keyboard workflows.
 
@@ -77,13 +77,13 @@ comment-preserving formatting.
 
 ## Build, run, debug, and test
 
-Build, Run, Debug, Test, and analysis configure automatically when generated
+Build, Run, Debug, Test, Benchmark, and analysis configure automatically when generated
 state is missing or stale. **Configure Project** forces regeneration for
 troubleshooting.
 
 F5 debugs the project owning the active source file and falls back to the
 default project only when the active file has no owner. Ctrl+F5 uses the same
-ownership rule. When several Launch
+ownership rule. When several Run
 definitions are valid, NGIN asks once and remembers the choice for that
 project, Configuration, Target, and Toolchain. Run and Debug share the same
 selection.
@@ -147,15 +147,18 @@ NGIN: Set Default Project
 NGIN: Select Configuration
 NGIN: Select Platform Target
 NGIN: Select Toolchain
-NGIN: Select Launch
+NGIN: Select Run
+NGIN: Select Profile
 NGIN: Build
 NGIN: Run
 NGIN: Run with Arguments
 NGIN: Debug
 NGIN: Test
+NGIN: Benchmark
 NGIN: Analyze File
 NGIN: Analyze Project
 NGIN: Format File
+NGIN: Format Manifest
 NGIN: Check Setup
 NGIN: Open Resolved Project JSON
 NGIN: Inspect Project
@@ -179,7 +182,7 @@ When `ngin.executable` is empty, the extension first uses the repository
 development build and then `ngin` on `PATH`. Extension output defaults to:
 
 ```text
-<workspace>/build/ngin/<project>/<Configuration>.<Target>.<Toolchain>
+<workspace>/.ngin/build/<project>/<Configuration>.<Target>.<Toolchain>
 ```
 
 Change the root with `ngin.build.outputRoot`.

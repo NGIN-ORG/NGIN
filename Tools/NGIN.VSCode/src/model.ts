@@ -19,8 +19,8 @@ export interface NginContext {
   configuration: string;
   target: string;
   toolchain: string;
-  launch?: string;
-  preset?: string;
+  run?: string;
+  profile?: string;
   options: Readonly<Record<string, string>>;
   outputDirectory: string;
 }
@@ -30,7 +30,13 @@ export interface WorkspaceChoices {
   configurations: string[];
   targets: string[];
   toolchains: string[];
-  presets: Array<{ name: string; command?: string }>;
+  profiles: Array<{
+    name: string;
+    configuration?: string;
+    target?: string;
+    toolchain?: string;
+    run?: string;
+  }>;
   defaults: {
     configuration?: string;
     target?: string;
@@ -42,13 +48,15 @@ export interface ProjectCandidate {
   manifest: string;
   directory: string;
   name: string;
-  type?: string;
+  artifactKind?: 'Executable' | 'Library';
+  libraryKind?: 'Static' | 'Shared' | 'Interface' | 'Plugin';
   workspaceManifest?: string;
   workspaceChoices?: WorkspaceChoices;
   hasAnalyze?: boolean;
   hasFormat?: boolean;
-  hasTesting?: boolean;
-  hasLaunch?: boolean;
+  hasTests?: boolean;
+  hasBenchmarks?: boolean;
+  hasRun?: boolean;
 }
 
 export interface ActionDiagnosticPoint {
@@ -103,8 +111,8 @@ export interface GraphProvenance {
 export interface GraphProduct {
   identity: string;
   name: string;
-  type: string;
-  linkage?: string;
+  artifactKind: 'Executable' | 'Library';
+  libraryKind: 'None' | 'Static' | 'Shared' | 'Interface' | 'Plugin';
   version?: string;
   languageStandard?: string;
   languageExtensions?: boolean;
@@ -176,7 +184,7 @@ export interface GraphNamedNode {
   [key: string]: unknown;
 }
 
-export interface GraphLaunch extends GraphNamedNode {
+export interface GraphRun extends GraphNamedNode {
   default?: boolean;
   executableKind?: string;
   executable?: string;
@@ -186,9 +194,15 @@ export interface GraphLaunch extends GraphNamedNode {
   secrets?: Record<string, string>;
 }
 
-export interface GraphTesting extends GraphNamedNode {
+export interface GraphTestRegistration extends GraphNamedNode {
   arguments?: string[];
+  environment?: Record<string, string>;
   timeoutSeconds?: number;
+}
+
+export interface GraphBenchmarkRegistration extends GraphTestRegistration {
+  repetitions?: number;
+  warmupSeconds?: number;
 }
 
 export interface GraphEdge {
@@ -212,8 +226,9 @@ export interface CompositionGraph {
   plugins: GraphNamedNode[];
   contributions: GraphNamedNode[];
   buildItems: GraphBuildItem[];
-  launches: GraphLaunch[];
-  testing: GraphTesting | null;
+  runs: GraphRun[];
+  tests: GraphTestRegistration[];
+  benchmarks: GraphBenchmarkRegistration[];
   publishes: GraphNamedNode[];
   edges: GraphEdge[];
 }

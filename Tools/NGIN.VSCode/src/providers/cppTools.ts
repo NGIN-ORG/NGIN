@@ -44,7 +44,7 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
     this.subscription = controller.onDidChange(snapshot => {
       const context = snapshot.context;
       const contextKey = context
-        ? [context.projectManifest, context.configuration, context.target, context.toolchain, context.launch, snapshot.configured].join('|')
+        ? [context.projectManifest, context.configuration, context.target, context.toolchain, context.run, snapshot.configured].join('|')
         : '';
       if (this.lastGraph === snapshot.graph && this.lastContext === contextKey) return;
       this.lastGraph = snapshot.graph;

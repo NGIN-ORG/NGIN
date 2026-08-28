@@ -23,16 +23,16 @@ interface PersistedSelection {
   configuration?: string;
   target?: string;
   toolchain?: string;
-  launch?: string;
-  launches?: Record<string, string>;
-  preset?: string;
+  run?: string;
+  runs?: Record<string, string>;
+  profile?: string;
   options?: Record<string, string>;
   projects?: Record<string, Omit<PersistedSelection, 'projects' | 'projectManifest'>>;
 }
 
 const stateKey = 'ngin.activeSelection';
 
-function launchSelectionKey(configuration: string, target: string, toolchain: string): string {
+function runSelectionKey(configuration: string, target: string, toolchain: string): string {
   return [configuration, target, toolchain].join('|');
 }
 
@@ -45,7 +45,7 @@ export interface ExecuteOptions {
 function operationLabel(command: string, project: string): string {
   const verbs: Record<string, string> = {
     restore: 'Restoring packages', lock: 'Locking dependencies', configure: 'Preparing build files',
-    build: 'Building', stage: 'Staging', run: 'Running', test: 'Testing', publish: 'Publishing',
+    build: 'Building', stage: 'Staging', run: 'Running', test: 'Testing', benchmark: 'Benchmarking', publish: 'Publishing',
     analyze: 'Analyzing', format: 'Formatting'
   };
   return `${verbs[command] ?? command} ${project}…`;
@@ -143,10 +143,10 @@ export class NginController implements vscode.Disposable {
       ?? choices?.configurations[0]
       ?? 'Debug';
     const target = selection.target ?? remembered.target ?? choices?.defaults.target ?? choices?.targets[0] ?? 'host';
-    const toolchain = selection.toolchain ?? remembered.toolchain ?? choices?.defaults.toolchain ?? choices?.toolchains[0] ?? 'default';
-    const rememberedLaunch = remembered.launches
-      ? remembered.launches[launchSelectionKey(configuration, target, toolchain)]
-      : remembered.launch;
+    const toolchain = selection.toolchain ?? remembered.toolchain ?? choices?.defaults.toolchain ?? choices?.toolchains[0] ?? 'auto';
+    const rememberedRun = remembered.runs
+      ? remembered.runs[runSelectionKey(configuration, target, toolchain)]
+      : remembered.run;
     const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(project.manifest));
     const workspaceFolder = folder?.uri.fsPath ?? project.directory;
     const outputRoot = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(project.manifest)).get<string>('build.outputRoot', 'build/ngin');
@@ -158,8 +158,8 @@ export class NginController implements vscode.Disposable {
       configuration,
       target,
       toolchain,
-      launch: selection.launch || rememberedLaunch,
-      preset: selection.preset ?? remembered.preset,
+      run: selection.run || rememberedRun,
+      profile: selection.profile ?? remembered.profile,
       options: { ...(selection.options ?? remembered.options ?? {}) },
       outputDirectory: projectOutputDirectory(workspaceFolder, project, configuration, target, toolchain, outputRoot)
     };
@@ -184,11 +184,11 @@ export class NginController implements vscode.Disposable {
     await this.refreshGraph(false);
   }
 
-  async updateSelection(change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'launch' | 'preset' | 'options'>>): Promise<void> {
+  async updateSelection(change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'run' | 'profile' | 'options'>>): Promise<void> {
     if (!this.project || !this.contextValue) return;
     const defined = Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined));
     const selection = { ...this.contextValue, ...defined };
-    if ((change.configuration || change.target || change.toolchain) && change.launch === undefined) delete selection.launch;
+    if ((change.configuration || change.target || change.toolchain) && change.run === undefined) delete selection.run;
     this.contextValue = this.contextForProject(this.project, selection);
     this.graphValue = undefined;
     this.graphErrorValue = undefined;
@@ -200,7 +200,7 @@ export class NginController implements vscode.Disposable {
 
   async updateProjectSelection(
     project: ProjectCandidate,
-    change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'launch' | 'preset' | 'options'>>
+    change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'run' | 'profile' | 'options'>>
   ): Promise<void> {
     if (this.project?.manifest === project.manifest) {
       await this.updateSelection(change);
@@ -209,18 +209,18 @@ export class NginController implements vscode.Disposable {
     const current = this.contextForProject(project);
     const defined = Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined));
     const selection = { ...current, ...defined };
-    if ((change.configuration || change.target || change.toolchain) && change.launch === undefined) delete selection.launch;
+    if ((change.configuration || change.target || change.toolchain) && change.run === undefined) delete selection.run;
     const next = this.contextForProject(project, selection);
     const previous = this.projectSelections[project.manifest] ?? {};
-    const launches = { ...(previous.launches ?? {}) };
-    if (next.launch) launches[launchSelectionKey(next.configuration, next.target, next.toolchain)] = next.launch;
+    const runs = { ...(previous.runs ?? {}) };
+    if (next.run) runs[runSelectionKey(next.configuration, next.target, next.toolchain)] = next.run;
     this.projectSelections[project.manifest] = {
       configuration: next.configuration,
       target: next.target,
       toolchain: next.toolchain,
-      launch: next.launch,
-      launches,
-      preset: next.preset,
+      run: next.run,
+      runs,
+      profile: next.profile,
       options: { ...next.options }
     };
     this.backgroundGraphCache.clear();
@@ -233,15 +233,15 @@ export class NginController implements vscode.Disposable {
     const context = this.contextValue;
     if (!context) return;
     const previous = this.projectSelections[context.projectManifest] ?? {};
-    const launches = { ...(previous.launches ?? {}) };
-    if (context.launch) launches[launchSelectionKey(context.configuration, context.target, context.toolchain)] = context.launch;
+    const runs = { ...(previous.runs ?? {}) };
+    if (context.run) runs[runSelectionKey(context.configuration, context.target, context.toolchain)] = context.run;
     this.projectSelections[context.projectManifest] = {
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
-      launch: context.launch,
-      launches,
-      preset: context.preset,
+      run: context.run,
+      runs,
+      profile: context.profile,
       options: { ...context.options }
     };
     await this.extensionContext.workspaceState.update(stateKey, {
@@ -249,9 +249,9 @@ export class NginController implements vscode.Disposable {
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
-      launch: context.launch,
-      launches,
-      preset: context.preset,
+      run: context.run,
+      runs,
+      profile: context.profile,
       options: context.options,
       projects: this.projectSelections
     } satisfies PersistedSelection);
@@ -475,7 +475,7 @@ export class NginController implements vscode.Disposable {
               requireTrust: true,
               exclusive: true,
               revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false),
-              ...(['configure', 'build', 'stage', 'run', 'test', 'publish'].includes(command)
+              ...(['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish'].includes(command)
                 ? { presentation: 'lifecycle' as const, label: context.projectName }
                 : {})
             }
@@ -484,7 +484,7 @@ export class NginController implements vscode.Disposable {
           this.applyDiagnosticCollection(this.compilerDiagnostics,
             parseCompilerDiagnostics(`${result.stdout}\n${result.stderr}`), path.dirname(context.projectManifest), 'Compiler');
           if (context.projectManifest === this.contextValue?.projectManifest
-            && ['configure', 'build', 'stage', 'run', 'test'].includes(command)) {
+            && ['configure', 'build', 'stage', 'run', 'test', 'benchmark'].includes(command)) {
             this.configuredValue = true;
             this.configurationInvalidatedAt = 0;
           }

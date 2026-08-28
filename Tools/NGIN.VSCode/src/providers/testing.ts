@@ -27,7 +27,7 @@ export class NginTestingProvider implements vscode.Disposable {
   }
 
   private refresh(): void {
-    const discovered = this.controller.projects.filter(project => project.hasTesting);
+    const discovered = this.controller.projects.filter(project => project.hasTests);
     const ids = new Set(discovered.map(testId));
     this.tests.items.forEach(item => {
       if (!ids.has(item.id)) this.tests.items.delete(item.id);
@@ -43,7 +43,7 @@ export class NginTestingProvider implements vscode.Disposable {
       }
       const context = this.analysis.contextForProject(project);
       item.label = project.name;
-      item.description = `${project.type ?? 'Test'} · ${context.configuration}`;
+      item.description = `${project.artifactKind ?? 'Executable'} · ${context.configuration}`;
       item.range = new vscode.Range(0, 0, 0, 0);
     }
   }
@@ -134,7 +134,7 @@ export class NginTestingProvider implements vscode.Disposable {
           sessionDisposables.push(started, event, terminated, cancellation);
         });
         const started = await vscode.debug.startDebugging(undefined, {
-          type: 'ngin', request: 'launch', name: `NGIN: Debug tests for ${project.name}`,
+          type: 'ngin', request: 'run', name: `NGIN: Debug tests for ${project.name}`,
           project: project.manifest, preStage: true, test: true, nginTestSession: sessionKey
         });
         if (!started) {

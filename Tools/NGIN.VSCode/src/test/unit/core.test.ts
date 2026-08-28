@@ -32,7 +32,7 @@ import { enumerateProjectFiles } from '../../core/projectFiles';
 import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
-import { projectCanLaunch } from '../../core/projectCapabilities';
+import { projectCanRun } from '../../core/projectCapabilities';
 import { projectActionDescriptors } from '../../core/projectActions';
 import { statusPresentation } from '../../core/statusPresentation';
 import { isTransientAnalysisFailure } from '../../core/analysisPolicy';
@@ -45,7 +45,7 @@ import type { CompositionGraph, NginContext, ProjectCandidate } from '../../mode
 function graph(): CompositionGraph {
   return {
     kind: 'NGIN.CompositionGraph', state: 'resolved',
-    product: { identity: 'App', name: 'App', type: 'Application', languageStandard: 'C++23' },
+    product: { identity: 'App', name: 'App', artifactKind: 'Executable', libraryKind: 'None', languageStandard: 'C++23' },
     selection: {
       identity: 'Selection', configuration: 'Debug', targetOperatingSystem: 'windows',
       targetArchitecture: 'x64', compiler: 'clang', debugSymbols: true
@@ -55,7 +55,7 @@ function graph(): CompositionGraph {
       { identity: 'Include:include', kind: 'IncludeDirectory', path: 'include' },
       { identity: 'Define:APP', kind: 'Define', path: 'APP=1' }
     ],
-    launches: [], testing: null, publishes: [], edges: []
+    runs: [], tests: [], benchmarks: [], publishes: [], edges: []
   };
 }
 
@@ -66,7 +66,7 @@ function projectContext(project: ProjectCandidate): NginContext {
     projectName: project.name,
     configuration: 'Debug',
     target: 'host',
-    toolchain: 'default',
+    toolchain: 'auto',
     options: {},
     outputDirectory: path.resolve('workspace', 'build', project.name)
   };
@@ -75,15 +75,15 @@ function projectContext(project: ProjectCandidate): NginContext {
 test('project actions prioritize valid lifecycle work and progressively disclose expert commands', () => {
   const project: ProjectCandidate = {
     manifest: path.resolve('workspace', 'App.nginproj'), directory: path.resolve('workspace'),
-    name: 'App', type: 'Application', hasLaunch: true, hasTesting: true
+    name: 'App', artifactKind: 'Executable', hasRun: true, hasTests: true, hasBenchmarks: true
   };
   const actions = projectActionDescriptors({
-    project, context: projectContext(project), canLaunch: true, canTest: true,
+    project, context: projectContext(project), canRun: true, canTest: true, canBenchmark: true,
     hasAnalyze: true, hasFormat: false, graphReady: true, canPublish: true,
     configurationChoices: 2, targetChoices: 1, toolchainChoices: 1
   });
   assert.deepEqual(actions.filter(action => action.group === 'Lifecycle').map(action => action.label), [
-    'Build Project', 'Run Project', 'Debug Project', 'Test Project'
+    'Build Project', 'Run Project', 'Debug Project', 'Test Project', 'Benchmark Project'
   ]);
   assert.equal(actions.find(action => action.label === 'Select Configuration')?.description, 'Debug');
   assert.ok(actions.some(action => action.group === 'Advanced' && action.command === 'ngin.showGraph'));
@@ -91,7 +91,7 @@ test('project actions prioritize valid lifecycle work and progressively disclose
   assert.equal(actions.some(action => action.command === 'ngin.formatSources'), false);
 
   const busy = projectActionDescriptors({
-    project, context: projectContext(project), canLaunch: true, canTest: true,
+    project, context: projectContext(project), canRun: true, canTest: true, canBenchmark: true,
     hasAnalyze: true, hasFormat: true, graphReady: true, canPublish: false,
     configurationChoices: 0, targetChoices: 0, toolchainChoices: 0, busy: 'build'
   });
@@ -141,27 +141,28 @@ test('compact output hides successful machine payloads while trace remains avail
   assert.deepEqual(outputPolicy(graph, false, false, 'trace'), {
     appendCommand: true, streamRaw: true, appendLifecycleTrace: false, machineReadable: true
   });
-  assert.equal(outputPolicy(['manifest', 'format'], false, true, 'compact').streamRaw, true);
+  assert.equal(outputPolicy(['format'], false, true, 'compact').streamRaw, true);
   assert.equal(outputPolicy(['build'], true, false, 'trace').appendLifecycleTrace, true);
 });
 
 test('workspace choices and project rules are read without creating a semantic model', () => {
   const source = `<Workspace Name="Demo">
-  <Projects><Project Path="App/App.nginproj" /><Project Include="Examples/**/*.nginproj" Exclude="**/Old/**" /></Projects>
+  <Discover><Projects Include="App/App.nginproj" /><Projects Include="Examples/**/*.nginproj" Exclude="**/Old/**" /></Discover>
   <Configurations><Configuration Name="Debug" /><Configuration Name="Release" /></Configurations>
   <Targets><Target Name="host" OS="host" Architecture="host" /></Targets>
   <Toolchains><Toolchain Name="default" Compiler="default" Linker="default" /></Toolchains>
-  <Defaults><Configuration Name="Release" /><Target Name="host" /><Toolchain Name="default" /></Defaults>
-  <Presets><Preset Name="dev" Command="build"><Configuration Name="Debug" /></Preset></Presets>
+  <Profiles Default="dev"><Profile Name="dev" Configuration="Release" /></Profiles>
 </Workspace>`;
   const choices = parseWorkspaceChoices(source);
   assert.equal(choices.name, 'Demo');
   assert.deepEqual(choices.configurations, ['Debug', 'Release']);
   assert.equal(choices.defaults.configuration, 'Release');
-  assert.deepEqual(choices.presets, [{ name: 'dev', command: 'build' }]);
+  assert.deepEqual(choices.profiles, [{
+    name: 'dev', configuration: 'Release', target: undefined, toolchain: undefined, run: undefined
+  }]);
   assert.deepEqual(parseWorkspaceProjectRules(source), [
-    { path: 'App/App.nginproj', include: undefined, exclude: undefined },
-    { path: undefined, include: 'Examples/**/*.nginproj', exclude: '**/Old/**' }
+    { include: 'App/App.nginproj', exclude: undefined },
+    { include: 'Examples/**/*.nginproj', exclude: '**/Old/**' }
   ]);
 });
 
@@ -170,16 +171,16 @@ test('XML attributes decode entities only after lexical extraction', () => {
 });
 
 test('build membership insertion preserves the surrounding XML and ordering', () => {
-  const source = `<Project Name="App" Type="Application">\n  <!-- retained -->\n  <Dependencies />\n  <Launch Name="Default" />\n</Project>\n`;
+  const source = `<Executable Name="App">\n  <!-- retained -->\n  <Uses />\n  <Run Name="Default" />\n</Executable>\n`;
   const edit = insertBuildItem(source, 'Header', 'Include', 'include/App.hpp');
   assert.ok(edit);
   const updated = source.slice(0, edit.start) + edit.text + source.slice(edit.end);
-  assert.match(updated, /<Dependencies \/>\n  <Build>\n    <Header Include="include\/App.hpp" \/>\n  <\/Build>\n  <Launch/);
+  assert.match(updated, /<Uses \/>\n  <Build>\n    <Header Include="include\/App.hpp" \/>\n  <\/Build>\n  <Run/);
   assert.match(updated, /<!-- retained -->/);
 });
 
 test('build membership insertion expands a self-closing Build element', () => {
-  const source = `<Project Name="App" Type="Application">\n  <Build />\n</Project>`;
+  const source = `<Executable Name="App">\n  <Build />\n</Executable>`;
   const edit = insertBuildItem(source, 'Source', 'Remove', 'src/old.cpp');
   assert.ok(edit);
   const updated = source.slice(0, edit.start) + edit.text + source.slice(edit.end);
@@ -200,12 +201,12 @@ test('exact file rules can follow a rename without touching globs or comments', 
 });
 
 test('product editor updates, adds, and removes root attributes without rewriting children', () => {
-  const source = `<Project Name="Old" Type="Application" Version="1.0.0">\n  <!-- keep -->\n  <Build />\n</Project>`;
-  const edits = updateProjectAttributes(source, { Name: 'New', Type: 'Library', Version: undefined, Linkage: 'Static' })
+  const source = `<Library Name="Old" Kind="Shared" Version="1.0.0">\n  <!-- keep -->\n  <Build />\n</Library>`;
+  const edits = updateProjectAttributes(source, { Name: 'New', Version: undefined, Kind: 'Static' })
     .sort((left, right) => right.start - left.start);
   let updated = source;
   for (const edit of edits) updated = updated.slice(0, edit.start) + edit.text + updated.slice(edit.end);
-  assert.match(updated, /<Project Name="New" Type="Library" Linkage="Static">/);
+  assert.match(updated, /<Library Name="New" Kind="Static">/);
   assert.doesNotMatch(updated, /Version=/);
   assert.match(updated, /<!-- keep -->/);
 });
@@ -365,7 +366,7 @@ test('selection keys are deterministic and output paths are bounded', () => {
   assert.equal(safePathComponent('My App/Debug'), 'My_App_Debug');
   const base = {
     workspaceFolder: path.resolve('.'), projectManifest: project.manifest, projectName: project.name,
-    configuration: 'Debug', target: 'host', toolchain: 'default', options: { B: '2', A: '1' }, outputDirectory: output
+    configuration: 'Debug', target: 'host', toolchain: 'auto', options: { B: '2', A: '1' }, outputDirectory: output
   } satisfies NginContext;
   assert.equal(contextKey(base), contextKey({ ...base, options: { A: '1', B: '2' } }));
   assert.equal(compileCommandsPath(base), path.join(output, 'cmake', 'compile_commands.json'));
@@ -376,11 +377,12 @@ test('selection keys are deterministic and output paths are bounded', () => {
   assert.equal(lock, path.join(output, 'ngin.lock'));
   assert.deepEqual(lifecycleArguments('lock', base), [
     'package', 'lock', '--project', project.manifest, '--configuration', 'Debug', '--target', 'host',
-    '--toolchain', 'default', '--option', 'A=1', '--option', 'B=2', '--output', lock
+    '--toolchain', 'auto', '--option', 'A=1', '--option', 'B=2', '--output', lock
   ]);
   assert.deepEqual(lifecycleArguments('analyze', base).slice(-4), ['--output', output, '--lock', lock]);
-  const runArguments = lifecycleArguments('run', { ...base, launch: 'diagnostics' });
-  assert.equal(runArguments[runArguments.indexOf('--launch') + 1], 'diagnostics');
+  const runArguments = lifecycleArguments('run', { ...base, run: 'diagnostics', profile: 'dev' });
+  assert.equal(runArguments[runArguments.indexOf('--run') + 1], 'diagnostics');
+  assert.equal(runArguments[runArguments.indexOf('--profile') + 1], 'dev');
   assert.equal(runArguments[runArguments.indexOf('--output') + 1], output);
 });
 
@@ -421,7 +423,7 @@ test('source ownership prefers the deepest project and exposes true ambiguities'
     workspaceFolder: root,
     projectManifest: projects[1].manifest,
     projectName: projects[1].name,
-    configuration: 'Debug', target: 'host', toolchain: 'default', options: {},
+    configuration: 'Debug', target: 'host', toolchain: 'auto', options: {},
     outputDirectory: path.join(root, 'build', projects[1].name)
   };
   const value = graph();
@@ -434,17 +436,17 @@ test('source ownership prefers the deepest project and exposes true ambiguities'
   assert.equal(graphOwnsFile(value, context, path.join(root, 'nested', 'src', 'other.cpp')), false);
 });
 
-test('native debug configuration uses staged graph launch intent', () => {
+test('native debug configuration uses staged graph run intent', () => {
   const root = path.resolve('workspace');
   const context: NginContext = {
     workspaceFolder: root,
     projectManifest: path.join(root, 'App.nginproj'),
-    projectName: 'App', configuration: 'Debug', target: 'host', toolchain: 'default', options: {},
+    projectName: 'App', configuration: 'Debug', target: 'host', toolchain: 'auto', options: {},
     outputDirectory: path.join(root, 'build', 'App')
   };
   const value = graph();
-  value.launches = [{
-    identity: 'App:Launch:Default', name: 'Default', default: true, executableKind: 'Product', executable: 'App',
+  value.runs = [{
+    identity: 'App:Run:Default', name: 'Default', default: true, executableKind: 'Product', executable: 'App',
     workingDirectory: 'work', arguments: ['from-graph'], environment: { APP_MODE: 'test', PATH: 'existing' }, secrets: {}
   }];
   const configuration = createNativeDebugConfiguration(value, context, path.join(context.outputDirectory, 'stage', 'bin', 'App.exe'), {
@@ -457,15 +459,14 @@ test('native debug configuration uses staged graph launch intent', () => {
   assert.match(configuration.environment.find(item => item.name === 'PATH')?.value ?? '', /stage[\\/]lib;existing$/);
 });
 
-test('native test debugging uses TestPlan arguments without a Launch definition', () => {
+test('native test debugging uses TestPlan arguments without a Run definition', () => {
   const root = path.resolve('workspace');
   const context: NginContext = {
     workspaceFolder: root, projectManifest: path.join(root, 'Tests.nginproj'), projectName: 'Tests',
-    configuration: 'Debug', target: 'host', toolchain: 'default', options: {}, outputDirectory: path.join(root, 'build')
+    configuration: 'Debug', target: 'host', toolchain: 'auto', options: {}, outputDirectory: path.join(root, 'build')
   };
   const value = graph();
-  value.product.type = 'Test';
-  value.testing = { identity: 'Tests:Testing', arguments: ['--reporter', 'console'] };
+  value.tests = [{ identity: 'Tests:Test:default', name: 'default', arguments: ['--reporter', 'console'] }];
   const configuration = createNativeTestDebugConfiguration(value, context, path.join(root, 'build', 'stage', 'bin', 'Tests.exe'), {
     args: ['--filter', 'smoke']
   }, 'win32', ';');
@@ -478,11 +479,11 @@ test('project files distinguish graph membership and physical boundaries', async
   try {
     await fs.mkdir(path.join(root, 'src'), { recursive: true });
     await fs.mkdir(path.join(root, 'Nested'), { recursive: true });
-    await fs.writeFile(path.join(root, 'App.nginproj'), '<Project Name="App" Type="Application" />');
+    await fs.writeFile(path.join(root, 'App.nginproj'), '<Executable Name="App" />');
     await fs.writeFile(path.join(root, 'src', 'main.cpp'), 'int main() {}');
     await fs.writeFile(path.join(root, 'src', 'unused.cpp'), '');
     await fs.writeFile(path.join(root, '.env'), 'MODE=development');
-    await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Project Name="Nested" Type="Library" />');
+    await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Library Name="Nested" Kind="Static" />');
     await fs.writeFile(path.join(root, 'Nested', 'README.md'), '# Nested');
     const generatedDirectory = path.join(root, 'build', 'actions');
     await fs.mkdir(generatedDirectory, { recursive: true });
@@ -523,29 +524,29 @@ test('project files distinguish graph membership and physical boundaries', async
 });
 
 test('project templates use the direct product model', () => {
-  const app = createProjectTemplate('Hello.App', 'Application');
-  assert.match(app.manifest, /<Project Name="Hello\.App" Type="Application">/);
-  assert.match(app.manifest, /<Launch Name="default"/);
+  const app = createProjectTemplate('Hello.App', 'Executable');
+  assert.match(app.manifest, /<Executable Name="Hello\.App">/);
+  assert.doesNotMatch(app.manifest, /<Run/);
   assert.ok(app.files['src/main.cpp']);
   const library = createProjectTemplate('Math', 'Library');
-  assert.match(library.manifest, /Linkage="Static"/);
+  assert.match(library.manifest, /Kind="Static"/);
   assert.ok(library.files['include/Math/Math.hpp']);
-  assert.doesNotMatch(createProjectTemplate('Legacy', 'External').manifest, /<Build>/);
 });
 
 test('manifest metadata choices are consumed without editor-side fallbacks', () => {
   const metadata = {
+    documents: [{ kind: 'Project', extension: '.nginproj', roots: ['Library'], schema: 'project.xsd' }],
     namespaces: [],
     elements: [{
-      id: 'project.root', name: 'Project', namespace: '', documentation: '', children: [],
-      attributes: [{ name: 'Type', type: 'enumeration', required: true, values: ['Application', 'Library'] }]
+      id: 'project.library-root', name: 'Library', namespace: '', documentation: '', children: [],
+      attributes: [{ name: 'Kind', type: 'enumeration', required: true, values: ['Static', 'Shared'] }]
     }]
   };
-  assert.deepEqual(attributeChoices(metadata, 'project.root', 'Type'), ['Application', 'Library']);
-  assert.deepEqual(attributeChoices(metadata, 'project.root', 'Linkage'), []);
+  assert.deepEqual(attributeChoices(metadata, 'project.library-root', 'Kind'), ['Static', 'Shared']);
+  assert.deepEqual(attributeChoices(metadata, 'project.library-root', 'Version'), []);
   const generated = loadManifestMetadata(path.resolve('schemas', 'manifest-editor-metadata.json'));
-  assert.deepEqual(attributeChoices(generated, 'project.root', 'Linkage'), ['Static', 'Shared', 'Interface']);
-  assert.equal(attributeChoices(generated, 'project.root', 'Type').includes('Module'), false);
+  assert.deepEqual(attributeChoices(generated, 'project.library-root', 'Kind'), ['Static', 'Shared', 'Interface', 'Plugin']);
+  assert.equal(attributeChoices(generated, 'project.library-root', 'Kind').includes('Module'), false);
 });
 
 test('incompatible CLI selection options produce an actionable diagnosis', () => {
@@ -565,16 +566,16 @@ test('a failed graph remains stable until an explicit refresh', () => {
   assert.equal(shouldLoadGraph(undefined, 'unknown option: --workspace'), false);
 });
 
-test('Run and Debug require Launch intent', () => {
+test('Run and Debug require Run intent', () => {
   const library: ProjectCandidate = {
-    manifest: 'Shared.nginproj', directory: '.', name: 'Shared', type: 'Library', hasLaunch: false
+    manifest: 'Shared.nginproj', directory: '.', name: 'Shared', artifactKind: 'Library', libraryKind: 'Static', hasRun: false
   };
   const application: ProjectCandidate = {
-    manifest: 'App.nginproj', directory: '.', name: 'App', type: 'Application', hasLaunch: true
+    manifest: 'App.nginproj', directory: '.', name: 'App', artifactKind: 'Executable', hasRun: true
   };
-  assert.equal(projectCanLaunch(library), false);
-  assert.equal(projectCanLaunch(application), true);
+  assert.equal(projectCanRun(library), false);
+  assert.equal(projectCanRun(application), true);
   const resolved = graph();
-  resolved.launches = [];
-  assert.equal(projectCanLaunch(application, resolved, application.manifest), false);
+  resolved.runs = [];
+  assert.equal(projectCanRun(application, resolved, application.manifest), false);
 });

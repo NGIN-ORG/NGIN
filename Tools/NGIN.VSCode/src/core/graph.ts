@@ -2,7 +2,7 @@ import type { CompositionGraph } from '../model';
 
 const collections = [
   'options', 'packages', 'exports', 'capabilityBindings', 'actions', 'plugins',
-  'contributions', 'buildItems', 'launches', 'publishes', 'edges'
+  'contributions', 'buildItems', 'runs', 'tests', 'benchmarks', 'publishes', 'edges'
 ] as const;
 
 export function parseCompositionGraph(value: string): CompositionGraph {
@@ -24,7 +24,6 @@ export function parseCompositionGraph(value: string): CompositionGraph {
   for (const property of collections) {
     if (!Array.isArray(graph[property])) throw new Error(`NGIN Composition Graph is missing the ${property} collection.`);
   }
-  if (!('testing' in graph)) throw new Error('NGIN Composition Graph is missing testing data.');
   return graph as unknown as CompositionGraph;
 }
 

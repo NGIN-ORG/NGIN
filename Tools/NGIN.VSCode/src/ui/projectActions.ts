@@ -4,7 +4,7 @@ import {
   projectActionGroupOrder,
   type ProjectActionDescriptor
 } from '../core/projectActions';
-import { projectCanLaunch } from '../core/projectCapabilities';
+import { projectCanRun } from '../core/projectCapabilities';
 import type { ProjectCandidate } from '../model';
 import type { NginController } from '../core/controller';
 import type { SourceAnalysisProvider } from '../providers/sourceAnalysis';
@@ -52,8 +52,9 @@ export async function openProjectActions(
   const descriptors = projectActionDescriptors({
     project,
     context,
-    canLaunch: projectCanLaunch(project, graph, project.manifest),
-    canTest: Boolean(graph?.testing) || graph?.product.type === 'Test' || Boolean(project.hasTesting),
+    canRun: projectCanRun(project, graph, project.manifest),
+    canTest: Boolean(graph?.tests.length) || Boolean(project.hasTests),
+    canBenchmark: Boolean(graph?.benchmarks.length) || Boolean(project.hasBenchmarks),
     hasAnalyze: Boolean(graph?.actions.some(action => action.kind === 'Analyze')) || Boolean(project.hasAnalyze),
     hasFormat: Boolean(graph?.actions.some(action => action.kind === 'Format')) || Boolean(project.hasFormat),
     graphReady: Boolean(graph),
@@ -61,7 +62,7 @@ export async function openProjectActions(
     configurationChoices: project.workspaceChoices?.configurations.length ?? 0,
     targetChoices: project.workspaceChoices?.targets.length ?? 0,
     toolchainChoices: project.workspaceChoices?.toolchains.length ?? 0,
-    selectedLaunch: context.launch,
+    selectedRun: context.run,
     busy: snapshot.busy,
     graphError: snapshot.context?.projectManifest === project.manifest ? snapshot.graphError : undefined,
     lastOperation: snapshot.lastOperation?.projectManifest === project.manifest ? snapshot.lastOperation : undefined

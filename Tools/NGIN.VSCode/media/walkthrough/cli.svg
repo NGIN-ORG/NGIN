@@ -13,5 +13,5 @@
   <g transform="translate(104 102)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">NGIN CLI</text><text class="muted" x="250" y="0">ngin 0.1.0</text></g>
   <g transform="translate(104 137)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Workspace trust</text><text class="muted" x="250" y="0">Trusted</text></g>
   <g transform="translate(104 172)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Project discovery</text><text class="muted" x="250" y="0">Hello.Native</text></g>
-  <g transform="translate(104 207)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Project model</text><text class="muted" x="250" y="0">Application · Debug</text></g>
+  <g transform="translate(104 207)"><circle class="ok" cx="9" cy="-5" r="9"/><path d="m4-5 3 3 7-7" fill="none" stroke="white" stroke-width="2"/><text class="text" x="30" y="0">Project model</text><text class="muted" x="250" y="0">Executable · Debug</text></g>
 </svg>

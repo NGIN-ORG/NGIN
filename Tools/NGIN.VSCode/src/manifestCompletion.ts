@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { loadManifestMetadata, type MetadataElement } from './core/manifestMetadata';
+import { documentRoots, loadManifestMetadata, type MetadataElement } from './core/manifestMetadata';
 
 function activeElementId(document: vscode.TextDocument, position: vscode.Position,
                          roots: Map<string, string>, elements: Map<string, MetadataElement>): string | undefined {
@@ -33,15 +33,20 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
   const metadataPath = vscode.Uri.joinPath(context.extensionUri, 'schemas', 'manifest-editor-metadata.json').fsPath;
   const metadata = loadManifestMetadata(metadataPath);
   const elements = new Map(metadata.elements.map((element) => [element.id, element]));
+  const rootNames = new Set(metadata.documents.flatMap(document => documentRoots(metadata, document.kind)));
   const roots = new Map(
     metadata.elements
-      .filter((element) => element.id.endsWith('.root'))
+      .filter((element) => element.id.endsWith('root') && rootNames.has(element.name))
       .map((element) => [element.name, element.id])
   );
   const prefixes = new Map(metadata.namespaces.map((entry) => [entry.uri, entry.prefix]));
+  const manifestDocuments: vscode.DocumentSelector = [
+    { language: 'ngin', scheme: 'file' },
+    { language: 'ngin', scheme: 'untitled' }
+  ];
 
   const completion = vscode.languages.registerCompletionItemProvider(
-    { language: 'ngin', scheme: 'file' },
+    manifestDocuments,
     {
       provideCompletionItems(document, position) {
         const line = document.lineAt(position.line).text.slice(0, position.character);
@@ -107,7 +112,7 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
     '<', ' ', '"', "'"
   );
 
-  const hover = vscode.languages.registerHoverProvider({ language: 'ngin', scheme: 'file' }, {
+  const hover = vscode.languages.registerHoverProvider(manifestDocuments, {
     provideHover(document, position) {
       const range = document.getWordRangeAtPosition(position, /[A-Za-z_][\w:.-]*/);
       if (!range) return undefined;

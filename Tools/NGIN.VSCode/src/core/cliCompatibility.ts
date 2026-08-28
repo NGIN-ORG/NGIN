@@ -1,6 +1,6 @@
 import type { CliResult, CompositionGraph } from '../model';
 
-const selectionOptionPattern = /unknown option:\s*(--(?:workspace|configuration|target|toolchain|preset|option))/iu;
+const selectionOptionPattern = /unknown option:\s*(--(?:workspace|configuration|target|toolchain|profile|option))/iu;
 
 export function unsupportedSelectionOption(result: CliResult): string | undefined {
   return selectionOptionPattern.exec(`${result.stderr}\n${result.stdout}`)?.[1];

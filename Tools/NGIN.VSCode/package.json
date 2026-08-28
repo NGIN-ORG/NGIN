@@ -185,14 +185,14 @@
         "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
-        "command": "ngin.selectLaunch",
-        "title": "Select Launch",
+        "command": "ngin.selectRun",
+        "title": "Select Run",
         "category": "NGIN",
-        "enablement": "ngin.canLaunch && !ngin.busy"
+        "enablement": "ngin.canRun && !ngin.busy"
       },
       {
-        "command": "ngin.selectPreset",
-        "title": "Run Preset",
+        "command": "ngin.selectProfile",
+        "title": "Select Profile",
         "category": "NGIN",
         "enablement": "ngin.hasProject && !ngin.busy"
       },
@@ -269,27 +269,33 @@
         "command": "ngin.run",
         "title": "Run",
         "category": "NGIN",
-        "enablement": "ngin.canLaunch && !ngin.busy",
+        "enablement": "ngin.canRun && !ngin.busy",
         "icon": "$(play)"
       },
       {
         "command": "ngin.runWithArguments",
         "title": "Run with Arguments",
         "category": "NGIN",
-        "enablement": "ngin.canLaunch && !ngin.busy"
+        "enablement": "ngin.canRun && !ngin.busy"
       },
       {
         "command": "ngin.debug",
         "title": "Debug",
         "category": "NGIN",
-        "enablement": "ngin.canLaunch && !ngin.busy",
+        "enablement": "ngin.canRun && !ngin.busy",
         "icon": "$(debug-alt)"
       },
       {
         "command": "ngin.test",
         "title": "Test",
         "category": "NGIN",
-        "enablement": "ngin.hasTesting && !ngin.busy"
+        "enablement": "ngin.hasTests && !ngin.busy"
+      },
+      {
+        "command": "ngin.benchmark",
+        "title": "Benchmark",
+        "category": "NGIN",
+        "enablement": "ngin.hasBenchmarks && !ngin.busy"
       },
       {
         "command": "ngin.publish",
@@ -496,12 +502,12 @@
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
           "group": "inline@2"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.launch(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
           "group": "inline@3"
         },
         {
@@ -635,7 +641,7 @@
         },
         "ngin.build.outputRoot": {
           "type": "string",
-          "default": "build/ngin",
+          "default": ".ngin/build",
           "description": "Workspace-relative or absolute root for extension-driven build output."
         },
         "ngin.output.verbosity": {
@@ -696,6 +702,7 @@
               "build",
               "stage",
               "test",
+              "benchmark",
               "restore"
             ]
           }
@@ -724,7 +731,7 @@
         "type": "ngin",
         "label": "NGIN Native",
         "configurationAttributes": {
-          "launch": {
+          "run": {
             "properties": {
               "project": {
                 "type": "string",
@@ -757,7 +764,7 @@
               "test": {
                 "type": "boolean",
                 "default": false,
-                "description": "Debug the resolved NGIN TestPlan instead of a Launch definition."
+                "description": "Debug the resolved NGIN TestPlan instead of a Run definition."
               }
             }
           }
@@ -765,7 +772,7 @@
         "initialConfigurations": [
           {
             "type": "ngin",
-            "request": "launch",
+            "request": "run",
             "name": "NGIN: Debug Current Project",
             "preStage": true
           }

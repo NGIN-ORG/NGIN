@@ -3,7 +3,7 @@ import { runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
   // Codex and VS Code terminals can inherit extension-host variables. Electron
-  // would otherwise start as plain Node instead of launching the test host.
+  // would otherwise start as plain Node instead of runing the test host.
   for (const name of ['ELECTRON_RUN_AS_NODE', 'VSCODE_CLI', 'VSCODE_IPC_HOOK', 'VSCODE_ESM_ENTRYPOINT']) {
     delete process.env[name];
   }

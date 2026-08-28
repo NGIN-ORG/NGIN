@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="260" viewBox="0 0 640 260" role="img" aria-labelledby="title description">
   <title id="title">The NGIN Projects view</title>
-  <desc id="description">A compact Projects tree shows an application associated with the active file, its product files, dependencies, launches, and generated files.</desc>
+  <desc id="description">A compact Projects tree shows an Executable associated with the active file, its product files, dependencies, Runs, and generated files.</desc>
   <style>
     .bg{fill:#f3f3f3}.panel{fill:#fff;stroke:#c8c8c8}.text{fill:#242424;font:15px sans-serif}.muted{fill:#616161;font:13px sans-serif}.accent{fill:#007acc}.line{stroke:#c8c8c8}
     @media(prefers-color-scheme:dark){.bg{fill:#1e1e1e}.panel{fill:#252526;stroke:#4b4b4b}.text{fill:#f0f0f0}.muted{fill:#b7b7b7}.accent{fill:#4daafc}.line{stroke:#4b4b4b}}
@@ -10,10 +10,10 @@
   <rect class="panel" x="120" y="20" width="400" height="220" rx="5"/>
   <text class="muted" x="144" y="49" font-weight="600">PROJECTS</text><text class="accent" x="464" y="49">＋  ↻</text>
   <line class="line" x1="140" y1="61" x2="500" y2="61"/>
-  <text class="text" x="145" y="88">⌄  Hello.Native</text><text class="muted" x="326" y="88">Application · active file</text>
+  <text class="text" x="145" y="88">⌄  Hello.Native</text><text class="muted" x="326" y="88">Executable · active file</text>
   <text class="text" x="171" y="116">◇  Hello.Native.nginproj</text>
   <text class="text" x="171" y="144">›  Sources</text><text class="muted" x="442" y="144">3</text>
   <text class="text" x="171" y="171">›  Headers</text><text class="muted" x="442" y="171">2</text>
   <text class="text" x="171" y="198">›  Dependencies</text><text class="muted" x="442" y="198">4</text>
-  <text class="text" x="171" y="225">›  Launches</text><text class="muted" x="442" y="225">1</text>
+  <text class="text" x="171" y="225">›  Runs</text><text class="muted" x="442" y="225">1</text>
 </svg>

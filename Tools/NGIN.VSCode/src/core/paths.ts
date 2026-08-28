@@ -36,7 +36,7 @@ export function contextKey(context: NginContext): string {
     configuration: context.configuration,
     target: context.target,
     toolchain: context.toolchain,
-    preset: context.preset,
+    profile: context.profile,
     options
   });
 }
@@ -51,7 +51,7 @@ export function projectOutputDirectory(
 ): string {
   const root = configuredRoot
     ? path.resolve(workspaceFolder, configuredRoot)
-    : path.join(workspaceFolder, 'build', 'ngin');
+    : path.join(workspaceFolder, '.ngin', 'build');
   const selection = [configuration, target, toolchain].map(safePathComponent).join('.');
   return path.join(root, safePathComponent(project.name), selection);
 }

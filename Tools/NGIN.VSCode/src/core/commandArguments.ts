@@ -7,7 +7,8 @@ export function selectionArguments(context: NginContext): string[] {
   if (context.configuration) args.push('--configuration', context.configuration);
   if (context.target) args.push('--target', context.target);
   if (context.toolchain) args.push('--toolchain', context.toolchain);
-  if (context.launch) args.push('--launch', context.launch);
+  if (context.run) args.push('--run', context.run);
+  if (context.profile) args.push('--profile', context.profile);
   for (const [name, value] of Object.entries(context.options).sort(([left], [right]) => left.localeCompare(right))) {
     args.push('--option', `${name}=${value}`);
   }
@@ -22,8 +23,10 @@ export function lifecycleArguments(command: string, context: NginContext, extra:
   if (command === 'lock') {
     return ['package', 'lock', ...selectionArguments(context), '--output', dependencyLockPath(context), ...extra];
   }
-  const args = [command, ...selectionArguments(context)];
-  if (['configure', 'build', 'stage', 'run', 'test', 'publish', 'analyze', 'format'].includes(command)) {
+  const args = command === 'format'
+    ? ['tooling', 'format', ...selectionArguments(context)]
+    : [command, ...selectionArguments(context)];
+  if (['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish', 'analyze', 'format'].includes(command)) {
     args.push('--output', context.outputDirectory);
   }
   if (command === 'analyze' || command === 'format') {
