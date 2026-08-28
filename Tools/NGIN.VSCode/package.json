@@ -36,6 +36,7 @@
     "package": "vsce package --out ngin-tools.vsix"
   },
   "devDependencies": {
+    "@secretlint/secretlint-rule-preset-recommend": "10.2.2",
     "@types/node": "^25.6.2",
     "@types/vscode": "^1.86.0",
     "@vscode/test-electron": "^3.1.0",
