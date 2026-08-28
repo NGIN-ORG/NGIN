@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="ProjectRef.Config.CollisionLibB" Type="Library" Linkage="Static">
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="config/shared.cfg" Into="config/shared.cfg" /></Stage>
-</Project>
+
+<Library Name="ProjectRef.Config.CollisionLibB" Kind="Static">
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="config/shared.cfg" To="config/shared.cfg" />
+  </Stage>
+</Library>

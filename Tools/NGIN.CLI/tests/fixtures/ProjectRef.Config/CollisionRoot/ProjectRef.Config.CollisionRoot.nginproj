@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="ProjectRef.Config.CollisionRoot" Type="Application">
-  <Dependencies>
-    <Project Name="ProjectRef.Config.CollisionLibA" Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
-    <Project Name="ProjectRef.Config.CollisionLibB" Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true"><Executable Product="ProjectRef.Config.CollisionRoot" /><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="ProjectRef.Config.CollisionRoot">
+  <Uses>
+    <Project Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
+    <Project Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+</Executable>

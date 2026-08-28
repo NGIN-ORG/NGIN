@@ -66,16 +66,16 @@ TEST_CASE("CMake AddSubdirectory bindings stay outside the semantic graph and de
     WriteFile(temp.path() / "package/CMakeLists.txt", "add_library(Example::Core INTERFACE IMPORTED GLOBAL)\n");
     const auto projectPath = temp.path() / "App.nginproj";
     const auto packagePath = temp.path() / "package/Example.nginpkg";
-    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Dependencies>
+    WriteFile(projectPath, R"xml(<Executable Name="App"><Uses>
   <Package Name="Example" Exact="1.0.0" />
-</Dependencies></Project>)xml");
-    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Example" Version="1.0.0">
+</Uses></Executable>)xml");
+    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Example" Version="1.0.0">
   <Options><Boolean Name="Shared" Default="false" Artifact="true" /></Options>
-  <Exports><Library Name="Core" Default="true" /></Exports>
-  <Integrations><cmake:AddSubdirectory Source=".">
+  <Library Name="Core" Default="true" />
+  <Adapters><cmake:AddSubdirectory Source=".">
     <cmake:MapOption Option="Shared" Cache="BUILD_SHARED_LIBS" True="ON" False="OFF" Artifact="true" />
     <cmake:Target Export="Core" Name="Example::Core" />
-  </cmake:AddSubdirectory></Integrations>
+  </cmake:AddSubdirectory></Adapters>
 </Package>)xml");
 
     const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Example");
@@ -120,12 +120,12 @@ TEST_CASE("CMake FindPackage integration maps exact semantic Exports")
     const auto packagePath = temp.path() / "Crypto.nginpkg";
     WriteFile(
         projectPath,
-        R"xml(<Project Name="FindApp" Type="Application"><Dependencies><Package Name="Crypto" Exact="1.0.0" /></Dependencies></Project>)xml");
-    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Crypto" Version="1.0.0">
-  <Exports><Library Name="TLS" Default="true" /></Exports>
-  <Integrations><cmake:FindPackage Name="OpenSSL" Config="false" Required="true" Version="3.0.0">
+        R"xml(<Executable Name="FindApp"><Uses><Package Name="Crypto" Exact="1.0.0" /></Uses></Executable>)xml");
+    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Crypto" Version="1.0.0">
+  <Library Name="TLS" Default="true" />
+  <Adapters><cmake:FindPackage Name="OpenSSL" Config="false" Required="true" Version="3.0.0">
     <cmake:Target Export="TLS" Name="OpenSSL::SSL" />
-  </cmake:FindPackage></Integrations>
+  </cmake:FindPackage></Adapters>
 </Package>)xml");
     const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Crypto");
     INFO(Diagnostics(resolved));
@@ -139,6 +139,50 @@ TEST_CASE("CMake FindPackage integration maps exact semantic Exports")
                  ContainsSubstring("find_package(OpenSSL 3.0.0 REQUIRED)"));
 }
 
+TEST_CASE("CPS components become portable CMake imported targets")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "CpsApp.nginproj";
+    const auto packagePath = temp.path() / "portable/Portable.nginpkg";
+    WriteFile(projectPath,
+              R"xml(<Executable Name="CpsApp"><Uses><Package Name="Portable" Exact="1.0.0"><Library Name="Core" /><Tool Name="Compiler" /><Plugin Name="Extension" /></Package></Uses></Executable>)xml");
+    WriteFile(packagePath, R"xml(<Package Name="Portable" Version="1.0.0">
+  <Import Cps="Portable.cps" />
+</Package>)xml");
+    WriteFile(temp.path() / "portable/Portable.cps", R"json({
+  "cps_version": "0.15.0",
+  "name": "Portable",
+  "version": "1.0.0",
+  "cps_path": "@prefix@/portable",
+  "default_components": ["Core"],
+  "components": {
+    "Core": {
+      "type": "interface",
+      "includes": ["@prefix@/include"],
+      "definitions": {"*": {"PORTABLE_CPS": "1"}}
+    },
+    "Compiler": {"type": "executable", "location": "@prefix@/bin/compiler"},
+    "Extension": {"type": "module", "location": "@prefix@/lib/extension.so"}
+  }
+})json");
+
+    const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Portable");
+    INFO(Diagnostics(resolved));
+    REQUIRE(resolved.Succeeded());
+    REQUIRE(resolved.cmakeIntegrations.Data().size() == 2);
+    REQUIRE(std::ranges::all_of(resolved.cmakeIntegrations.Data(),
+                                [](const auto &binding) { return binding.kind == CMakeIntegrationKind::Cps; }));
+    const auto plans = DeriveCMakePlans(*resolved.graph, resolved.cmakeIntegrations);
+    REQUIRE(plans.Succeeded());
+    const auto generated = GenerateCMakeProject(*plans.build, *plans.actions);
+    CHECK_THAT(generated, ContainsSubstring("add_library(Portable::Core INTERFACE IMPORTED GLOBAL)"));
+    CHECK_THAT(generated, ContainsSubstring("INTERFACE_INCLUDE_DIRECTORIES"));
+    CHECK_THAT(generated, ContainsSubstring("PORTABLE_CPS=1"));
+    CHECK_THAT(generated, ContainsSubstring("add_executable(Portable::Compiler IMPORTED GLOBAL)"));
+    CHECK_THAT(generated, ContainsSubstring("add_library(Portable::Extension MODULE IMPORTED GLOBAL)"));
+    CHECK_THAT(generated, ContainsSubstring("target_link_libraries(CpsApp PRIVATE Portable::Core)"));
+}
+
 TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapter modes")
 {
     SECTION("Manual")
@@ -150,12 +194,12 @@ TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapte
         const auto packagePath = temp.path() / "Manual.nginpkg";
         WriteFile(
             projectPath,
-            R"xml(<Project Name="ManualApp" Type="Application"><Dependencies><Package Name="Manual" Exact="1.0.0" /></Dependencies></Project>)xml");
-        WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Manual" Version="1.0.0">
-  <Exports><Library Name="Core" Default="true" /></Exports>
-  <Integrations><cmake:Manual Source="."><cmake:Target Export="Core" Name="Manual::Core" />
-    <cmake:Select><Target OS="linux" Architecture="x64" /><cmake:Cache Name="MANUAL_LINUX" Value="ON" Type="BOOL" /></cmake:Select>
-  </cmake:Manual></Integrations>
+            R"xml(<Executable Name="ManualApp"><Uses><Package Name="Manual" Exact="1.0.0" /></Uses></Executable>)xml");
+        WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Manual" Version="1.0.0">
+  <Library Name="Core" Default="true" />
+  <Adapters><cmake:Manual Source="."><cmake:Target Export="Core" Name="Manual::Core" />
+    <cmake:When OS="linux" Architecture="x64"><cmake:Cache Name="MANUAL_LINUX" Value="ON" Type="BOOL" /></cmake:When>
+  </cmake:Manual></Adapters>
 </Package>)xml");
         const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Manual");
         INFO(Diagnostics(resolved));
@@ -178,12 +222,12 @@ TEST_CASE("CMake Manual Isolated and structured selection remain explicit adapte
         const auto packagePath = temp.path() / "Isolated.nginpkg";
         WriteFile(
             projectPath,
-            R"xml(<Project Name="IsolatedApp" Type="Application"><Dependencies><Package Name="Isolated" Exact="1.0.0" /></Dependencies></Project>)xml");
-        WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Isolated" Version="1.0.0">
-  <Exports><Library Name="Core" Default="true" /></Exports>
-  <Integrations><cmake:Isolated Source="."><cmake:Install /><cmake:FindPackage Name="Isolated" Config="true">
+            R"xml(<Executable Name="IsolatedApp"><Uses><Package Name="Isolated" Exact="1.0.0" /></Uses></Executable>)xml");
+        WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Isolated" Version="1.0.0">
+  <Library Name="Core" Default="true" />
+  <Adapters><cmake:Isolated Source="."><cmake:Install /><cmake:FindPackage Name="Isolated" Config="true">
     <cmake:Target Export="Core" Name="Isolated::Core" />
-  </cmake:FindPackage></cmake:Isolated></Integrations>
+  </cmake:FindPackage></cmake:Isolated></Adapters>
 </Package>)xml");
         const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Isolated");
         INFO(Diagnostics(resolved));
@@ -208,15 +252,15 @@ TEST_CASE("CMake ActionPlan binds selected Actions to host Tool targets")
     WriteFile(temp.path() / "package/CMakeLists.txt", "add_executable(MetaGen IMPORTED GLOBAL)\n");
     const auto projectPath = temp.path() / "Generated.nginproj";
     const auto packagePath = temp.path() / "package/Meta.nginpkg";
-    WriteFile(projectPath, R"xml(<Project Name="Generated" Type="Application">
-  <Generate Action="Meta::Generate"><Input Include="include/**/*.hpp" /></Generate>
-</Project>)xml");
-    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Meta" Version="1.0.0">
-  <Exports><Tool Name="MetaGen" /><Action Name="Generate" Kind="Generate" Tool="MetaGen" Deterministic="true">
+    WriteFile(projectPath, R"xml(<Executable Name="Generated">
+  <Generate Using="Meta/Generate"><Header Include="include/**/*.hpp" /></Generate>
+</Executable>)xml");
+    WriteFile(packagePath, R"xml(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Meta" Version="1.0.0">
+  <Tool Name="MetaGen" /><Generator Name="Generate" Tool="MetaGen" Deterministic="true">
     <Argument>${ProjectDir}</Argument><Argument>${ActionContext}</Argument>
     <Outputs><Source Path="generated/meta.cpp" /></Outputs>
-  </Action></Exports>
-  <Integrations><cmake:AddSubdirectory Source="."><cmake:Target Export="MetaGen" Name="MetaGen" /></cmake:AddSubdirectory></Integrations>
+  </Generator>
+  <Adapters><cmake:AddSubdirectory Source="."><cmake:Target Export="MetaGen" Name="MetaGen" /></cmake:AddSubdirectory></Adapters>
 </Package>)xml");
     const auto resolved = Resolve(temp.path(), projectPath, packagePath, "Meta");
     INFO(Diagnostics(resolved));
@@ -248,7 +292,8 @@ TEST_CASE("CMake adapter rejects unsupported semantic capabilities explicitly")
 {
     CompositionGraphData data{};
     data.product = GraphProduct{
-        .identity = "Modules", .name = "Modules", .type = ProductType::Library, .linkage = LibraryLinkage::Static};
+        .identity = "Modules", .name = "Modules", .artifactKind = ProductArtifactKind::Library,
+        .libraryKind = LibraryKind::Static};
     data.buildItems.push_back(GraphBuildItem{
         .identity = "CxxModule:src/core.cppm", .kind = "CxxModule", .path = "src/core.cppm", .visibility = "Public"});
     const ResolvedCompositionGraph graph{std::move(data)};
@@ -272,7 +317,7 @@ TEST_CASE("CMake adapter emits valued preprocessor definitions")
 {
     CompositionGraphData data{};
     data.product = GraphProduct{
-        .identity = "Versioned", .name = "Versioned", .type = ProductType::Tool, .linkage = LibraryLinkage::None};
+        .identity = "Versioned", .name = "Versioned", .artifactKind = ProductArtifactKind::Executable};
     data.buildItems.push_back(GraphBuildItem{.identity = "Define:APP_VERSION",
                                              .kind = "Define",
                                              .path = "APP_VERSION",
@@ -290,7 +335,8 @@ TEST_CASE("CMake adapter emits valued preprocessor definitions")
 TEST_CASE("CMake package integrations are generated dependency first")
 {
     CompositionGraphData data{};
-    data.product = GraphProduct{.identity = "App", .name = "App", .type = ProductType::Application};
+    data.product = GraphProduct{.identity = "App", .name = "App",
+                                .artifactKind = ProductArtifactKind::Executable};
     data.packages = {
         GraphPackageInstance{.identity = "a-dependent", .coordinate = {.name = "Dependent", .exactVersion = "1.0.0"}},
         GraphPackageInstance{.identity = "z-dependency", .coordinate = {.name = "Dependency", .exactVersion = "1.0.0"}},
@@ -316,20 +362,18 @@ TEST_CASE("CMake package integrations are generated dependency first")
 
 TEST_CASE("CMake adapter maps every generated product artifact explicitly")
 {
-    const std::vector<std::tuple<ProductType, LibraryLinkage, std::string>> cases{
-        {ProductType::Application, LibraryLinkage::None, "Executable"},
-        {ProductType::Tool, LibraryLinkage::None, "Executable"},
-        {ProductType::Test, LibraryLinkage::None, "Executable"},
-        {ProductType::Benchmark, LibraryLinkage::None, "Executable"},
-        {ProductType::Library, LibraryLinkage::Static, "StaticLibrary"},
-        {ProductType::Library, LibraryLinkage::Shared, "SharedLibrary"},
-        {ProductType::Library, LibraryLinkage::Interface, "InterfaceLibrary"},
-        {ProductType::Plugin, LibraryLinkage::None, "ModuleLibrary"},
+    const std::vector<std::tuple<ProductArtifactKind, LibraryKind, std::string>> cases{
+        {ProductArtifactKind::Executable, LibraryKind::None, "Executable"},
+        {ProductArtifactKind::Library, LibraryKind::Static, "StaticLibrary"},
+        {ProductArtifactKind::Library, LibraryKind::Shared, "SharedLibrary"},
+        {ProductArtifactKind::Library, LibraryKind::Interface, "InterfaceLibrary"},
+        {ProductArtifactKind::Library, LibraryKind::Plugin, "ModuleLibrary"},
     };
-    for (const auto &[type, linkage, expected] : cases)
+    for (const auto &[artifactKind, libraryKind, expected] : cases)
     {
         CompositionGraphData data{};
-        data.product = GraphProduct{.identity = "Product", .name = "Product", .type = type, .linkage = linkage};
+        data.product = GraphProduct{.identity = "Product", .name = "Product", .artifactKind = artifactKind,
+                                    .libraryKind = libraryKind};
         const ResolvedCompositionGraph graph{std::move(data)};
         const auto plans = DeriveCMakePlans(graph, ResolvedCMakeIntegrationBindings{});
         CAPTURE(expected);

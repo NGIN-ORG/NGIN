@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Core" Version="0.1.0">
-  <Options><Boolean Name="Reflection" Default="false" Artifact="true" /></Options>
-  <Requires>
-    <Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" />
-    <Package Name="NGIN.Log" Compatible="0.1" Visibility="Public" />
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Core" Version="0.1.0">
+  <Options>
+    <Boolean Name="Reflection" Default="false" Artifact="true" />
+  </Options>
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" Public="true" />
+    <Package Name="NGIN.Log" Version="0.1" Public="true" />
     <When Option="Reflection" Equals="true">
-      <Package Name="NGIN.Reflection" Compatible="0.1" Visibility="Public" />
+      <Package Name="NGIN.Reflection" Version="0.1" Public="true" />
     </When>
-  </Requires>
-  <Exports><Library Name="Core" Default="true" /></Exports>
-  <Integrations>
+  </Uses>
+  <Library Name="Core" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_CORE_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_CORE_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
@@ -17,5 +20,5 @@
       <cmake:MapOption Option="Reflection" Cache="NGIN_CORE_FEATURE_REFLECTION" True="ON" False="OFF" Artifact="true" />
       <cmake:Target Export="Core" Name="NGIN::Core" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

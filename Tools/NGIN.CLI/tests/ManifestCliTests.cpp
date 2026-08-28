@@ -50,21 +50,21 @@ TEST_CASE("superseded manifest forms are rejected without compatibility parsing"
 TEST_CASE("CLI authoring creates and edits only the direct model")
 {
     TempDir temp{};
-    REQUIRE(NewProject(temp.path(), "app", "Hello") == 0);
+    REQUIRE(NewProject(temp.path(), "executable", "Hello") == 0);
     const auto projectPath = temp.path() / "Hello/Hello.nginproj";
     auto text = ReadFile(projectPath);
-    REQUIRE_THAT(text, ContainsSubstring(R"(<Project Name="Hello" Type="Application">)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Executable Name="Hello">)"));
     REQUIRE_THAT(text, !ContainsSubstring("SchemaVersion"));
 
     CliArguments add{};
     add.projectPath = projectPath.string();
     add.packageName = "Example.Core";
-    add.compatibleVersion = "1";
-    add.exportUses = {"Library:Core"};
+    add.version = "1";
+    add.exportSelections = {"Library:Core"};
     REQUIRE(AddPackage(temp.path(), add) == 0);
     text = ReadFile(projectPath);
-    REQUIRE_THAT(text, ContainsSubstring(R"(<Package Name="Example.Core" Compatible="1">)"));
-    REQUIRE_THAT(text, ContainsSubstring(R"(<Use Library="Core" />)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Package Name="Example.Core" Version="1">)"));
+    REQUIRE_THAT(text, ContainsSubstring(R"(<Library Name="Core" />)"));
     REQUIRE(ParseAuthoredManifest(projectPath).Succeeded());
 
     CliArguments remove{};
@@ -77,9 +77,51 @@ TEST_CASE("CLI authoring creates and edits only the direct model")
 TEST_CASE("formatter preserves comments in direct manifests")
 {
     const auto formatted = FormatManifestXml(
-        R"(<Project Name="App" Type="Application"><!-- rationale --><Build><Source Include="src/**/*.cpp" /></Build></Project>)");
+        R"(<Executable Name="App"><!-- rationale --><Build><Source Include="src/**/*.cpp" /></Build></Executable>)");
     REQUIRE_THAT(formatted, ContainsSubstring("<!--rationale-->"));
     REQUIRE_THAT(formatted, ContainsSubstring(R"(<Source Include="src/**/*.cpp" />)"));
+}
+
+TEST_CASE("manifest formatting is stable and check mode is non-mutating")
+{
+    TempDir temp{};
+    const auto path = temp.path() / "App.nginproj";
+    WriteFile(path, R"(<Executable Name="App"><Build><Source Include="src/**/*.cpp" /></Build></Executable>)");
+    CliArguments arguments{};
+    arguments.projectPath = path.string();
+    arguments.check = true;
+    ScopedStreamCapture errors{std::cerr};
+    REQUIRE(FormatManifest(temp.path(), arguments) == 1);
+    const auto original = ReadFile(path);
+    CHECK_FALSE(original.ends_with('\n'));
+    arguments.check = false;
+    {
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(FormatManifest(temp.path(), arguments) == 0);
+    }
+    const auto formatted = ReadFile(path);
+    REQUIRE(formatted != original);
+    arguments.check = true;
+    REQUIRE(FormatManifest(temp.path(), arguments) == 0);
+    CHECK(ReadFile(path) == formatted);
+}
+
+TEST_CASE("effective inspection exposes matching When implicit Run and selection provenance")
+{
+    TempDir temp{};
+    const auto project = temp.path() / "App.nginproj";
+    WriteFile(project, R"xml(<Executable Name="App">
+  <When Configuration="Debug"><Build><Define Name="DEBUG_APP" /></Build></When>
+</Executable>)xml");
+    CliArguments arguments{};
+    arguments.projectPath = project.string();
+    arguments.effective = true;
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(InspectComposition(temp.path(), arguments) == 0);
+    CHECK_THAT(output.Text(), ContainsSubstring("\"kind\":\"NGIN.ManifestIR\""));
+    CHECK_THAT(output.Text(), ContainsSubstring("\"reason\":\"matching authored When\""));
+    CHECK_THAT(output.Text(), ContainsSubstring("\"reason\":\"built-in implicit Run\""));
+    CHECK_THAT(output.Text(), ContainsSubstring("\"kind\":\"built-in\""));
 }
 
 TEST_CASE("Action diagnostics preserve tool identity and source ranges as structured JSON")
@@ -107,8 +149,8 @@ TEST_CASE("Action diagnostics preserve tool identity and source ranges as struct
 TEST_CASE("editor metadata carries authoritative enumeration choices")
 {
     const auto metadata = GenerateManifestArtifacts().at("manifest-editor-metadata.json");
-    CHECK_THAT(metadata, ContainsSubstring(R"("name": "Type", "type": "enumeration", "required": true, "values": ["Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "External"])"));
-    CHECK_THAT(metadata, ContainsSubstring(R"("name": "Linkage", "type": "enumeration", "required": false, "values": ["Static", "Shared", "Interface"])"));
+    CHECK_THAT(metadata, ContainsSubstring(R"("roots": ["Executable", "Library"])"));
+    CHECK_THAT(metadata, ContainsSubstring(R"("name": "Kind", "type": "enumeration", "required": true, "values": ["Static", "Shared", "Interface", "Plugin"])"));
     CHECK_THAT(metadata, !ContainsSubstring(R"("Module")"));
     CHECK_THAT(metadata, !ContainsSubstring(R"("HeaderOnly")"));
 }
@@ -132,30 +174,43 @@ TEST_CASE("portable path and glob authoring is rooted deterministic and "
     REQUIRE_FALSE(ExpandPortableGlob(temp.path(), "../*.cpp", false).Succeeded());
 }
 
-TEST_CASE("presets expand concrete inputs without becoming a selection dimension")
+TEST_CASE("profiles expand concrete inputs without becoming a selection dimension")
 {
-    const Preset preset{
+    const Profile profile{
         .name = "release",
-        .command = "build",
         .selection = SelectionRequest{
-            .configuration = "Release", .target = "host", .toolchain = "default", .options = {{"Tracing", "false"}}}};
-    const auto expanded = ExpandPreset(preset, "build", SelectionRequest{});
+            .configuration = "Release", .target = "host", .toolchain = "auto", .options = {{"Tracing", "false"}}}};
+    const auto expanded = ExpandProfile(profile, SelectionRequest{});
     REQUIRE(expanded.Succeeded());
     REQUIRE(expanded.value->configuration == "Release");
     REQUIRE(expanded.value->target == "host");
     REQUIRE(expanded.value->options.at("Tracing") == "false");
-    REQUIRE_FALSE(ExpandPreset(preset, "test", SelectionRequest{}).Succeeded());
+    REQUIRE_FALSE(ExpandProfile(profile, SelectionRequest{.configuration = "Debug"}).Succeeded());
 }
 
-TEST_CASE("CLI accepts an explicit Launch selection for run workflows")
+TEST_CASE("CLI accepts an explicit Run selection for run workflows")
 {
-    std::vector<std::string> storage{"ngin", "run", "--project", "App.nginproj", "--launch", "diagnostics"};
+    std::vector<std::string> storage{"ngin", "run", "--project", "App.nginproj", "--run", "diagnostics"};
     std::vector<char *> arguments{};
     arguments.reserve(storage.size());
     for (auto &value : storage) arguments.push_back(value.data());
     const auto parsed = ParseCliArguments(static_cast<int>(arguments.size()), arguments.data(), 2);
     REQUIRE(parsed.projectPath == "App.nginproj");
-    REQUIRE(parsed.launch == "diagnostics");
+    REQUIRE(parsed.run == "diagnostics");
+}
+
+TEST_CASE("superseded CLI authoring and selection options are rejected")
+{
+    for (const auto option : {"--launch", "--preset", "--compatible"})
+    {
+        std::vector<std::string> storage{"ngin", "build", option, "legacy"};
+        std::vector<char *> arguments{};
+        for (auto &value : storage) arguments.push_back(value.data());
+        REQUIRE_THROWS(ParseCliArguments(static_cast<int>(arguments.size()), arguments.data(), 2));
+    }
+    TempDir temp{};
+    REQUIRE_THROWS(NewProject(temp.path(), "app", "Legacy"));
+    REQUIRE_THROWS(NewProject(temp.path(), "tool", "Legacy"));
 }
 
 TEST_CASE("project Refinements apply selected payloads with deterministic "
@@ -182,8 +237,7 @@ TEST_CASE("project Refinements apply selected payloads with deterministic "
     }));
 }
 
-TEST_CASE("equal-specificity Refinement writes conflict and a more specific "
-          "write wins")
+TEST_CASE("overlapping When writes conflict regardless of selector specificity")
 {
     const auto parseProject = [](const std::string_view source) {
         const auto authored = ParseAuthoredManifestText(std::string(source), "refinements/App.nginproj");
@@ -195,32 +249,23 @@ TEST_CASE("equal-specificity Refinement writes conflict and a more specific "
     selection.target.name = "host";
     selection.target.operatingSystem = "windows";
 
-    const auto conflicting = parseProject(R"(<Project Name="App" Type="Application">
-  <Refinements>
-    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="one" /></Build></Refinement>
-    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="two" /></Build></Refinement>
-  </Refinements>
-</Project>)");
+    const auto conflicting = parseProject(R"(<Executable Name="App">
+  <When Configuration="Debug"><Build><Define Name="MODE" Value="one" /></Build></When>
+  <When Configuration="Debug"><Build><Define Name="MODE" Value="two" /></Build></When>
+</Executable>)");
     REQUIRE(conflicting.Succeeded());
     const auto conflict = ApplyProjectRefinements(*conflicting.value, selection);
     REQUIRE_FALSE(conflict.Succeeded());
     REQUIRE(std::ranges::any_of(conflict.diagnostics,
                                 [](const ManifestDiagnostic &diagnostic) { return diagnostic.code == "NGIN2006"; }));
 
-    const auto specific = parseProject(R"(<Project Name="App" Type="Application">
-  <Refinements>
-    <Refinement><Select><Configuration Name="Debug" /></Select><Build><Define Name="MODE" Value="one" /></Build></Refinement>
-    <Refinement><Select><Configuration Name="Debug" /><Target OS="windows" /></Select><Build><Define Name="MODE" Value="two" /></Build></Refinement>
-  </Refinements>
-</Project>)");
+    const auto specific = parseProject(R"(<Executable Name="App">
+  <When Configuration="Debug"><Build><Define Name="MODE" Value="one" /></Build></When>
+  <When Configuration="Debug" OS="windows"><Build><Define Name="MODE" Value="two" /></Build></When>
+</Executable>)");
     REQUIRE(specific.Succeeded());
-    const auto winner = ApplyProjectRefinements(*specific.value, selection);
-    REQUIRE(winner.Succeeded());
-    const auto define = std::ranges::find_if(winner.value->build.declarations, [](const BuildItemDeclaration &item) {
-        return item.kind == BuildItemKind::Define && item.pattern == "MODE";
-    });
-    REQUIRE(define != winner.value->build.declarations.end());
-    REQUIRE(define->value == "two");
+    const auto overlap = ApplyProjectRefinements(*specific.value, selection);
+    REQUIRE_FALSE(overlap.Succeeded());
 }
 
 TEST_CASE("every checked-in authored manifest uses the direct grammar")
@@ -238,7 +283,7 @@ TEST_CASE("every checked-in authored manifest uses the direct grammar")
     }
     std::ranges::sort(manifests);
     manifests.erase(std::unique(manifests.begin(), manifests.end()), manifests.end());
-    REQUIRE(manifests.size() == 50);
+    REQUIRE(manifests.size() == 53);
     for (const auto &path : manifests)
     {
         INFO(path.string());
@@ -280,10 +325,10 @@ TEST_CASE("project references contribute child composition identity and reject "
         const auto second = temp.path() / "Second.nginproj";
         WriteFile(
             first,
-            R"(<Project Name="First" Type="Library" Linkage="Static"><Dependencies><Project Name="Second" Path="Second.nginproj" /></Dependencies></Project>)");
+            R"(<Library Name="First" Kind="Static"><Uses><Project Path="Second.nginproj" /></Uses></Library>)");
         WriteFile(
             second,
-            R"(<Project Name="Second" Type="Library" Linkage="Static"><Dependencies><Project Name="First" Path="First.nginproj" /></Dependencies></Project>)");
+            R"(<Library Name="Second" Kind="Static"><Uses><Project Path="First.nginproj" /></Uses></Library>)");
         CliArguments arguments{};
         arguments.projectPath = first.string();
         ScopedStreamCapture errors{std::cerr};
@@ -292,24 +337,23 @@ TEST_CASE("project references contribute child composition identity and reject "
     }
 }
 
-TEST_CASE("Directory PackageProvider sources discover manifests and honor "
-          "workspace bindings")
+TEST_CASE("Workspace package discovery supplies a Directory provider")
 {
     TempDir temp{};
     const auto project = temp.path() / "App/App.nginproj";
     const auto workspace = temp.path() / "Workspace.ngin";
     WriteFile(
         project,
-        R"(<Project Name="App" Type="Application"><Dependencies><Package Name="Example" Exact="1.2.3" /></Dependencies><Build><Source Include="src/**/*.cpp" /></Build></Project>)");
+        R"(<Executable Name="App"><Uses><Package Name="Example" Exact="1.2.3" /></Uses><Build><Source Include="src/**/*.cpp" /></Build></Executable>)");
     WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }");
     WriteFile(temp.path() / "Packages/Example/CMakeLists.txt",
               "add_library(Example::Core INTERFACE IMPORTED GLOBAL)\n");
     WriteFile(
         temp.path() / "Packages/Example/Example.nginpkg",
-        R"(<Package xmlns:cmake="urn:ngin:integration:cmake" Name="Example" Version="1.2.3"><Exports><Library Name="Core" Default="true" /></Exports><Integrations><cmake:Manual Source="."><cmake:Target Export="Core" Name="Example::Core" /></cmake:Manual></Integrations></Package>)");
+        R"(<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Example" Version="1.2.3"><Library Name="Core" /><Adapters><cmake:Manual Source="."><cmake:Target Export="Core" Name="Example::Core" /></cmake:Manual></Adapters></Package>)");
     WriteFile(
         workspace,
-        R"(<Workspace Name="Fixture"><Projects><Project Path="App/App.nginproj" /></Projects><Packages><Source Name="local" Kind="Directory" Path="Packages" /><Binding Package="Example" Source="local" Coordinate="Example" /></Packages></Workspace>)");
+        R"(<Workspace Name="Fixture"><Discover><Projects Include="App/App.nginproj" /><Packages Include="Packages/**/*.nginpkg" /></Discover></Workspace>)");
 
     CliArguments arguments{};
     arguments.projectPath = project.string();
@@ -318,5 +362,5 @@ TEST_CASE("Directory PackageProvider sources discover manifests and honor "
     ScopedStreamCapture output{std::cout};
     REQUIRE(InspectComposition(temp.path(), arguments) == 0);
     REQUIRE_THAT(output.Text(), ContainsSubstring(R"("providerKind":"Directory")"));
-    REQUIRE_THAT(output.Text(), ContainsSubstring(R"("source":"local")"));
+    REQUIRE_THAT(output.Text(), ContainsSubstring(R"("source":"workspace")"));
 }

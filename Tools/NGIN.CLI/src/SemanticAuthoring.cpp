@@ -71,11 +71,12 @@ namespace NGIN::CLI
             return SourcedVersionConstraint{.lower = VersionBoundary{lower, true},
                                             .upper = VersionBoundary{upper, false},
                                             .source = source,
-                                            .description = "Compatible=" + std::string(value)};
+                                            .description = "Version=" + std::string(value)};
         }
     }
 
-    auto ParseOptionDefinitions(const AuthoredElement &options, std::vector<ManifestDiagnostic> &diagnostics)
+    auto ParseOptionDefinitions(const AuthoredElement &options, std::vector<ManifestDiagnostic> &diagnostics,
+                                const bool artifactByDefault)
         -> std::map<std::string, OptionDefinition, std::less<>>
     {
         std::map<std::string, OptionDefinition, std::less<>> result{};
@@ -105,7 +106,7 @@ namespace NGIN::CLI
                              node.source);
             }
             else definition.type = OptionType::Path;
-            definition.artifact = BoolAttributeValue(node, "Artifact");
+            definition.artifact = BoolAttributeValue(node, "Artifact", artifactByDefault);
             const auto parsedDefault = ParseOptionValue(definition, defaultValue, node.source);
             if (!parsedDefault.Succeeded())
                 diagnostics.insert(diagnostics.end(), parsedDefault.diagnostics.begin(), parsedDefault.diagnostics.end());
@@ -123,7 +124,7 @@ namespace NGIN::CLI
         -> std::optional<SourcedVersionConstraint>
     {
         const auto exact = AttributeValue(element, "Exact");
-        const auto compatible = AttributeValue(element, "Compatible");
+        const auto compatible = AttributeValue(element, "Version");
         const auto versionNode = std::ranges::find(element.children, "Version", &AuthoredElement::name);
         const auto hasStructuredAttributes = !AttributeValue(element, "AtLeast").empty() ||
                                              !AttributeValue(element, "After").empty() ||

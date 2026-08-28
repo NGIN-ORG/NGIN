@@ -56,22 +56,18 @@ namespace NGIN::CLI
                                                      .relatedSources = std::move(related)});
         }
 
-        [[nodiscard]] auto ParseProductType(const std::string_view value) -> ProductType
+        [[nodiscard]] auto ParseArtifactKind(const AuthoredProjectManifest &project) -> ProductArtifactKind
         {
-            if (value == "Library") return ProductType::Library;
-            if (value == "Tool") return ProductType::Tool;
-            if (value == "Test") return ProductType::Test;
-            if (value == "Benchmark") return ProductType::Benchmark;
-            if (value == "Plugin") return ProductType::Plugin;
-            if (value == "External") return ProductType::External;
-            return ProductType::Application;
+            return project.artifactKind == "Library" ? ProductArtifactKind::Library
+                                                      : ProductArtifactKind::Executable;
         }
 
-        [[nodiscard]] auto ParseLinkage(const std::string_view value) -> LibraryLinkage
+        [[nodiscard]] auto ParseLibraryKind(const std::string_view value) -> LibraryKind
         {
-            if (value == "Shared") return LibraryLinkage::Shared;
-            if (value == "Interface") return LibraryLinkage::Interface;
-            return LibraryLinkage::Static;
+            if (value == "Shared") return LibraryKind::Shared;
+            if (value == "Interface") return LibraryKind::Interface;
+            if (value == "Plugin") return LibraryKind::Plugin;
+            return LibraryKind::Static;
         }
 
         [[nodiscard]] auto ParseVisibility(const std::string_view value) -> BuildVisibility
@@ -89,13 +85,20 @@ namespace NGIN::CLI
             return ActionKind::Custom;
         }
 
+        [[nodiscard]] auto NormalizeQualifiedAction(const std::string_view authored) -> std::string
+        {
+            const auto separator = authored.rfind('/');
+            if (separator == std::string_view::npos) return std::string(authored);
+            return std::string(authored.substr(0, separator)) + "::" + std::string(authored.substr(separator + 1));
+        }
+
         auto ValidateQualifiedAction(const ProjectActionSelection &selection,
                                      std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
             const auto separator = selection.qualifiedAction.rfind("::");
             if (separator == std::string::npos || separator == 0 || separator + 2 == selection.qualifiedAction.size())
                 AddError(diagnostics, "NGIN5005",
-                         "Action must be qualified as Package::Export, got '" + selection.qualifiedAction + "'",
+                         "Action must be qualified as Package/Export, got '" + selection.qualifiedAction + "'",
                          selection.source);
         }
 
@@ -117,11 +120,13 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto UseKind(const AuthoredElement &use) -> std::optional<ExportUseKind>
         {
-            if (HasAttribute(use, "Library")) return ExportUseKind::Library;
-            if (HasAttribute(use, "Tool")) return ExportUseKind::Tool;
-            if (HasAttribute(use, "Plugin")) return ExportUseKind::Plugin;
-            if (HasAttribute(use, "Action")) return ExportUseKind::Action;
-            if (HasAttribute(use, "Asset")) return ExportUseKind::Asset;
+            if (use.name == "Library") return ExportUseKind::Library;
+            if (use.name == "Tool") return ExportUseKind::Tool;
+            if (use.name == "Plugin") return ExportUseKind::Plugin;
+            if (use.name == "Generator" || use.name == "Analyzer" || use.name == "Formatter" ||
+                use.name == "Validator" || use.name == "Action")
+                return ExportUseKind::Action;
+            if (use.name == "Asset") return ExportUseKind::Asset;
             return std::nullopt;
         }
 
@@ -142,16 +147,11 @@ namespace NGIN::CLI
                     };
                     for (const auto &child : node.children)
                     {
-                        if (child.name == "Use")
+                        if (const auto kind = UseKind(child); kind.has_value())
                         {
-                            const auto kind = UseKind(child);
-                            if (kind.has_value())
-                            {
-                                const auto name =
-                                    child.attributes.empty() ? std::string{} : child.attributes.front().value;
-                                request.exports.push_back(
-                                    ExportUse{.kind = *kind, .name = name, .source = child.source});
-                            }
+                            request.exports.push_back(ExportUse{.kind = *kind,
+                                                                .name = AttributeValue(child, "Name"),
+                                                                .source = child.source});
                         }
                         else if (child.name == "Option")
                         {
@@ -167,20 +167,32 @@ namespace NGIN::CLI
                 }
                 else if (node.name == "Project")
                 {
-                    ProjectDependencyRequest request{.name = AttributeValue(node, "Name"),
-                                                     .context = context,
-                                                     .owner = owner,
-                                                     .source = node.source};
+                    ProjectDependencyRequest request{.context = context, .owner = owner, .source = node.source};
                     if (const auto path = AttributeValue(node, "Path"); !path.empty())
                     {
                         const auto normalized = NormalizePortablePath(path, PortablePathBase::Manifest, node.source);
                         if (normalized.Succeeded())
+                        {
                             request.path = *normalized.value;
+                            request.name = std::filesystem::path(normalized.value->value).stem().string();
+                        }
                         else
                             diagnostics.insert(diagnostics.end(), normalized.diagnostics.begin(),
                                                normalized.diagnostics.end());
                     }
                     project.dependencies.emplace_back(std::move(request));
+                }
+                else if (node.name == "Capability")
+                {
+                    project.dependencies.emplace_back(ProjectCapabilityRequest{
+                        .name = AttributeValue(node, "Name"),
+                        .domain = AttributeValue(node, "Domain", "Link"),
+                        .constraint = ParseAuthoredVersionConstraint(node, AttributeValue(node, "Name"), diagnostics),
+                        .provider = HasAttribute(node, "Provider")
+                                        ? std::optional<std::string>{AttributeValue(node, "Provider")}
+                                        : std::nullopt,
+                        .context = context,
+                        .source = node.source});
                 }
             }
         }
@@ -279,8 +291,8 @@ namespace NGIN::CLI
             for (const auto &node : stage.children)
             {
                 const auto include =
-                    NormalizePortablePath(AttributeValue(node, "Include"), PortablePathBase::Manifest, node.source);
-                const auto destination = NormalizeStageDestination(AttributeValue(node, "Into"), node.source);
+                    NormalizePortablePath(AttributeValue(node, "From"), PortablePathBase::Manifest, node.source);
+                const auto destination = NormalizeStageDestination(AttributeValue(node, "To"), node.source);
                 diagnostics.insert(diagnostics.end(), include.diagnostics.begin(), include.diagnostics.end());
                 diagnostics.insert(diagnostics.end(), destination.diagnostics.begin(), destination.diagnostics.end());
                 if (include.Succeeded() && destination.Succeeded())
@@ -330,51 +342,44 @@ namespace NGIN::CLI
                                     std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
             refinement.semantic.source = authored.source;
-            const auto *select = Child(authored, "project.refinement.select");
-            if (select == nullptr) return;
-            if (const auto *configuration = Child(*select, "project.refinement.select.configuration"))
-                refinement.semantic.selector.configuration = AttributeValue(*configuration, "Name");
-            if (const auto *target = Child(*select, "project.refinement.select.target"))
+            if (HasAttribute(authored, "Configuration"))
+                refinement.semantic.selector.configuration = AttributeValue(authored, "Configuration");
+            if (HasAttribute(authored, "Target"))
+                refinement.semantic.selector.targetName = AttributeValue(authored, "Target");
+            if (HasAttribute(authored, "OS"))
+                refinement.semantic.selector.targetOperatingSystem = AttributeValue(authored, "OS");
+            if (HasAttribute(authored, "Architecture"))
+                refinement.semantic.selector.targetArchitecture = AttributeValue(authored, "Architecture");
+            if (HasAttribute(authored, "Toolchain"))
+                refinement.semantic.selector.toolchainName = AttributeValue(authored, "Toolchain");
+            if (HasAttribute(authored, "Compiler"))
+                refinement.semantic.selector.compiler = AttributeValue(authored, "Compiler");
+            if (HasAttribute(authored, "Option"))
             {
-                if (HasAttribute(*target, "Name"))
-                    refinement.semantic.selector.targetName = AttributeValue(*target, "Name");
-                if (HasAttribute(*target, "OS"))
-                    refinement.semantic.selector.targetOperatingSystem = AttributeValue(*target, "OS");
-                if (HasAttribute(*target, "Architecture"))
-                    refinement.semantic.selector.targetArchitecture = AttributeValue(*target, "Architecture");
-            }
-            if (const auto *toolchain = Child(*select, "project.refinement.select.toolchain"))
-            {
-                if (HasAttribute(*toolchain, "Name"))
-                    refinement.semantic.selector.toolchainName = AttributeValue(*toolchain, "Name");
-                if (HasAttribute(*toolchain, "Compiler"))
-                    refinement.semantic.selector.compiler = AttributeValue(*toolchain, "Compiler");
-            }
-            for (const auto *option : Children(*select, "project.refinement.select.option"))
-            {
-                const auto name = AttributeValue(*option, "Name");
+                const auto name = AttributeValue(authored, "Option");
                 const auto definition = project.options.find(name);
                 if (definition == project.options.end())
                 {
-                    AddError(diagnostics, "NGIN2006", "Refinement selects undeclared Option '" + name + "'",
-                             option->source);
-                    continue;
+                    AddError(diagnostics, "NGIN2006", "When selects undeclared Option '" + name + "'",
+                             authored.source);
                 }
-                const auto value =
-                    ParseOptionValue(definition->second, AttributeValue(*option, "Value"), option->source);
-                diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
-                if (value.Succeeded()) refinement.semantic.selector.options.emplace(name, *value.value);
+                else
+                {
+                    const auto value = ParseOptionValue(definition->second, AttributeValue(authored, "Equals"),
+                                                        authored.source);
+                    diagnostics.insert(diagnostics.end(), value.diagnostics.begin(), value.diagnostics.end());
+                    if (value.Succeeded()) refinement.semantic.selector.options.emplace(name, *value.value);
+                }
             }
             const auto &selector = refinement.semantic.selector;
             if (!selector.configuration.has_value() && !selector.targetName.has_value() &&
                 !selector.targetOperatingSystem.has_value() && !selector.targetArchitecture.has_value() &&
                 !selector.toolchainName.has_value() && !selector.compiler.has_value() && selector.options.empty())
-                AddError(diagnostics, "NGIN2006", "Refinement Select must contain at least one selection fact",
-                         select->source);
+                AddError(diagnostics, "NGIN2006", "When must contain at least one selection fact", authored.source);
 
-            if (const auto *build = Child(authored, "project.refinement.build"))
+            if (const auto *build = Child(authored, "project.when.build"))
             {
-                SemanticProject parsed{.type = project.type};
+                SemanticProject parsed{.artifactKind = project.artifactKind, .libraryKind = project.libraryKind};
                 ParseBuild(*build, parsed, diagnostics);
                 if (HasAttribute(*build, "Conventions"))
                 {
@@ -385,7 +390,7 @@ namespace NGIN::CLI
                     AddRefinementAssignment(refinement, "BuildScalar", "Conventions", parsed.build.conventions,
                                             build->source);
                 }
-                if (const auto *language = Child(*build, "project.refinement.build.language"))
+                if (const auto *language = Child(*build, "project.when.build.language"))
                 {
                     refinement.build.language = parsed.build.language;
                     AddRefinementAssignment(refinement, "BuildScalar", "Language",
@@ -394,7 +399,7 @@ namespace NGIN::CLI
                                                                    {"standard", parsed.build.language.standard}},
                                             language->source);
                 }
-                if (const auto *unity = Child(*build, "project.refinement.build.unity-build"))
+                if (const auto *unity = Child(*build, "project.when.build.unity-build"))
                 {
                     refinement.build.unityBuild = parsed.build.unityBuild;
                     CanonicalValue::Object value{{"enabled", parsed.build.unityBuild->enabled}};
@@ -419,14 +424,14 @@ namespace NGIN::CLI
                     AddRefinementAssignment(refinement, "BuildItem", BuildDeclarationIdentity(declaration),
                                             CanonicalBuildDeclaration(declaration), declaration.source);
             }
-            if (const auto *dependencies = Child(authored, "project.refinement.dependencies"))
+            if (const auto *dependencies = Child(authored, "project.when.uses"))
             {
                 SemanticProject parsed{};
                 ParseDependencies(*dependencies, rootContext, std::nullopt, parsed, diagnostics);
                 refinement.dependencies = std::move(parsed.dependencies);
             }
-            if (const auto *stage = Child(authored, "project.refinement.stage"))
-                ParseStage(*stage, "project.refinement.stage.directory", refinement.stage, diagnostics);
+            if (const auto *stage = Child(authored, "project.when.stage"))
+                ParseStage(*stage, "project.when.stage.directory", refinement.stage, diagnostics);
         }
 
         [[nodiscard]] auto SameSource(const ManifestSourceRange &left, const ManifestSourceRange &right) -> bool
@@ -456,8 +461,9 @@ namespace NGIN::CLI
         [[nodiscard]] auto DefaultVisibility(const SemanticProject &project, const BuildItemKind kind)
             -> BuildVisibility
         {
-            return project.type == ProductType::Library && kind == BuildItemKind::Header ? BuildVisibility::Public
-                                                                                         : BuildVisibility::Private;
+            return project.artifactKind == ProductArtifactKind::Library && kind == BuildItemKind::Header
+                       ? BuildVisibility::Public
+                       : BuildVisibility::Private;
         }
 
         [[nodiscard]] auto HasMagic(const std::string_view pattern) -> bool
@@ -517,32 +523,32 @@ namespace NGIN::CLI
     auto ResolvedProjectBuild::Succeeded() const -> bool { return diagnostics.empty(); }
     auto SemanticProjectResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
 
-    auto ProductTypeName(const ProductType type) -> std::string_view
+    auto ProductArtifactKindName(const ProductArtifactKind kind) -> std::string_view
     {
-        switch (type)
+        return kind == ProductArtifactKind::Executable ? "Executable" : "Library";
+    }
+
+    auto LibraryKindName(const LibraryKind kind) -> std::string_view
+    {
+        switch (kind)
         {
-        case ProductType::Application: return "Application";
-        case ProductType::Library: return "Library";
-        case ProductType::Tool: return "Tool";
-        case ProductType::Test: return "Test";
-        case ProductType::Benchmark: return "Benchmark";
-        case ProductType::Plugin: return "Plugin";
-        case ProductType::External: return "External";
+        case LibraryKind::None: return "None";
+        case LibraryKind::Static: return "Static";
+        case LibraryKind::Shared: return "Shared";
+        case LibraryKind::Interface: return "Interface";
+        case LibraryKind::Plugin: return "Plugin";
         }
-        return "Unknown";
+        return "None";
     }
 
     auto ParseSemanticProject(const AuthoredProjectManifest &project) -> SemanticProjectResult
     {
         SemanticProjectResult result{};
         SemanticProject semantic{
-            .manifest = project.manifest, .name = project.name, .type = ParseProductType(project.type)};
+            .manifest = project.manifest, .name = project.name, .artifactKind = ParseArtifactKind(project)};
         if (project.version.has_value()) semantic.version = ParseSemanticVersion(*project.version);
-        if (semantic.type == ProductType::Library)
-            semantic.linkage = ParseLinkage(AttributeValue(project.root, "Linkage", "Static"));
-        else if (HasAttribute(project.root, "Linkage"))
-            AddError(result.diagnostics, "NGIN3000", "Linkage is valid only for a Library product",
-                     project.root.source);
+        if (project.artifactKind == "Library")
+            semantic.libraryKind = ParseLibraryKind(project.libraryKind.value_or("Static"));
 
         if (const auto *metadata = Child(project.root, "project.metadata"))
         {
@@ -558,12 +564,8 @@ namespace NGIN::CLI
         if (const auto *options = Child(project.root, "project.options"))
             ParseOptions(*options, semantic, result.diagnostics);
 
-        DependencyContext rootContext = DependencyContext::Target;
-        if (semantic.type == ProductType::Test)
-            rootContext = DependencyContext::Test;
-        else if (semantic.type == ProductType::Benchmark)
-            rootContext = DependencyContext::Benchmark;
-        if (const auto *dependencies = Child(project.root, "project.dependencies"))
+        constexpr auto rootContext = DependencyContext::Target;
+        if (const auto *dependencies = Child(project.root, "project.uses"))
             ParseDependencies(*dependencies, rootContext, std::nullopt, semantic, result.diagnostics);
 
         if (const auto *build = Child(project.root, "project.build"))
@@ -574,24 +576,19 @@ namespace NGIN::CLI
         for (const auto *generate : Children(project.root, "project.generate"))
         {
             ProjectActionSelection selection{.kind = ActionKind::Generate,
-                                             .qualifiedAction = AttributeValue(*generate, "Action"),
+                                             .qualifiedAction = NormalizeQualifiedAction(AttributeValue(*generate, "Using")),
                                              .source = generate->source};
             for (const auto &child : generate->children)
             {
-                if (child.name == "Input")
+                if (child.name == "Header" || child.name == "Source" || child.name == "File")
                 {
-                    if (!HasAttribute(child, "Include") || HasAttribute(child, "Remove") ||
-                        HasAttribute(child, "Update"))
-                        AddError(result.diagnostics, "NGIN5005",
-                                 "Generate Input requires Include and cannot Remove or Update", child.source);
-                    else
-                        selection.inputs.push_back(ProjectActionInput{
-                            .include = AttributeValue(child, "Include"),
-                            .exclude = HasAttribute(child, "Exclude")
-                                           ? std::optional<std::string>{AttributeValue(child, "Exclude")}
-                                           : std::nullopt,
-                            .source = child.source,
-                        });
+                    selection.inputs.push_back(ProjectActionInput{
+                        .include = AttributeValue(child, "Include"),
+                        .exclude = HasAttribute(child, "Exclude")
+                                       ? std::optional<std::string>{AttributeValue(child, "Exclude")}
+                                       : std::nullopt,
+                        .source = child.source,
+                    });
                 }
                 else if (child.name == "Option")
                 {
@@ -612,7 +609,7 @@ namespace NGIN::CLI
             for (const auto &verb : tooling->children)
             {
                 ProjectActionSelection selection{.kind = ToolingActionKind(verb.name),
-                                                 .qualifiedAction = AttributeValue(verb, "Action"),
+                                                 .qualifiedAction = NormalizeQualifiedAction(AttributeValue(verb, "Using")),
                                                  .source = verb.source};
                 ValidateQualifiedAction(selection, result.diagnostics);
                 semantic.actions.push_back(std::move(selection));
@@ -620,36 +617,25 @@ namespace NGIN::CLI
         if (const auto *stage = Child(project.root, "project.stage"))
             ParseStage(*stage, "project.stage.directory", semantic.stage, result.diagnostics);
 
-        std::optional<ManifestSourceRange> defaultLaunchSource{};
-        for (const auto *launch : Children(project.root, "project.launch"))
+        std::optional<ManifestSourceRange> defaultRunSource{};
+        for (const auto *run : Children(project.root, "project.run"))
         {
-            ProjectLaunchDefinition definition{.name = AttributeValue(*launch, "Name"),
-                                               .defaultLaunch = BoolAttributeValue(*launch, "Default"),
+            ProjectRunDefinition definition{.name = AttributeValue(*run, "Name", "default"),
+                                               .defaultRun = BoolAttributeValue(*run, "Default"),
                                                .product = semantic.name,
-                                               .source = launch->source};
-            if (const auto *executable = Child(*launch, "project.launch.executable"))
+                                               .source = run->source};
+            if (const auto tool = AttributeValue(*run, "Using"); !tool.empty())
             {
-                const auto productName = AttributeValue(*executable, "Product");
-                const auto toolName = AttributeValue(*executable, "Tool");
-                if (!productName.empty() && !toolName.empty())
-                    AddError(result.diagnostics, "NGIN3012",
-                             "Launch Executable selects either Product or Tool, not both", executable->source);
-                else if (!toolName.empty())
-                {
-                    definition.product.reset();
-                    definition.tool = toolName;
-                }
-                else if (!productName.empty())
-                    definition.product = productName;
+                definition.product.reset();
+                definition.tool = NormalizeQualifiedAction(tool);
             }
-            if (const auto *working = Child(*launch, "project.launch.working-directory"))
+            if (const auto path = AttributeValue(*run, "WorkingDirectory"); !path.empty())
             {
-                const auto path = AttributeValue(*working, "Path");
                 if (path == ".")
                     definition.workingDirectory = PortablePath{.value = "."};
                 else
                 {
-                    const auto normalized = NormalizeStageDestination(path, working->source);
+                    const auto normalized = NormalizeStageDestination(path, run->source);
                     if (normalized.Succeeded())
                         definition.workingDirectory = *normalized.value;
                     else
@@ -657,113 +643,113 @@ namespace NGIN::CLI
                                                   normalized.diagnostics.end());
                 }
             }
-            for (const auto &child : launch->children)
+            for (const auto &child : run->children)
             {
-                if (child.specId == "project.launch.argument")
+                if (child.specId == "project.run.argument")
                     definition.arguments.push_back(child.text);
-                else if (child.specId == "project.launch.environment")
+                else if (child.specId == "project.run.environment")
                 {
                     const auto name = AttributeValue(child, "Name");
                     if (definition.secrets.contains(name) ||
                         !definition.environment.emplace(name, AttributeValue(child, "Value")).second)
-                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch Environment '" + name + "'",
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Run Environment '" + name + "'",
                                  child.source);
                 }
-                else if (child.specId == "project.launch.secret")
+                else if (child.specId == "project.run.secret")
                 {
                     const auto name = AttributeValue(child, "Name");
                     if (definition.environment.contains(name) ||
                         !definition.secrets.emplace(name, AttributeValue(child, "From")).second)
-                        AddError(result.diagnostics, "NGIN3012", "duplicate Launch environment/Secret '" + name + "'",
+                        AddError(result.diagnostics, "NGIN3012", "duplicate Run environment/Secret '" + name + "'",
                                  child.source);
                 }
             }
-            if (definition.defaultLaunch)
+            if (definition.defaultRun)
             {
-                if (defaultLaunchSource.has_value())
-                    AddError(result.diagnostics, "NGIN3012", "only one Launch may be Default", launch->source,
-                             {*defaultLaunchSource});
+                if (defaultRunSource.has_value())
+                    AddError(result.diagnostics, "NGIN3012", "only one Run may be Default", run->source,
+                             {*defaultRunSource});
                 else
-                    defaultLaunchSource = launch->source;
+                    defaultRunSource = run->source;
             }
-            semantic.launches.push_back(std::move(definition));
+            semantic.runs.push_back(std::move(definition));
         }
-        if (const auto *testing = Child(project.root, "project.testing"))
-        {
-            ProjectTestingDefinition definition{.source = testing->source};
-            for (const auto &child : testing->children)
-            {
-                if (child.specId == "project.testing.argument")
+        if (semantic.artifactKind == ProductArtifactKind::Executable && semantic.runs.empty())
+            semantic.runs.push_back(ProjectRunDefinition{.name = "default",
+                                                                 .defaultRun = true,
+                                                                 .product = semantic.name,
+                                                                 .implicit = true,
+                                                                 .source = project.root.source});
+        else if (semantic.runs.size() == 1)
+            semantic.runs.front().defaultRun = true;
+        else if (semantic.runs.size() > 1 && !defaultRunSource.has_value())
+            AddError(result.diagnostics, "NGIN3012", "multiple Run definitions require exactly one Default=\"true\"",
+                     project.root.source);
+
+        const auto parseRegistration = [&](const AuthoredElement &registration, ProjectTestingDefinition &definition) {
+            definition.name = AttributeValue(registration, "Name", "default");
+            definition.source = registration.source;
+            definition.timeoutSeconds = ParseInteger(AttributeValue(registration, "Timeout"));
+            if (HasAttribute(registration, "Timeout") &&
+                (!definition.timeoutSeconds.has_value() || *definition.timeoutSeconds <= 0))
+                AddError(result.diagnostics, "NGIN3013", "registration Timeout must be greater than zero",
+                         registration.source);
+            for (const auto &child : registration.children)
+                if (child.specId == "project.registration.argument")
                     definition.arguments.push_back(child.text);
-                else if (child.specId == "project.testing.timeout")
+                else if (child.specId == "project.registration.environment")
                 {
-                    definition.timeoutSeconds = ParseInteger(AttributeValue(child, "Seconds"));
-                    if (!definition.timeoutSeconds.has_value() || *definition.timeoutSeconds <= 0)
-                        AddError(result.diagnostics, "NGIN3013", "Testing Timeout Seconds must be greater than zero",
+                    const auto name = AttributeValue(child, "Name");
+                    if (!definition.environment.emplace(name, AttributeValue(child, "Value")).second)
+                        AddError(result.diagnostics, "NGIN3013", "duplicate registration Environment '" + name + "'",
                                  child.source);
                 }
-            }
-            semantic.testing = std::move(definition);
-            if (const auto *dependencies = Child(*testing, "project.testing.dependencies"))
-            {
-                if (semantic.type == ProductType::Test || semantic.type == ProductType::Benchmark)
-                    AddError(result.diagnostics, "NGIN3000",
-                             std::string(ProductTypeName(semantic.type)) +
-                                 " products declare test dependencies at the root",
-                             dependencies->source);
-                ParseDependencies(*dependencies, DependencyContext::Test, std::nullopt, semantic, result.diagnostics);
-            }
-        }
-        for (const auto *publish : Children(project.root, "project.publish"))
+        };
+        for (const auto *test : Children(project.root, "project.test"))
         {
-            const AuthoredElement *output = nullptr;
-            for (const auto &child : publish->children)
-                if (child.specId == "project.publish.folder" || child.specId == "project.publish.archive" ||
-                    child.specId == "project.publish.installer")
-                    output = &child;
-            if (output != nullptr)
+            ProjectTestingDefinition definition{};
+            parseRegistration(*test, definition);
+            semantic.tests.push_back(std::move(definition));
+        }
+        for (const auto *benchmark : Children(project.root, "project.benchmark"))
+        {
+            ProjectBenchmarkDefinition definition{};
+            parseRegistration(*benchmark, definition);
+            definition.repetitions = ParseInteger(AttributeValue(*benchmark, "Repetitions"));
+            definition.warmupSeconds = ParseInteger(AttributeValue(*benchmark, "Warmup"));
+            semantic.benchmarks.push_back(std::move(definition));
+        }
+        if (const auto *publish = Child(project.root, "project.publish"))
+            for (const auto &output : publish->children)
             {
-                const auto normalized = NormalizeStageDestination(AttributeValue(*output, "Output"), output->source);
+                const auto normalized = NormalizeStageDestination(AttributeValue(output, "Output"), output.source);
                 if (normalized.Succeeded())
                     semantic.publishes.push_back(ProjectPublishDefinition{
-                        .name = AttributeValue(*publish, "Name"),
-                        .kind = output->specId == "project.publish.archive"     ? PublishOutputKind::Archive
-                                : output->specId == "project.publish.installer" ? PublishOutputKind::Installer
+                        .name = AttributeValue(output, "Name"),
+                        .kind = output.specId == "project.publish.archive"     ? PublishOutputKind::Archive
+                                : output.specId == "project.publish.installer" ? PublishOutputKind::Installer
                                                                                 : PublishOutputKind::Folder,
-                        .format = AttributeValue(*output, "Format"),
+                        .format = AttributeValue(output, "Format"),
                         .output = *normalized.value,
-                        .source = publish->source});
+                        .source = output.source});
                 else
                     result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
                                               normalized.diagnostics.end());
             }
-            if (const auto *dependencies = Child(*publish, "project.publish.dependencies"))
-                ParseDependencies(*dependencies, DependencyContext::Publish, AttributeValue(*publish, "Name"), semantic,
-                                  result.diagnostics);
+
+        for (const auto *authored : Children(project.root, "project.when"))
+        {
+            ProjectRefinement refinement{};
+            ParseProjectRefinement(*authored, semantic, rootContext, refinement, result.diagnostics);
+            semantic.refinements.push_back(std::move(refinement));
         }
 
-        if (const auto *refinements = Child(project.root, "project.refinements"))
-            for (const auto *authored : Children(*refinements, "project.refinement"))
-            {
-                ProjectRefinement refinement{};
-                ParseProjectRefinement(*authored, semantic, rootContext, refinement, result.diagnostics);
-                semantic.refinements.push_back(std::move(refinement));
-            }
-
-        if ((semantic.type == ProductType::Library || semantic.type == ProductType::Plugin) &&
-            !semantic.launches.empty())
-            AddError(result.diagnostics, "NGIN3000",
-                     std::string(ProductTypeName(semantic.type)) + " products cannot declare Launch",
-                     project.root.source);
-        if (semantic.type == ProductType::External && semantic.hasBuildSection)
-            AddError(result.diagnostics, "NGIN3000", "External products cannot declare core Build inputs",
-                     project.root.source);
-        if (semantic.type == ProductType::External)
-            for (const auto &refinement : semantic.refinements)
-                if (!refinement.semantic.assignments.empty())
-                    AddError(result.diagnostics, "NGIN3000", "External products cannot refine core Build inputs",
-                             refinement.semantic.source);
-        if (semantic.type != ProductType::Library)
+        if (project.artifactKind == "Library" && project.libraryKind == "Interface")
+            for (const auto &declaration : semantic.build.declarations)
+                if (declaration.kind == BuildItemKind::Source)
+                    AddError(result.diagnostics, "NGIN3000", "Interface Library cannot contain compiled Source items",
+                             declaration.source);
+        if (project.artifactKind != "Library")
         {
             for (const auto &declaration : semantic.build.declarations)
                 if (declaration.visibility.has_value() && *declaration.visibility != BuildVisibility::Private)
@@ -995,7 +981,7 @@ namespace NGIN::CLI
         }
         for (auto &[_, item] : items)
         {
-            if (project.linkage == LibraryLinkage::Interface &&
+            if (project.libraryKind == LibraryKind::Interface &&
                 (item.kind == BuildItemKind::Source || item.kind == BuildItemKind::CxxModule ||
                  item.kind == BuildItemKind::PrecompiledHeader))
                 AddError(result.diagnostics, "NGIN3000",
@@ -1003,7 +989,7 @@ namespace NGIN::CLI
                          item.source);
             result.items.push_back(std::move(item));
         }
-        if (project.linkage == LibraryLinkage::Interface && result.unityBuild.has_value() && result.unityBuild->enabled)
+        if (project.libraryKind == LibraryKind::Interface && result.unityBuild.has_value() && result.unityBuild->enabled)
             AddError(result.diagnostics, "NGIN3000", "Interface Library cannot enable UnityBuild",
                      result.unityBuild->source);
         return result;

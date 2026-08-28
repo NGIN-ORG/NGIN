@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Tooling.ClangTidy" Version="0.1.0">
-  <Exports>
-    <Tool Name="ClangTidy" />
-    <Action Name="Analyze" Kind="Analyze" Tool="ClangTidy">
-      <Inputs><Source Include="**/*.cpp" /></Inputs>
-      <Argument>-p</Argument>
-      <Argument>${BuildDir}</Argument>
-    </Action>
-  </Exports>
-  <Integrations><cmake:Manual Source="."><cmake:Target Export="ClangTidy" Name="clang-tidy" /></cmake:Manual></Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Tooling.ClangTidy" Version="0.1.0">
+  <Tool Name="ClangTidy" />
+  <Analyzer Name="Analyze" Tool="ClangTidy">
+    <Inputs>
+      <Source Include="**/*.cpp" />
+    </Inputs>
+    <Argument>-p</Argument>
+    <Argument>${BuildDir}</Argument>
+  </Analyzer>
+  <Adapters>
+    <cmake:Manual Source=".">
+      <cmake:Target Export="ClangTidy" Name="clang-tidy" />
+    </cmake:Manual>
+  </Adapters>
 </Package>

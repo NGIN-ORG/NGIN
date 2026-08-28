@@ -81,6 +81,12 @@ namespace NGIN::CLI
         std::string exportIdentity{};
         std::string exportName{};
         std::string targetName{};
+        std::string importedKind{};
+        std::string location{};
+        std::vector<std::string> includeDirectories{};
+        std::vector<std::string> compileDefinitions{};
+        std::vector<std::string> compileOptions{};
+        std::vector<std::string> linkOptions{};
     };
 
     enum class CMakeIntegrationKind
@@ -89,6 +95,7 @@ namespace NGIN::CLI
         Isolated,
         FindPackage,
         Manual,
+        Cps,
     };
 
     struct CMakeCacheBinding

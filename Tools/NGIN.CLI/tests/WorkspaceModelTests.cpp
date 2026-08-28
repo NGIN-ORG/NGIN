@@ -28,29 +28,23 @@ namespace NGIN::CLI::Tests
     TEST_CASE("Workspace model discovers projects and resolves typed policy", "[workspace-model]")
     {
         TempDir temp{};
-        WriteFile(temp.path() / "apps/Hello.nginproj", R"xml(<Project Name="Hello" Type="Application">
-  <Dependencies><Package Name="fmt" Compatible="11" /></Dependencies>
-</Project>)xml");
+        WriteFile(temp.path() / "apps/Hello.nginproj", R"xml(<Executable Name="Hello">
+  <Uses><Package Name="fmt" Version="11" /></Uses>
+</Executable>)xml");
         WriteFile(temp.path() / "packages/fmt.nginpkg", R"xml(<Package Name="fmt" Version="11.0.2">
-  <Exports><Library Name="fmt" Default="true" /></Exports>
+  <Library Name="fmt" />
 </Package>)xml");
         const auto workspacePath = temp.path() / "NGIN.ngin";
         WriteFile(workspacePath, R"xml(<Workspace Name="Example">
-  <Projects><Project Include="apps/**/*.nginproj" /></Projects>
+  <Discover>
+    <Projects Include="apps/**/*.nginproj" />
+    <Packages Include="packages/**/*.nginpkg" />
+  </Discover>
   <Configurations><Configuration Name="Debug" /></Configurations>
   <Targets><Target Name="windows-x64" OS="windows" Architecture="x64"><Alias Name="desktop" /></Target></Targets>
   <Toolchains><Toolchain Name="msvc" Compiler="msvc" /></Toolchains>
-  <Defaults><OutputRoot Path="build" /><Configuration Name="Debug" /><Target Name="desktop" /><Toolchain Name="msvc" /></Defaults>
-  <Packages>
-    <Source Name="local" Kind="Directory" Path="packages" />
-    <LocalPackage Name="fmt" Manifest="packages/fmt.nginpkg" Root="packages" />
-    <Version Name="fmt" AtLeast="11.0.0" Before="12.0.0" />
-    <Binding Package="fmt" Source="local" Coordinate="fmt" />
-  </Packages>
-  <Policies>
-    <PackageProviders IntegrityRequired="true" Locked="true"><Allow Kind="Directory" /></PackageProviders>
-    <Compatibility><Target Name="desktop" /><Toolchain Name="msvc" /></Compatibility>
-  </Policies>
+  <Versions><Package Name="fmt" AtLeast="11.0.0" Before="12.0.0" /></Versions>
+  <Profiles Default="desktop"><Profile Name="desktop" Configuration="Debug" Target="desktop" Toolchain="msvc" /></Profiles>
 </Workspace>)xml");
 
         const auto result = ParseWorkspaceFile(workspacePath);
@@ -60,21 +54,21 @@ namespace NGIN::CLI::Tests
         CHECK(result.value->projects.front().project.name == "Hello");
         CHECK(result.value->centralVersions.contains("fmt"));
         CHECK(result.value->localPackages.at("fmt").coordinate.exactVersion == "11.0.2");
-        CHECK(result.value->providerPolicy.allowedKinds.contains("Directory"));
-        CHECK(result.value->providerPolicy.allowedKinds.size() == 1);
-        CHECK(result.value->compatibilityPolicy.targets.contains("desktop"));
+        CHECK(result.value->selection.defaults.target == "desktop");
+        REQUIRE(result.value->outputRoot.has_value());
+        CHECK(result.value->outputRoot->value == ".ngin/build");
     }
 
     TEST_CASE("Workspace project discovery prunes generated and version-control directories", "[workspace-model]")
     {
         TempDir temp{};
-        WriteFile(temp.path() / "apps/Hello.nginproj", "<Project Name=\"Hello\" Type=\"Application\" />");
+        WriteFile(temp.path() / "apps/Hello.nginproj", "<Executable Name=\"Hello\" />");
         WriteFile(temp.path() / "apps/.ngin/build/Generated.nginproj", "not XML");
         WriteFile(temp.path() / "apps/build/Generated.nginproj", "not XML");
         WriteFile(temp.path() / "apps/.git/Generated.nginproj", "not XML");
         const auto workspacePath = temp.path() / "NGIN.ngin";
         WriteFile(workspacePath, R"xml(<Workspace Name="Example">
-  <Projects><Project Include="apps/**/*.nginproj" /></Projects>
+  <Discover><Projects Include="apps/**/*.nginproj" /></Discover>
 </Workspace>)xml");
 
         const auto result = ParseWorkspaceFile(workspacePath);
@@ -84,39 +78,37 @@ namespace NGIN::CLI::Tests
         CHECK(result.value->projects.front().project.name == "Hello");
     }
 
-    TEST_CASE("Workspace model rejects overlapping discovery and policy conflicts", "[workspace-model]")
+    TEST_CASE("Workspace model deduplicates overlapping discovery", "[workspace-model]")
     {
         TempDir temp{};
-        WriteFile(temp.path() / "apps/Hello.nginproj", "<Project Name=\"Hello\" Type=\"Application\" />");
+        WriteFile(temp.path() / "apps/Hello.nginproj", "<Executable Name=\"Hello\" />");
         const auto workspacePath = temp.path() / "NGIN.ngin";
         WriteFile(workspacePath, R"xml(<Workspace Name="Invalid">
-  <Projects>
-    <Project Path="apps/Hello.nginproj" />
-    <Project Include="apps/**/*.nginproj" />
-  </Projects>
-  <Policies><PackageProviders Locked="true" AllowNonHermetic="true" /></Policies>
+  <Discover>
+    <Projects Include="apps/Hello.nginproj" />
+    <Projects Include="apps/**/*.nginproj" />
+  </Discover>
 </Workspace>)xml");
 
         const auto result = ParseWorkspaceFile(workspacePath);
-        CHECK_FALSE(result.Succeeded());
+        REQUIRE(result.Succeeded());
+        CHECK(result.value->projects.size() == 1);
         const auto text = DiagnosticsText(result.diagnostics);
-        CHECK(text.find("more than one workspace declaration") != std::string::npos);
-        CHECK(text.find("cannot allow non-hermetic") != std::string::npos);
-        CHECK(text.find("requires IntegrityRequired") != std::string::npos);
+        CHECK(text.find("deduplicated") != std::string::npos);
     }
 
-    TEST_CASE("Workspace model rejects unused central versions", "[workspace-model]")
+    TEST_CASE("Workspace model warns about unused central versions", "[workspace-model]")
     {
         TempDir temp{};
-        WriteFile(temp.path() / "Hello.nginproj", "<Project Name=\"Hello\" Type=\"Application\" />");
+        WriteFile(temp.path() / "Hello.nginproj", "<Executable Name=\"Hello\" />");
         const auto workspacePath = temp.path() / "NGIN.ngin";
         WriteFile(workspacePath, R"xml(<Workspace Name="Invalid">
-  <Projects><Project Path="Hello.nginproj" /></Projects>
-  <Packages><Version Name="fmt" Exact="11.0.2" /></Packages>
+  <Discover><Projects Include="Hello.nginproj" /></Discover>
+  <Versions><Package Name="fmt" Exact="11.0.2" /></Versions>
 </Workspace>)xml");
 
         const auto result = ParseWorkspaceFile(workspacePath);
-        CHECK_FALSE(result.Succeeded());
+        CHECK(result.Succeeded());
         CHECK(DiagnosticsText(result.diagnostics).find("central Version 'fmt' is unused") != std::string::npos);
     }
 }

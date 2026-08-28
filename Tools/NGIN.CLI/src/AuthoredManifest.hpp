@@ -64,7 +64,8 @@ namespace NGIN::CLI
     {
         AuthoredManifestIdentity manifest{};
         std::string name{};
-        std::string type{};
+        std::string artifactKind{};
+        std::optional<std::string> libraryKind{};
         std::optional<std::string> version{};
         AuthoredElement root{};
     };

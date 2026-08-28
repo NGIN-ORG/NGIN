@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Tooling.ClangFormat" Version="0.1.0">
-  <Exports>
-    <Tool Name="ClangFormat" />
-    <Action Name="Format" Kind="Format" Tool="ClangFormat">
-      <Inputs>
-        <Source Include="**/*.cpp" />
-        <Source Include="**/*.cxx" />
-        <Header Include="**/*.hpp" />
-        <Header Include="**/*.hxx" />
-      </Inputs>
-    </Action>
-  </Exports>
-  <Integrations><cmake:Manual Source="."><cmake:Target Export="ClangFormat" Name="clang-format" /></cmake:Manual></Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Tooling.ClangFormat" Version="0.1.0">
+  <Tool Name="ClangFormat" />
+  <Formatter Name="Format" Tool="ClangFormat">
+    <Inputs>
+      <Source Include="**/*.cpp" />
+      <Source Include="**/*.cxx" />
+      <Header Include="**/*.hpp" />
+      <Header Include="**/*.hxx" />
+    </Inputs>
+  </Formatter>
+  <Adapters>
+    <cmake:Manual Source=".">
+      <cmake:Target Export="ClangFormat" Name="clang-format" />
+    </cmake:Manual>
+  </Adapters>
 </Package>

@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <Package Name="NGIN.Diagnostics" Version="0.1.0">
-  <Requires><Package Name="NGIN.Log" Compatible="0.1" Visibility="Private" /></Requires>
-  <Exports>
-    <Plugin Name="Diagnostics" Default="true">
-      <RuntimeFiles><File Include="config/diagnostics.defaults.xml" Into="config/diagnostics.defaults.xml" /></RuntimeFiles>
-    </Plugin>
-  </Exports>
-  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
+  <Uses>
+    <Package Name="NGIN.Log" Version="0.1" />
+  </Uses>
+  <Plugin Name="Diagnostics" Default="true">
+    <RuntimeFiles>
+      <File From="config/diagnostics.defaults.xml" To="config/diagnostics.defaults.xml" />
+    </RuntimeFiles>
+  </Plugin>
+  <Compatibility>
+    <Target OS="linux" />
+    <Target OS="windows" />
+    <Target OS="macos" />
+  </Compatibility>
 </Package>

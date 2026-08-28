@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <Package Name="Samples.DemoPackage" Version="0.1.0">
-  <Metadata><Description>Example configuration asset package.</Description><License>MIT</License></Metadata>
-  <Exports><Asset Name="Configuration" Default="true"><File Include="app.cfg" Into="app.cfg" /></Asset></Exports>
-  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
+  <Metadata>
+    <Description>Example configuration asset package.</Description>
+    <License>MIT</License>
+  </Metadata>
+  <Asset Name="Configuration" Default="true">
+    <File From="app.cfg" To="app.cfg" />
+  </Asset>
+  <Compatibility>
+    <Target OS="linux" />
+    <Target OS="windows" />
+    <Target OS="macos" />
+  </Compatibility>
 </Package>

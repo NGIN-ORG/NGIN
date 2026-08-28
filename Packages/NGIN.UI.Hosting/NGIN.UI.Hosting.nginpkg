@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.UI.Hosting" Version="0.4.0">
-  <Metadata><Description>NGIN.Core hosting, scoped ViewModel, and UI-thread bridge.</Description><License>Apache-2.0</License></Metadata>
-  <Requires>
-    <Package Name="NGIN.Core" Compatible="0.1" Visibility="Public" />
-    <Package Name="NGIN.UI" Compatible="0.4" Visibility="Public" />
-  </Requires>
-  <Exports><Library Name="Hosting" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.UI.Hosting" Version="0.4.0">
+  <Metadata>
+    <Description>NGIN.Core hosting, scoped ViewModel, and UI-thread bridge.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" Public="true" />
+    <Package Name="NGIN.UI" Version="0.4" Public="true" />
+  </Uses>
+  <Library Name="Hosting" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_UI_HOSTING_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Target Export="Hosting" Name="NGIN::UI::Hosting" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

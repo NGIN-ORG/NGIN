@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.UI.Backend.SDL3" Version="0.4.0">
-  <Metadata><Description>SDL3 native windowing and SDL_GPU renderer for NGIN.UI.</Description><License>Apache-2.0</License></Metadata>
-  <Requires>
-    <Package Name="NGIN.UI" Compatible="0.4" Visibility="Public" />
-    <Package Name="SDL3"><Version AtLeast="3.4.12" Before="4.0.0" /></Package>
-  </Requires>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.UI.Backend.SDL3" Version="0.4.0">
+  <Metadata>
+    <Description>SDL3 native windowing and SDL_GPU renderer for NGIN.UI.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Uses>
+    <Package Name="NGIN.UI" Version="0.4" Public="true" />
+    <Package Name="SDL3">
+      <Version AtLeast="3.4.12" Before="4.0.0" />
+    </Package>
+  </Uses>
   <Contributions>
     <Notices>
-      <Notice Include="THIRD_PARTY_NOTICES.md" Into="licenses/NGIN.UI.Backend.SDL3/THIRD_PARTY_NOTICES.md" />
-      <Notice Include="SDL3-LICENSE.txt" Into="licenses/NGIN.UI.Backend.SDL3/SDL3-LICENSE.txt" />
+      <Notice From="THIRD_PARTY_NOTICES.md" To="licenses/NGIN.UI.Backend.SDL3/THIRD_PARTY_NOTICES.md" />
+      <Notice From="SDL3-LICENSE.txt" To="licenses/NGIN.UI.Backend.SDL3/SDL3-LICENSE.txt" />
     </Notices>
   </Contributions>
-  <Exports><Library Name="SDL3Backend" Default="true" /></Exports>
-  <Integrations>
+  <Library Name="SDL3Backend" Default="true">
+    <Provides Name="NGIN.UI.Backend" Version="1" />
+  </Library>
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_UI_SDL3_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Target Export="SDL3Backend" Name="NGIN::UI::Backend::SDL3" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

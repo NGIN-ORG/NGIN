@@ -48,18 +48,18 @@ namespace NGIN::CLI
         }
 
         template <typename TValue>
-        auto MergePresetScalar(std::optional<TValue> &target, const std::optional<TValue> &preset,
+        auto MergeProfileScalar(std::optional<TValue> &target, const std::optional<TValue> &profile,
                                std::string_view name, const ManifestSourceRange &source,
                                std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            if (!preset.has_value()) return;
-            if (target.has_value() && *target != *preset)
+            if (!profile.has_value()) return;
+            if (target.has_value() && *target != *profile)
             {
                 AddSelectionError(diagnostics, "NGIN2004",
-                                  "explicit '" + std::string(name) + "' conflicts with preset value", source);
+                                  "explicit '" + std::string(name) + "' conflicts with profile value", source);
                 return;
             }
-            target = preset;
+            target = profile;
         }
     }
 
@@ -175,34 +175,26 @@ namespace NGIN::CLI
         };
     }
 
-    auto PresetExpansionResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
+    auto ProfileExpansionResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
 
-    auto ExpandPreset(const Preset &preset, const std::string_view command, const SelectionRequest &explicitRequest)
-        -> PresetExpansionResult
+    auto ExpandProfile(const Profile &profile, const SelectionRequest &explicitRequest)
+        -> ProfileExpansionResult
     {
-        PresetExpansionResult result{};
-        if (preset.command != command)
-        {
-            AddSelectionError(result.diagnostics, "NGIN2004",
-                              "preset '" + preset.name + "' is for command '" + preset.command + "', not '" +
-                                  std::string(command) + "'",
-                              preset.source);
-            return result;
-        }
+        ProfileExpansionResult result{};
         auto expanded = explicitRequest;
-        MergePresetScalar(expanded.configuration, preset.selection.configuration, "configuration", preset.source,
+        MergeProfileScalar(expanded.configuration, profile.selection.configuration, "configuration", profile.source,
                           result.diagnostics);
-        MergePresetScalar(expanded.target, preset.selection.target, "target", preset.source, result.diagnostics);
-        MergePresetScalar(expanded.toolchain, preset.selection.toolchain, "toolchain", preset.source,
+        MergeProfileScalar(expanded.target, profile.selection.target, "target", profile.source, result.diagnostics);
+        MergeProfileScalar(expanded.toolchain, profile.selection.toolchain, "toolchain", profile.source,
                           result.diagnostics);
-        MergePresetScalar(expanded.launch, preset.selection.launch, "launch", preset.source, result.diagnostics);
-        for (const auto &[name, value] : preset.selection.options)
+        MergeProfileScalar(expanded.run, profile.selection.run, "run", profile.source, result.diagnostics);
+        for (const auto &[name, value] : profile.selection.options)
         {
             if (const auto existing = expanded.options.find(name);
                 existing != expanded.options.end() && existing->second != value)
             {
                 AddSelectionError(result.diagnostics, "NGIN2004",
-                                  "explicit Option '" + name + "' conflicts with preset value", preset.source);
+                                  "explicit Option '" + name + "' conflicts with profile value", profile.source);
             }
             else
             {
@@ -264,36 +256,27 @@ namespace NGIN::CLI
     auto ResolveRefinements(const SelectionFacts &selection, const std::vector<SemanticRefinement> &refinements)
         -> RefinementResult
     {
-        struct Selected
-        {
-            RefinementAssignment assignment{};
-            std::size_t specificity{0};
-        };
-        std::map<std::string, Selected, std::less<>> selected{};
+        std::map<std::string, RefinementAssignment, std::less<>> selected{};
         RefinementResult result{};
         for (const auto &refinement : refinements)
         {
             if (!RefinementMatches(refinement.selector, selection)) continue;
-            const auto specificity = RefinementSpecificity(refinement.selector);
             for (const auto &assignment : refinement.assignments)
             {
                 const auto key = assignment.category + "\x1f" + assignment.identity;
                 const auto existing = selected.find(key);
-                if (existing == selected.end() || specificity > existing->second.specificity)
-                {
-                    selected[key] = Selected{.assignment = assignment, .specificity = specificity};
-                }
-                else if (specificity == existing->second.specificity &&
-                         assignment.value != existing->second.assignment.value)
+                if (existing == selected.end())
+                    selected.emplace(key, assignment);
+                else if (assignment.value != existing->second.value)
                 {
                     AddSelectionError(result.diagnostics, "NGIN2006",
-                                      "equal-specificity refinements conflict for " + assignment.category + " '" +
+                                      "matching When blocks conflict for " + assignment.category + " '" +
                                           assignment.identity + "'",
-                                      assignment.source, {existing->second.assignment.source});
+                                      assignment.source, {existing->second.source});
                 }
             }
         }
-        for (auto &[key, value] : selected) result.assignments.emplace(std::move(key), std::move(value.assignment));
+        result.assignments = std::move(selected);
         return result;
     }
 }

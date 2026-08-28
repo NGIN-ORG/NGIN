@@ -14,23 +14,19 @@
 
 namespace NGIN::CLI
 {
-    enum class ProductType
+    enum class ProductArtifactKind
     {
-        Application,
+        Executable,
         Library,
-        Tool,
-        Test,
-        Benchmark,
-        Plugin,
-        External,
     };
 
-    enum class LibraryLinkage
+    enum class LibraryKind
     {
         None,
         Static,
         Shared,
         Interface,
+        Plugin,
     };
 
     enum class DependencyContext
@@ -78,7 +74,18 @@ namespace NGIN::CLI
         ManifestSourceRange source{};
     };
 
-    using ProjectDependency = std::variant<PackageDependencyRequest, ProjectDependencyRequest>;
+    struct ProjectCapabilityRequest
+    {
+        std::string name{};
+        std::string domain{"Link"};
+        std::optional<SourcedVersionConstraint> constraint{};
+        std::optional<std::string> provider{};
+        DependencyContext context{DependencyContext::Target};
+        ManifestSourceRange source{};
+    };
+
+    using ProjectDependency =
+        std::variant<PackageDependencyRequest, ProjectDependencyRequest, ProjectCapabilityRequest>;
 
     enum class BuildItemKind
     {
@@ -220,24 +227,33 @@ namespace NGIN::CLI
         ManifestSourceRange source{};
     };
 
-    struct ProjectLaunchDefinition
+    struct ProjectRunDefinition
     {
         std::string name{};
-        bool defaultLaunch{false};
+        bool defaultRun{false};
         std::optional<std::string> product{};
         std::optional<std::string> tool{};
         PortablePath workingDirectory{.value = ".", .base = PortablePathBase::Manifest};
         std::vector<std::string> arguments{};
         std::map<std::string, std::string, std::less<>> environment{};
         std::map<std::string, std::string, std::less<>> secrets{};
+        bool implicit{false};
         ManifestSourceRange source{};
     };
 
     struct ProjectTestingDefinition
     {
+        std::string name{};
         std::vector<std::string> arguments{};
+        std::map<std::string, std::string, std::less<>> environment{};
         std::optional<std::int64_t> timeoutSeconds{};
         ManifestSourceRange source{};
+    };
+
+    struct ProjectBenchmarkDefinition : ProjectTestingDefinition
+    {
+        std::optional<std::int64_t> repetitions{};
+        std::optional<std::int64_t> warmupSeconds{};
     };
 
     enum class PublishOutputKind
@@ -277,16 +293,17 @@ namespace NGIN::CLI
     {
         AuthoredManifestIdentity manifest{};
         std::string name{};
-        ProductType type{ProductType::Application};
-        LibraryLinkage linkage{LibraryLinkage::None};
+        ProductArtifactKind artifactKind{ProductArtifactKind::Executable};
+        LibraryKind libraryKind{LibraryKind::None};
         std::optional<SemanticVersion> version{};
         ProjectMetadata metadata{};
         std::map<std::string, OptionDefinition, std::less<>> options{};
         std::vector<ProjectDependency> dependencies{};
         std::vector<ProjectActionSelection> actions{};
         std::vector<ProjectStageInput> stage{};
-        std::vector<ProjectLaunchDefinition> launches{};
-        std::optional<ProjectTestingDefinition> testing{};
+        std::vector<ProjectRunDefinition> runs{};
+        std::vector<ProjectTestingDefinition> tests{};
+        std::vector<ProjectBenchmarkDefinition> benchmarks{};
         std::vector<ProjectPublishDefinition> publishes{};
         std::vector<ProjectRefinement> refinements{};
         ProjectBuildModel build{};
@@ -301,7 +318,8 @@ namespace NGIN::CLI
         [[nodiscard]] auto Succeeded() const -> bool;
     };
 
-    [[nodiscard]] auto ProductTypeName(ProductType type) -> std::string_view;
+    [[nodiscard]] auto ProductArtifactKindName(ProductArtifactKind kind) -> std::string_view;
+    [[nodiscard]] auto LibraryKindName(LibraryKind kind) -> std::string_view;
     [[nodiscard]] auto ParseSemanticProject(const AuthoredProjectManifest &project) -> SemanticProjectResult;
     [[nodiscard]] auto ApplyProjectRefinements(const SemanticProject &project, const SelectionFacts &selection)
         -> SemanticProjectResult;

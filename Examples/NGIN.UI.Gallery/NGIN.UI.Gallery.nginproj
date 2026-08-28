@@ -1,24 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="NGIN.UI.Gallery" Type="Application" Version="0.4.0">
-  <Dependencies>
-    <Project Name="NGIN.UI.Gallery.Shared" Path="NGIN.UI.Gallery.Shared.nginproj" />
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-  </Dependencies>
+
+<Executable Name="NGIN.UI.Gallery" Version="0.4.0">
+  <Uses>
+    <Project Path="NGIN.UI.Gallery.Shared.nginproj" />
+    <Capability Name="NGIN.UI.Backend" Version="1" />
+    <Package Name="NGIN.UI" Version="0.4" />
+  </Uses>
   <Build>
     <Source Include="src/main.cpp" />
   </Build>
   <Stage>
-    <File Include="assets/images/gallery-sample.png" Into="images/gallery-sample.png" />
-    <File Include="RELEASE.md" Into="README.md" />
-    <File Include="../../LICENSE" Into="licenses/NGIN/LICENSE" />
+    <File From="assets/images/gallery-sample.png" To="images/gallery-sample.png" />
+    <File From="RELEASE.md" To="README.md" />
+    <File From="../../LICENSE" To="licenses/NGIN/LICENSE" />
   </Stage>
-  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
-  <Publish Name="demo"><Archive Format="zip" Output="dist/NGIN.UI.Gallery-${project.version}-demo.zip" /></Publish>
-  <Refinements>
-    <Refinement>
-      <Select><Target OS="windows" /></Select>
-      <Dependencies><Package Name="NGIN.UI.Accessibility.Windows" Compatible="0.4" /></Dependencies>
-    </Refinement>
-  </Refinements>
-</Project>
+  <Publish>
+    <Archive Name="demo" Format="zip" Output="dist/NGIN.UI.Gallery-${project.version}-demo.zip" />
+  </Publish>
+  <When OS="windows">
+    <Uses>
+      <Package Name="NGIN.UI.Accessibility.Windows" Version="0.4" />
+    </Uses>
+  </When>
+</Executable>

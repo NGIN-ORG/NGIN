@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="NGIN.UI.MultiPage" Type="Application" Version="0.4.0">
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1">
+
+<Executable Name="NGIN.UI.MultiPage" Version="0.4.0">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1">
       <Option Name="Reflection" Value="true" />
     </Package>
-    <Package Name="NGIN.Reflection" Compatible="0.1" />
-    <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
-  <Refinements>
-    <Refinement>
-      <Select><Target OS="windows" /></Select>
-      <Dependencies><Package Name="NGIN.UI.Accessibility.Windows" Compatible="0.4" /></Dependencies>
-    </Refinement>
-  </Refinements>
-</Project>
+    <Package Name="NGIN.Reflection" Version="0.1" />
+    <Package Name="NGIN.UI.Hosting" Version="0.4" />
+    <Capability Name="NGIN.UI.Backend" Version="1" />
+    <Package Name="NGIN.UI" Version="0.4" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <When OS="windows">
+    <Uses>
+      <Package Name="NGIN.UI.Accessibility.Windows" Version="0.4" />
+    </Uses>
+  </When>
+</Executable>

@@ -1,4 +1,5 @@
 #include "DeploymentPlans.hpp"
+#include "PackageModel.hpp"
 #include "ProjectModel.hpp"
 #include "SemanticResolver.hpp"
 #include "TestSupport.hpp"
@@ -10,7 +11,7 @@ namespace
         CompositionGraphData data{};
         data.product = GraphProduct{.identity = "Gallery",
                                     .name = "Gallery",
-                                    .type = ProductType::Application,
+                                    .artifactKind = ProductArtifactKind::Executable,
                                     .version = "1.4.0",
                                     .license = "MIT"};
         data.selection = GraphSelection{.configuration = "Debug",
@@ -44,18 +45,27 @@ namespace
                                                         .include = "LICENSES/**",
                                                         .destination = "notices/Runtime",
                                                         .provenance = GraphProvenance{.reason = "package legal notice"}});
-        data.launches.push_back(GraphLaunch{.identity = "Gallery:Launch:Development",
+        data.runs.push_back(GraphRun{.identity = "Gallery:Run:Development",
                                             .name = "Development",
-                                            .defaultLaunch = true,
+                                            .defaultRun = true,
                                             .executableKind = "Product",
                                             .executable = "Gallery",
                                             .workingDirectory = ".",
                                             .arguments = {"--asset", "one", "--asset", "two"},
                                             .environment = {{"LD_LIBRARY_PATH", "/custom/lib"}, {"LOG_LEVEL", "debug"}},
                                             .secrets = {{"API_TOKEN", "gallery/token"}}});
-        data.testing = GraphTesting{.identity = "Gallery:Testing",
-                                    .arguments = {"--reporter", "console"},
-                                    .timeoutSeconds = 60};
+        data.tests.push_back(GraphTestRegistration{.identity = "Gallery:Test:unit",
+                                                   .name = "unit",
+                                                   .arguments = {"--reporter", "console"},
+                                                   .timeoutSeconds = 60});
+        GraphBenchmarkRegistration benchmark{};
+        benchmark.identity = "Gallery:Benchmark:render";
+        benchmark.name = "render";
+        benchmark.arguments = {"--benchmark_format=json"};
+        benchmark.timeoutSeconds = 120;
+        benchmark.repetitions = 5;
+        benchmark.warmupSeconds = 2;
+        data.benchmarks.push_back(std::move(benchmark));
         data.publishes.push_back(GraphPublish{.identity = "Gallery:Publish:portable",
                                               .name = "portable",
                                               .outputKind = "Archive",
@@ -76,30 +86,32 @@ namespace
     }
 }
 
-TEST_CASE("project semantic model captures direct Stage Launch Testing and Publish intent")
+TEST_CASE("project semantic model captures Stage Run Test and Publish intent")
 {
-    const auto authored = ParseAuthoredManifestText(R"xml(<Project Name="Gallery" Type="Application" Version="1.4.0">
+    const auto authored = ParseAuthoredManifestText(R"xml(<Executable Name="Gallery" Version="1.4.0">
   <Metadata><License>MIT</License></Metadata>
-  <Stage><File Include="config/app.cfg" Into="config/app.cfg" /></Stage>
-  <Launch Name="Development" Default="true">
+  <Stage><File From="config/app.cfg" To="config/app.cfg" /></Stage>
+  <Run Name="Development">
     <Argument>--asset</Argument><Argument>one</Argument>
     <Environment Name="LOG_LEVEL" Value="debug" />
     <Secret Name="API_TOKEN" From="gallery/token" />
-  </Launch>
-  <Testing><Argument>--reporter</Argument><Argument>console</Argument><Timeout Seconds="60" /></Testing>
-  <Publish Name="portable"><Archive Format="zip" Output="dist/${project.name}-${project.version}.zip" /></Publish>
-</Project>)xml", "Gallery.nginproj");
+  </Run>
+  <Test Name="unit" Timeout="60"><Argument>--reporter</Argument><Argument>console</Argument></Test>
+  <Benchmark Name="render" Timeout="120" Repetitions="5" Warmup="2" />
+  <Publish><Archive Name="portable" Format="zip" Output="dist/${project.name}-${project.version}.zip" /></Publish>
+</Executable>)xml", "Gallery.nginproj");
     INFO((authored.diagnostics.empty() ? "" : authored.diagnostics.front().message));
     REQUIRE(authored.Succeeded());
     const auto semantic = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
     INFO((semantic.diagnostics.empty() ? "" : semantic.diagnostics.front().message));
     REQUIRE(semantic.Succeeded());
     REQUIRE(semantic.value->stage.size() == 1);
-    REQUIRE(semantic.value->launches.size() == 1);
-    REQUIRE(semantic.value->launches[0].product == "Gallery");
-    REQUIRE(semantic.value->launches[0].arguments == std::vector<std::string>{"--asset", "one"});
-    REQUIRE(semantic.value->launches[0].secrets.at("API_TOKEN") == "gallery/token");
-    REQUIRE(semantic.value->testing->timeoutSeconds == 60);
+    REQUIRE(semantic.value->runs.size() == 1);
+    REQUIRE(semantic.value->runs[0].product == "Gallery");
+    REQUIRE(semantic.value->runs[0].arguments == std::vector<std::string>{"--asset", "one"});
+    REQUIRE(semantic.value->runs[0].secrets.at("API_TOKEN") == "gallery/token");
+    REQUIRE(semantic.value->tests[0].timeoutSeconds == 60);
+    REQUIRE(semantic.value->benchmarks[0].repetitions == 5);
     REQUIRE(semantic.value->publishes[0].kind == PublishOutputKind::Archive);
 }
 
@@ -109,13 +121,14 @@ TEST_CASE("resolver projects deployment intent into the backend-free graph")
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }");
     WriteFile(temp.path() / "config/app.cfg", "config");
     const auto projectPath = temp.path() / "Gallery.nginproj";
-    WriteFile(projectPath, R"xml(<Project Name="Gallery" Type="Application" Version="1.4.0">
+    WriteFile(projectPath, R"xml(<Executable Name="Gallery" Version="1.4.0">
   <Build><Source Include="src/main.cpp" /></Build>
-  <Stage><File Include="config/app.cfg" Into="config/app.cfg" /></Stage>
-  <Launch Name="Development" Default="true"><Argument>--dev</Argument></Launch>
-  <Testing><Timeout Seconds="30" /></Testing>
-  <Publish Name="portable"><Archive Format="zip" Output="dist/Gallery.zip" /></Publish>
-</Project>)xml");
+  <Stage><File From="config/app.cfg" To="config/app.cfg" /></Stage>
+  <Run Name="Development"><Argument>--dev</Argument></Run>
+  <Test Timeout="30" />
+  <Benchmark Name="render" Repetitions="3" Warmup="1" />
+  <Publish><Archive Name="portable" Format="zip" Output="dist/Gallery.zip" /></Publish>
+</Executable>)xml");
     const auto authored = ParseAuthoredManifest(projectPath);
     REQUIRE(authored.Succeeded());
     const auto semantic = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
@@ -132,16 +145,17 @@ TEST_CASE("resolver projects deployment intent into the backend-free graph")
                                                                         .hostSelection = selection});
     INFO((resolved.diagnostics.empty() ? "" : resolved.diagnostics.front().message));
     REQUIRE(resolved.Succeeded());
-    REQUIRE(resolved.graph->Data().launches.size() == 1);
-    REQUIRE(resolved.graph->Data().launches[0].executable == "Gallery");
-    REQUIRE(resolved.graph->Data().testing->timeoutSeconds == 30);
+    REQUIRE(resolved.graph->Data().runs.size() == 1);
+    REQUIRE(resolved.graph->Data().runs[0].executable == "Gallery");
+    REQUIRE(resolved.graph->Data().tests[0].timeoutSeconds == 30);
+    REQUIRE(resolved.graph->Data().benchmarks[0].repetitions == 3);
     REQUIRE(resolved.graph->Data().publishes.size() == 1);
     REQUIRE(std::ranges::any_of(resolved.graph->Data().contributions,
                                 [](const auto &value) { return value.kind == "ProjectFile"; }));
     REQUIRE(resolved.graph->CanonicalSerialization().find("CPACK_") == std::string::npos);
-    const auto explained = ExplainCompositionIdentity(*resolved.graph, "Gallery:Launch:Development");
+    const auto explained = ExplainCompositionIdentity(*resolved.graph, "Gallery:Run:Development");
     REQUIRE(explained.has_value());
-    REQUIRE(explained->category == "launch");
+    REQUIRE(explained->category == "run");
 }
 
 TEST_CASE("deployment plans preserve ownership repeated arguments environments and typed publish inputs")
@@ -170,20 +184,26 @@ TEST_CASE("deployment plans preserve ownership repeated arguments environments a
     }));
     REQUIRE(stage.plan->plan.identity == FingerprintStagePlan(*stage.plan));
 
-    const auto launch = DeriveLaunchPlan(graph, *stage.plan, bindings);
-    REQUIRE(launch.Succeeded());
-    REQUIRE(launch.plan->arguments == std::vector<std::string>{"--asset", "one", "--asset", "two"});
-    REQUIRE(launch.plan->environment.at("LD_LIBRARY_PATH").ends_with(":/custom/lib"));
-    REQUIRE(launch.plan->environment.at("LOG_LEVEL") == "debug");
-    REQUIRE(launch.plan->secretReferences.at("API_TOKEN") == "gallery/token");
-    REQUIRE(std::ranges::none_of(launch.plan->prerequisites,
+    const auto run = DeriveRunPlan(graph, *stage.plan, bindings);
+    REQUIRE(run.Succeeded());
+    REQUIRE(run.plan->arguments == std::vector<std::string>{"--asset", "one", "--asset", "two"});
+    REQUIRE(run.plan->environment.at("LD_LIBRARY_PATH").ends_with(":/custom/lib"));
+    REQUIRE(run.plan->environment.at("LOG_LEVEL") == "debug");
+    REQUIRE(run.plan->secretReferences.at("API_TOKEN") == "gallery/token");
+    REQUIRE(std::ranges::none_of(run.plan->prerequisites,
                                  [](const auto &value) { return value.find("Telemetry") != std::string::npos; }));
-    REQUIRE(launch.plan->plan.identity == FingerprintLaunchPlan(*launch.plan));
+    REQUIRE(run.plan->plan.identity == FingerprintRunPlan(*run.plan));
 
     const auto test = DeriveTestPlan(graph, *stage.plan);
     REQUIRE(test.Succeeded());
     REQUIRE(test.plan->dependencyInstances == std::vector<std::string>{"catch-instance"});
     REQUIRE(test.plan->timeoutSeconds == 60);
+
+    const auto benchmark = DeriveBenchmarkPlan(graph, *stage.plan, "render");
+    REQUIRE(benchmark.Succeeded());
+    REQUIRE(benchmark.plan->repetitions == 5);
+    REQUIRE(benchmark.plan->warmupSeconds == 2);
+    REQUIRE(benchmark.plan->plan.identity == FingerprintBenchmarkPlan(*benchmark.plan));
 
     const auto publish = DerivePublishPlan(graph, *stage.plan, "portable");
     REQUIRE(publish.Succeeded());
@@ -194,6 +214,28 @@ TEST_CASE("deployment plans preserve ownership repeated arguments environments a
                                 [](const auto &input) { return input.category == "Notice"; }));
     REQUIRE(std::ranges::any_of(publish.plan->inputs,
                                 [](const auto &input) { return input.category == "Symbol"; }));
+    REQUIRE(std::ranges::any_of(publish.plan->inputs, [](const auto &input) {
+        return input.category == "Metadata" && input.destination == "share/cps/Gallery.cps";
+    }));
+    const auto cps = GenerateCpsDescription(graph, *stage.plan);
+    REQUIRE_THAT(cps, ContainsSubstring("\"cps_version\":\"0.15.0\""));
+    REQUIRE_THAT(cps, ContainsSubstring("\"cps_path\":\"@prefix@/share/cps\""));
+    REQUIRE_THAT(cps, ContainsSubstring("\"name\":\"Gallery\""));
+    REQUIRE_THAT(cps, ContainsSubstring("\"type\":\"executable\""));
+    const auto generatedCps = temp.path() / "stage/share/cps/Gallery.cps";
+    WriteFile(generatedCps, cps);
+    const auto overlayPath = temp.path() / "stage/Gallery.nginpkg";
+    WriteFile(overlayPath, R"xml(<Package Name="Gallery" Version="1.4.0">
+  <Import Cps="share/cps/Gallery.cps" />
+</Package>)xml");
+    const auto imported = ParseAuthoredManifest(overlayPath);
+    REQUIRE(imported.Succeeded());
+    const auto roundTrip = ParseSemanticPackage(std::get<AuthoredPackageManifest>(*imported.value));
+    INFO((roundTrip.diagnostics.empty() ? "" : roundTrip.diagnostics.front().message));
+    REQUIRE(roundTrip.Succeeded());
+    REQUIRE(roundTrip.value->exports.at("Gallery").kind == ExportUseKind::Tool);
+    REQUIRE(roundTrip.value->exports.at("Gallery").cps->location.has_value());
+    CHECK(fs::path(*roundTrip.value->exports.at("Gallery").cps->location).is_absolute());
     REQUIRE_THAT(GenerateCPackConfiguration(*publish.plan), ContainsSubstring("CPACK_GENERATOR \"ZIP\""));
     REQUIRE(graph.CanonicalSerialization().find("CPACK_") == std::string::npos);
 
@@ -237,36 +279,4 @@ TEST_CASE("StagePlan rejects missing sources unsafe destinations and ownership c
     const auto executed = ExecuteStagePlan(unsafe);
     REQUIRE_FALSE(executed.Succeeded());
     REQUIRE_FALSE(fs::exists(temp.path() / "escape.cfg"));
-}
-
-TEST_CASE("StagePlan applies only explicitly owned replacements")
-{
-    TempDir temp{};
-    WriteFile(temp.path() / "one/common.dll", "one");
-    WriteFile(temp.path() / "two/common.dll", "two");
-    CompositionGraphData data{};
-    data.product = GraphProduct{.identity = "Bundle", .name = "Bundle", .type = ProductType::External};
-    data.selection = GraphSelection{.targetOperatingSystem = "windows", .targetArchitecture = "x64"};
-    data.contributions = {
-        GraphContribution{.identity = "one", .owner = "one-instance::Runtime", .kind = "RuntimeFile",
-                          .include = "common.dll", .destination = "bin",
-                          .provenance = GraphProvenance{.reason = "first provider"}},
-        GraphContribution{.identity = "two", .owner = "two-instance::Runtime", .kind = "RuntimeFile",
-                          .include = "common.dll", .destination = "bin",
-                          .provenance = GraphProvenance{.reason = "selected replacement"}}};
-    const ResolvedCompositionGraph graph{std::move(data)};
-    const auto rejected = DeriveStagePlan(graph, StagePlanBindings{
-        .projectRoot = temp.path(), .stageRoot = temp.path() / "stage",
-        .packageRoots = {{"one-instance", temp.path() / "one"}, {"two-instance", temp.path() / "two"}}});
-    REQUIRE_FALSE(rejected.Succeeded());
-
-    const auto replaced = DeriveStagePlan(graph, StagePlanBindings{
-        .projectRoot = temp.path(), .stageRoot = temp.path() / "stage",
-        .packageRoots = {{"one-instance", temp.path() / "one"}, {"two-instance", temp.path() / "two"}},
-        .allowedReplacements = {{"bin/common.dll", "two-instance::Runtime"}},
-        .targetCaseInsensitive = true});
-    REQUIRE(replaced.Succeeded());
-    REQUIRE(replaced.plan->items.size() == 1);
-    REQUIRE(replaced.plan->items[0].owner == "two-instance::Runtime");
-    REQUIRE_THAT(replaced.plan->items[0].reason, ContainsSubstring("explicitly replaces"));
 }

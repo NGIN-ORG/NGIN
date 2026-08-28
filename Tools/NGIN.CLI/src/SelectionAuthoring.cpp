@@ -14,6 +14,11 @@ namespace NGIN::CLI
             return attribute == nullptr ? std::move(fallback) : attribute->value;
         }
 
+        [[nodiscard]] auto HasAttribute(const AuthoredElement &element, const std::string_view name) -> bool
+        {
+            return element.Attribute(name) != nullptr;
+        }
+
         [[nodiscard]] auto Child(const AuthoredElement &element, const std::string_view specId)
             -> const AuthoredElement *
         {
@@ -56,22 +61,6 @@ namespace NGIN::CLI
             target.push_back(std::move(value));
         }
 
-        [[nodiscard]] auto ParseRequest(const AuthoredElement &owner, const std::string_view prefix)
-            -> SelectionRequest
-        {
-            SelectionRequest request{};
-            if (const auto *node = Child(owner, std::string(prefix) + ".configuration"))
-                request.configuration = AttributeValue(*node, "Name");
-            if (const auto *node = Child(owner, std::string(prefix) + ".target"))
-                request.target = AttributeValue(*node, "Name");
-            if (const auto *node = Child(owner, std::string(prefix) + ".toolchain"))
-                request.toolchain = AttributeValue(*node, "Name");
-            if (const auto *node = Child(owner, std::string(prefix) + ".launch"))
-                request.launch = AttributeValue(*node, "Name");
-            for (const auto *option : Children(owner, std::string(prefix) + ".option"))
-                request.options.emplace(AttributeValue(*option, "Name"), AttributeValue(*option, "Value"));
-            return request;
-        }
     }
 
     auto WorkspaceSelectionResult::Succeeded() const -> bool
@@ -86,7 +75,7 @@ namespace NGIN::CLI
         std::map<std::string, ManifestSourceRange, std::less<>> configurationNames{};
         std::map<std::string, ManifestSourceRange, std::less<>> targetNames{};
         std::map<std::string, ManifestSourceRange, std::less<>> toolchainNames{};
-        std::map<std::string, ManifestSourceRange, std::less<>> presetNames{};
+        std::map<std::string, ManifestSourceRange, std::less<>> profileNames{};
 
         if (const auto *configurations = Child(workspace.root, "workspace.configurations"))
         {
@@ -166,21 +155,53 @@ namespace NGIN::CLI
             }
         }
 
-        if (const auto *defaults = Child(workspace.root, "workspace.defaults"))
-            model.defaults = ParseRequest(*defaults, "workspace.defaults");
-
-        if (const auto *presets = Child(workspace.root, "workspace.presets"))
+        if (const auto *profiles = Child(workspace.root, "workspace.profiles"))
         {
-            for (const auto *node : Children(*presets, "workspace.preset"))
+            const auto defaultProfile = AttributeValue(*profiles, "Default");
+            for (const auto *node : Children(*profiles, "workspace.profile"))
             {
-                Preset preset{.name = AttributeValue(*node, "Name"),
-                              .command = AttributeValue(*node, "Command"),
-                              .selection = ParseRequest(*node, "workspace.preset"),
+                Profile profile{.name = AttributeValue(*node, "Name"),
+                              .selection = SelectionRequest{
+                                  .configuration = HasAttribute(*node, "Configuration")
+                                                       ? std::optional<std::string>{AttributeValue(*node, "Configuration")}
+                                                       : std::nullopt,
+                                  .target = HasAttribute(*node, "Target")
+                                                ? std::optional<std::string>{AttributeValue(*node, "Target")}
+                                                : std::nullopt,
+                                  .toolchain = HasAttribute(*node, "Toolchain")
+                                                   ? std::optional<std::string>{AttributeValue(*node, "Toolchain")}
+                                                   : std::nullopt,
+                                  .run = HasAttribute(*node, "Run")
+                                                ? std::optional<std::string>{AttributeValue(*node, "Run")}
+                                                : std::nullopt},
                               .source = node->source};
-                AddUnique(model.presets, std::move(preset), [](const Preset &item) { return item.name; }, node->source,
-                          presetNames, result.diagnostics);
+                for (const auto *option : Children(*node, "workspace.profile.option"))
+                    profile.selection.options.emplace(AttributeValue(*option, "Name"),
+                                                     AttributeValue(*option, "Value"));
+                if (profile.name == defaultProfile) model.defaults = profile.selection;
+                AddUnique(model.profiles, std::move(profile), [](const Profile &item) { return item.name; }, node->source,
+                          profileNames, result.diagnostics);
             }
         }
+
+        const auto addBuiltInConfiguration = [&](Configuration value) {
+            if (!std::ranges::contains(model.configurations, value.name, &Configuration::name))
+                model.configurations.push_back(std::move(value));
+        };
+        addBuiltInConfiguration(Configuration{.name = "Debug", .optimization = "Off", .debugSymbols = true});
+        addBuiltInConfiguration(Configuration{.name = "Release", .optimization = "Speed",
+                                               .debugSymbols = false, .linkTimeOptimization = true});
+        if (!std::ranges::contains(model.targets, std::string{"host"}, &Target::name))
+            model.targets.push_back(Target{.name = "host", .operatingSystem = "host", .architecture = "host"});
+        if (!std::ranges::contains(model.toolchains, std::string{"auto"}, &Toolchain::name))
+            model.toolchains.push_back(Toolchain{.name = "auto", .compiler = "default", .linker = "default"});
+        if (!model.defaults.configuration.has_value()) model.defaults.configuration = "Debug";
+        if (!model.defaults.target.has_value()) model.defaults.target = "host";
+        if (!model.defaults.toolchain.has_value()) model.defaults.toolchain = "auto";
+        configurationNames.try_emplace("Debug", workspace.root.source);
+        configurationNames.try_emplace("Release", workspace.root.source);
+        targetNames.try_emplace("host", workspace.root.source);
+        toolchainNames.try_emplace("auto", workspace.root.source);
 
         const auto checkReference = [&](const std::optional<std::string> &name, const auto &declared,
                                         const std::string_view kind, const ManifestSourceRange &source) {
@@ -196,15 +217,15 @@ namespace NGIN::CLI
         if (model.defaults.target.has_value() && !targetExists(*model.defaults.target))
             AddError(result.diagnostics, "unknown Target '" + *model.defaults.target + "'", workspace.root.source);
         checkReference(model.defaults.toolchain, toolchainNames, "Toolchain", workspace.root.source);
-        for (const auto &preset : model.presets)
+        for (const auto &profile : model.profiles)
         {
-            checkReference(preset.selection.configuration, configurationNames, "Configuration", preset.source);
-            if (preset.selection.target.has_value())
+            checkReference(profile.selection.configuration, configurationNames, "Configuration", profile.source);
+            if (profile.selection.target.has_value())
             {
-                if (!targetExists(*preset.selection.target))
-                    AddError(result.diagnostics, "unknown Target '" + *preset.selection.target + "'", preset.source);
+                if (!targetExists(*profile.selection.target))
+                    AddError(result.diagnostics, "unknown Target '" + *profile.selection.target + "'", profile.source);
             }
-            checkReference(preset.selection.toolchain, toolchainNames, "Toolchain", preset.source);
+            checkReference(profile.selection.toolchain, toolchainNames, "Toolchain", profile.source);
         }
         if (result.diagnostics.empty()) result.value = std::move(model);
         return result;

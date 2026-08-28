@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Benchmark" Version="0.1.0">
-  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Private" /></Requires>
-  <Exports>
-    <Tool Name="SyncProgram" Default="true" />
-    <Tool Name="BenchmarkTool" />
-  </Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Benchmark" Version="0.1.0">
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" />
+  </Uses>
+  <Tool Name="SyncProgram" Default="true" />
+  <Tool Name="BenchmarkTool" />
+  <Adapters>
     <cmake:Manual Source=".">
       <cmake:Target Export="SyncProgram" Name="NGIN.SyncProgram" />
       <cmake:Target Export="BenchmarkTool" Name="NGIN.BenchmarkTool" />
     </cmake:Manual>
-  </Integrations>
-  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
+  </Adapters>
+  <Compatibility>
+    <Target OS="linux" />
+    <Target OS="windows" />
+    <Target OS="macos" />
+  </Compatibility>
 </Package>

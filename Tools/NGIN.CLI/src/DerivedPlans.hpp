@@ -42,6 +42,7 @@ namespace NGIN::CLI
         std::string binaryDirectory{};
         std::string installedPrefix{};
         std::vector<CMakeCacheBinding> cache{};
+        std::vector<CMakeTargetBinding> targets{};
         std::optional<CMakeFindPackageBinding> findPackage{};
         bool installBeforeUse{false};
         IntegrationBindingProvenance provenance{};

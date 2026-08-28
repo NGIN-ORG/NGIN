@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<Project Name="Hello.Formatter" Type="Application">
+<Executable Name="Hello.Formatter">
   <Build>
     <Source Include="src/**/*.cpp" />
   </Build>
   <Tooling>
-    <Format Action="NGIN.Tooling.ClangFormat::Format" />
+    <Format Using="NGIN.Tooling.ClangFormat/Format" />
   </Tooling>
-  <Launch Name="Default" Default="true">
-    <WorkingDirectory Path="." />
-  </Launch>
-</Project>
+</Executable>

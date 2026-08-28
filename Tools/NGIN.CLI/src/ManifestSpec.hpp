@@ -9,7 +9,7 @@
 
 namespace NGIN::CLI
 {
-    inline constexpr std::string_view CMakeIntegrationNamespace = "urn:ngin:integration:cmake";
+    inline constexpr std::string_view CMakeIntegrationNamespace = "urn:ngin:adapter:cmake";
 
     enum class ManifestDocumentKind
     {
@@ -63,7 +63,7 @@ namespace NGIN::CLI
     {
         ManifestDocumentKind kind{ManifestDocumentKind::Project};
         std::string extension{};
-        std::string rootElementId{};
+        std::vector<std::string> rootElementIds{};
         std::string schemaFile{};
     };
 

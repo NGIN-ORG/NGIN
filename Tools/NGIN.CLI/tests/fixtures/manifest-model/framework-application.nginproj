@@ -1,24 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Gallery" Type="Application" Version="0.4.0">
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-    <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-  </Dependencies>
 
+<Executable Name="Gallery" Version="0.4.0">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.4" />
+    <Package Name="NGIN.UI" Version="0.4" />
+    <Package Name="NGIN.UI.Hosting" Version="0.4" />
+    <Package Name="NGIN.UI.Backend.SDL3" Version="0.4" />
+  </Uses>
   <Build>
     <Source Include="src/**.cpp" />
     <Resource Include="assets/**" Into="assets" />
   </Build>
-
   <Stage>
-    <File Include="config/app.cfg" Into="config/app.cfg" />
+    <File From="config/app.cfg" To="config/app.cfg" />
   </Stage>
-
-  <Launch Name="Development" Default="true">
-    <Executable Product="Gallery" />
-    <WorkingDirectory Path="." />
+  <Run Name="Development">
     <Argument>--gallery</Argument>
-  </Launch>
-</Project>
+  </Run>
+</Executable>

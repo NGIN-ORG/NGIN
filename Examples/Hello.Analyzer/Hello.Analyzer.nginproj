@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello.Analyzer" Type="Application">
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Tooling><Analyze Action="NGIN.Tooling.ClangTidy::Analyze" /></Tooling>
-  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="Hello.Analyzer">
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Tooling>
+    <Analyze Using="NGIN.Tooling.ClangTidy/Analyze" />
+  </Tooling>
+</Executable>

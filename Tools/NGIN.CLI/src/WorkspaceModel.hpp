@@ -13,6 +13,16 @@
 
 namespace NGIN::CLI
 {
+    struct WorkspaceCapabilityPreference
+    {
+        std::string name{};
+        std::string provider{};
+        std::optional<std::string> operatingSystem{};
+        std::optional<std::string> architecture{};
+        std::optional<std::string> configuration{};
+        ManifestSourceRange source{};
+    };
+
     struct WorkspaceProject
     {
         std::filesystem::path path{};
@@ -79,6 +89,7 @@ namespace NGIN::CLI
         std::filesystem::path root{};
         std::vector<WorkspaceProject> projects{};
         WorkspaceSelectionModel selection{};
+        std::vector<WorkspaceCapabilityPreference> capabilityPreferences{};
         std::optional<PortablePath> outputRoot{};
         std::map<std::string, WorkspacePackageSource, std::less<>> packageSources{};
         std::map<std::string, WorkspaceLocalPackage, std::less<>> localPackages{};

@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Base" Version="0.1.0">
-  <Exports>
-    <Library Name="Base" Default="true" />
-    <Library Name="Foundation" />
-    <Library Name="Execution" />
-    <Library Name="IO" />
-    <Library Name="Serialization" />
-    <Library Name="Crypto" />
-    <Library Name="Net" />
-    <Library Name="NetTLS" />
-  </Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Base" Version="0.1.0">
+  <Library Name="Base" Default="true" />
+  <Library Name="Foundation" />
+  <Library Name="Execution" />
+  <Library Name="IO" />
+  <Library Name="Serialization" />
+  <Library Name="Crypto" />
+  <Library Name="Net" />
+  <Library Name="NetTLS" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_BASE_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_BASE_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
@@ -24,5 +23,5 @@
       <cmake:Target Export="Net" Name="NGIN::Base::Net" />
       <cmake:Target Export="NetTLS" Name="NGIN::Base::NetTLS" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

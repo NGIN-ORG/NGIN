@@ -36,15 +36,13 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto TargetKind(const GraphProduct &product) -> std::optional<std::string>
         {
-            if (product.type == ProductType::Application || product.type == ProductType::Tool ||
-                product.type == ProductType::Test || product.type == ProductType::Benchmark)
-                return "Executable";
-            if (product.type == ProductType::Plugin) return "ModuleLibrary";
-            if (product.type == ProductType::Library)
+            if (product.artifactKind == ProductArtifactKind::Executable) return "Executable";
+            if (product.artifactKind == ProductArtifactKind::Library)
             {
-                if (product.linkage == LibraryLinkage::Static) return "StaticLibrary";
-                if (product.linkage == LibraryLinkage::Shared) return "SharedLibrary";
-                if (product.linkage == LibraryLinkage::Interface) return "InterfaceLibrary";
+                if (product.libraryKind == LibraryKind::Static) return "StaticLibrary";
+                if (product.libraryKind == LibraryKind::Shared) return "SharedLibrary";
+                if (product.libraryKind == LibraryKind::Interface) return "InterfaceLibrary";
+                if (product.libraryKind == LibraryKind::Plugin) return "ModuleLibrary";
             }
             return std::nullopt;
         }
@@ -123,6 +121,17 @@ namespace NGIN::CLI
             if (visibility == "Public") return "PUBLIC";
             if (visibility == "Interface") return "INTERFACE";
             return "PRIVATE";
+        }
+
+        [[nodiscard]] auto CMakeList(const std::vector<std::string> &values) -> std::string
+        {
+            std::ostringstream result{};
+            for (std::size_t index = 0; index < values.size(); ++index)
+            {
+                if (index != 0) result << ';';
+                result << Escape(values[index]);
+            }
+            return result.str();
         }
 
         [[nodiscard]] auto ExpandActionArgument(std::string value, const CMakeAdapterContext &context,
@@ -264,6 +273,7 @@ namespace NGIN::CLI
                                            ? "packages/" + PackageDirectoryKey(binding.packageInstance) + "/install"
                                            : std::string{},
                     .cache = binding.cache,
+                    .targets = binding.targets,
                     .findPackage = binding.findPackage,
                     .installBeforeUse = binding.installBeforeUse,
                     .provenance = binding.provenance});
@@ -404,6 +414,40 @@ namespace NGIN::CLI
                 if (package.findPackage->config) out << " CONFIG";
                 if (package.findPackage->required) out << " REQUIRED";
                 out << ")\n";
+            }
+            if (package.kind == CMakeIntegrationKind::Cps)
+            {
+                for (const auto &target : package.targets)
+                {
+                    if (target.importedKind == "executable")
+                        out << "add_executable(" << target.targetName << " IMPORTED GLOBAL)\n";
+                    else if (target.importedKind == "interface")
+                        out << "add_library(" << target.targetName << " INTERFACE IMPORTED GLOBAL)\n";
+                    else if (target.importedKind == "archive")
+                        out << "add_library(" << target.targetName << " STATIC IMPORTED GLOBAL)\n";
+                    else if (target.importedKind == "module")
+                        out << "add_library(" << target.targetName << " MODULE IMPORTED GLOBAL)\n";
+                    else
+                        out << "add_library(" << target.targetName << " SHARED IMPORTED GLOBAL)\n";
+                    if (!target.location.empty())
+                        out << "set_property(TARGET " << target.targetName << " PROPERTY IMPORTED_LOCATION \""
+                            << Escape(target.location) << "\")\n";
+                    if (!target.includeDirectories.empty())
+                        out << "set_property(TARGET " << target.targetName
+                            << " PROPERTY INTERFACE_INCLUDE_DIRECTORIES \"" << CMakeList(target.includeDirectories)
+                            << "\")\n";
+                    if (!target.compileDefinitions.empty())
+                        out << "set_property(TARGET " << target.targetName
+                            << " PROPERTY INTERFACE_COMPILE_DEFINITIONS \"" << CMakeList(target.compileDefinitions)
+                            << "\")\n";
+                    if (!target.compileOptions.empty())
+                        out << "set_property(TARGET " << target.targetName
+                            << " PROPERTY INTERFACE_COMPILE_OPTIONS \"" << CMakeList(target.compileOptions)
+                            << "\")\n";
+                    if (!target.linkOptions.empty())
+                        out << "set_property(TARGET " << target.targetName
+                            << " PROPERTY INTERFACE_LINK_OPTIONS \"" << CMakeList(target.linkOptions) << "\")\n";
+                }
             }
         }
         out << '\n';

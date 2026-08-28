@@ -10,12 +10,6 @@ namespace NGIN::CLI
 {
     namespace
     {
-        struct SelectedExtension
-        {
-            const AuthoredElement *node{};
-            std::size_t specificity{0};
-        };
-
         auto AddError(std::vector<ManifestDiagnostic> &diagnostics, std::string code, std::string message,
                       const ManifestSourceRange &source = {}, std::vector<ManifestSourceRange> related = {}) -> void
         {
@@ -61,42 +55,21 @@ namespace NGIN::CLI
             }, value.value);
         }
 
-        [[nodiscard]] auto Matches(const AuthoredElement &selection, const SelectionFacts &facts,
-                                   const ResolvedPackageOptions &options) -> std::optional<std::size_t>
+        [[nodiscard]] auto Matches(const AuthoredElement &condition, const SelectionFacts &facts,
+                                   const ResolvedPackageOptions &options) -> bool
         {
-            std::size_t specificity = 0;
-            for (const auto &condition : selection.children)
-            {
-                const auto match = [&](const std::string_view attribute, const std::string_view actual) {
-                    const auto expected = Attribute(condition, attribute);
-                    if (expected.empty()) return true;
-                    ++specificity;
-                    return expected == actual;
-                };
-                if (condition.specId == "cmake.select.configuration")
-                {
-                    if (!match("Name", facts.configuration.name)) return std::nullopt;
-                }
-                else if (condition.specId == "cmake.select.target")
-                {
-                    if (!match("Name", facts.target.name) || !match("OS", facts.target.operatingSystem) ||
-                        !match("Architecture", facts.target.architecture))
-                        return std::nullopt;
-                }
-                else if (condition.specId == "cmake.select.toolchain")
-                {
-                    if (!match("Name", facts.toolchain.name) || !match("Compiler", facts.toolchain.compiler))
-                        return std::nullopt;
-                }
-                else if (condition.specId == "cmake.select.option")
-                {
-                    ++specificity;
-                    const auto found = options.values.find(Attribute(condition, "Name"));
-                    if (found == options.values.end() || OptionText(found->second) != Attribute(condition, "Value"))
-                        return std::nullopt;
-                }
-            }
-            return specificity;
+            const auto match = [&](const std::string_view attribute, const std::string_view actual) {
+                const auto expected = Attribute(condition, attribute);
+                return expected.empty() || expected == actual;
+            };
+            if (!match("Configuration", facts.configuration.name) || !match("Target", facts.target.name) ||
+                !match("OS", facts.target.operatingSystem) || !match("Architecture", facts.target.architecture) ||
+                !match("Toolchain", facts.toolchain.name) || !match("Compiler", facts.toolchain.compiler))
+                return false;
+            const auto option = Attribute(condition, "Option");
+            if (option.empty()) return true;
+            const auto found = options.values.find(option);
+            return found != options.values.end() && OptionText(found->second) == Attribute(condition, "Equals");
         }
 
         [[nodiscard]] auto IntegrationKind(const std::string_view specId) -> std::optional<CMakeIntegrationKind>
@@ -264,6 +237,7 @@ namespace NGIN::CLI
         case CMakeIntegrationKind::Isolated: return "Isolated";
         case CMakeIntegrationKind::FindPackage: return "FindPackage";
         case CMakeIntegrationKind::Manual: return "Manual";
+        case CMakeIntegrationKind::Cps: return "CPS";
         }
         return "AddSubdirectory";
     }
@@ -274,8 +248,40 @@ namespace NGIN::CLI
                                  const ResolvedPackageOptions &options) -> CMakeBindingResolution
     {
         CMakeBindingResolution result{};
-        const auto integrations = ChildElements(authored.root, "package.integrations");
-        if (integrations.empty()) return result;
+        const auto integrations = ChildElements(authored.root, "package.adapters");
+        if (integrations.empty())
+        {
+            CMakeIntegrationBindings bindings{
+                .packageInstance = instance.identity,
+                .kind = CMakeIntegrationKind::Cps,
+                .provenance = IntegrationBindingProvenance{
+                    .document = authored.manifest.path.filename().generic_string(),
+                    .reason = "CPS component import"}};
+            for (const auto &name : activation.exports)
+            {
+                const auto &exportModel = package.exports.at(name);
+                if (!exportModel.cps.has_value()) continue;
+                const auto &component = *exportModel.cps;
+                CMakeTargetBinding target{.exportIdentity = instance.identity + "::" + name,
+                                          .exportName = name,
+                                          .targetName = package.coordinate.name + "::" + name,
+                                          .importedKind = component.type};
+                if (component.location.has_value())
+                    target.location = *component.location;
+                for (const auto &include : component.includeDirectories)
+                    target.includeDirectories.push_back(include);
+                target.compileDefinitions = component.compileDefinitions;
+                target.compileOptions = component.compileOptions;
+                target.linkOptions = component.linkOptions;
+                if (component.type != "interface" && component.type != "symbolic" && target.location.empty())
+                    AddError(result.diagnostics, "NGIN7006", "CPS component '" + name +
+                                                               "' requires a location for CMake consumption",
+                             exportModel.source);
+                bindings.targets.push_back(std::move(target));
+            }
+            if (!bindings.targets.empty() && result.diagnostics.empty()) result.value = std::move(bindings);
+            return result;
+        }
         std::vector<const AuthoredElement *> roots{};
         for (const auto &child : integrations.front()->children)
             if (IntegrationKind(child.specId).has_value()) roots.push_back(&child);
@@ -331,22 +337,10 @@ namespace NGIN::CLI
         ApplyEntries(root, package, instance, options, cache, targets, cacheSources, targetSources,
                      result.diagnostics);
 
-        std::vector<SelectedExtension> selected{};
-        std::size_t bestSpecificity = 0;
-        for (const auto *node : ChildElements(root, "cmake.select"))
-        {
-            const auto specificity = Matches(*node, selection, options);
-            if (!specificity.has_value()) continue;
-            if (selected.empty() || *specificity > bestSpecificity)
-            {
-                selected.clear();
-                bestSpecificity = *specificity;
-            }
-            if (*specificity == bestSpecificity) selected.push_back({node, *specificity});
-        }
-        for (const auto &item : selected)
-            ApplyEntries(*item.node, package, instance, options, cache, targets, cacheSources, targetSources,
-                         result.diagnostics);
+        for (const auto *node : ChildElements(root, "cmake.when"))
+            if (Matches(*node, selection, options))
+                ApplyEntries(*node, package, instance, options, cache, targets, cacheSources, targetSources,
+                             result.diagnostics);
 
         const AuthoredElement *findNode = nullptr;
         if (bindings.kind == CMakeIntegrationKind::FindPackage) findNode = &root;

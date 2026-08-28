@@ -10,7 +10,7 @@ namespace NGIN::CLI
         std::vector<Target> targets{};
         std::vector<Toolchain> toolchains{};
         SelectionRequest defaults{};
-        std::vector<Preset> presets{};
+        std::vector<Profile> profiles{};
     };
 
     struct WorkspaceSelectionResult

@@ -20,22 +20,24 @@ namespace NGIN::CLI
         std::optional<std::string> configuration{};
         std::optional<std::string> target{};
         std::optional<std::string> toolchain{};
-        std::optional<std::string> launch{};
-        std::optional<std::string> preset{};
+        std::optional<std::string> run{};
+        std::optional<std::string> profile{};
         std::optional<std::string> packageName{};
         std::optional<std::string> exactVersion{};
-        std::optional<std::string> compatibleVersion{};
+        std::optional<std::string> version{};
         std::optional<std::string> atLeastVersion{};
         std::optional<std::string> afterVersion{};
         std::optional<std::string> atMostVersion{};
         std::optional<std::string> beforeVersion{};
         std::optional<std::string> actionKind{};
         std::vector<std::string> files{};
-        std::vector<std::string> exportUses{};
+        std::vector<std::string> exportSelections{};
         std::vector<std::string> optionAssignments{};
         std::vector<std::string> positional{};
         std::vector<std::string> trailing{};
         bool quiet{false};
+        bool check{false};
+        bool effective{false};
     };
 
     [[nodiscard]] auto ParseCliArguments(int argc, char **argv, int first) -> CliArguments;
@@ -58,6 +60,7 @@ namespace NGIN::CLI
     auto StageProject(const fs::path &root, const CliArguments &arguments) -> int;
     auto RunProject(const fs::path &root, const CliArguments &arguments) -> int;
     auto TestProject(const fs::path &root, const CliArguments &arguments) -> int;
+    auto BenchmarkProject(const fs::path &root, const CliArguments &arguments) -> int;
     auto PublishProject(const fs::path &root, const CliArguments &arguments) -> int;
     auto ExecuteProjectActions(const fs::path &root, const CliArguments &arguments,
                                std::string_view command) -> int;

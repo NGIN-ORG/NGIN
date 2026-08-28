@@ -196,7 +196,7 @@ namespace NGIN::CLI
         [[nodiscard]] auto GenerateCoreXsd(const ManifestSpec &spec, const ManifestDocumentSpec &document) -> std::string
         {
             std::set<std::string> reachable{};
-            CollectReachable(spec, document.rootElementId, reachable);
+            for (const auto &root : document.rootElementIds) CollectReachable(spec, root, reachable);
             const auto importsCMake = std::ranges::any_of(reachable, [&](const std::string &id) {
                 return spec.Element(id).namespaceUri == CMakeIntegrationNamespace;
             });
@@ -223,9 +223,12 @@ namespace NGIN::CLI
                     WriteElementType(out, spec, element, false);
                 }
             }
-            const auto &root = spec.Element(document.rootElementId);
-            out << "  <xs:element name=\"" << root.name << "\" type=\"" << TypeName(root.id) << "\" />\n"
-                   "</xs:schema>\n";
+            for (const auto &rootId : document.rootElementIds)
+            {
+                const auto &root = spec.Element(rootId);
+                out << "  <xs:element name=\"" << root.name << "\" type=\"" << TypeName(root.id) << "\" />\n";
+            }
+            out << "</xs:schema>\n";
             return out.str();
         }
 
@@ -280,8 +283,13 @@ namespace NGIN::CLI
             {
                 const auto &document = spec.Documents()[index];
                 out << "    {\"kind\": " << JsonEscape(ManifestDocumentKindName(document.kind))
-                    << ", \"extension\": " << JsonEscape(document.extension) << ", \"root\": "
-                    << JsonEscape(spec.Element(document.rootElementId).name) << ", \"schema\": "
+                    << ", \"extension\": " << JsonEscape(document.extension) << ", \"roots\": [";
+                for (std::size_t rootIndex = 0; rootIndex < document.rootElementIds.size(); ++rootIndex)
+                {
+                    if (rootIndex != 0) out << ", ";
+                    out << JsonEscape(spec.Element(document.rootElementIds[rootIndex]).name);
+                }
+                out << "], \"schema\": "
                     << JsonEscape(document.schemaFile) << "}" << (index + 1 == spec.Documents().size() ? "\n" : ",\n");
             }
             out << "  ],\n  \"namespaces\": [\n";

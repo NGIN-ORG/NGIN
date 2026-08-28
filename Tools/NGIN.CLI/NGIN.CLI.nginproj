@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="NGIN.CLI" Type="Tool" Version="0.1.0">
+
+<Executable Name="NGIN.CLI" Version="0.1.0">
   <Options>
     <Boolean Name="BundledTools" Default="false" Artifact="true" />
   </Options>
-  <Dependencies>
-    <Package Name="NGIN.Base" Compatible="0.1" />
-  </Dependencies>
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" />
+  </Uses>
   <Build>
     <Source Include="src/**/*.cpp" />
     <Source Remove="src/ManifestSchemaGenerator.cpp" />
@@ -13,29 +14,27 @@
     <Define Name="NGIN_CLI_VERSION" Value="&quot;0.1.0&quot;" Visibility="Private" />
   </Build>
   <Stage>
-    <File Include="../../LICENSE" Into="share/ngin/licenses/LICENSE" />
-    <File Include="../ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md" Into="share/ngin/licenses/THIRD_PARTY_TOOLS.md" />
+    <File From="../../LICENSE" To="share/ngin/licenses/LICENSE" />
+    <File From="../ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md" To="share/ngin/licenses/THIRD_PARTY_TOOLS.md" />
   </Stage>
-  <Publish Name="linux-tgz"><Archive Format="tgz" Output="dist/ngin-${project.version}-linux-x86_64.tgz" /></Publish>
-  <Publish Name="linux-deb"><Installer Format="deb" Output="dist/ngin-${project.version}-linux-x86_64.deb" /></Publish>
-  <Publish Name="windows-zip"><Archive Format="zip" Output="dist/ngin-${project.version}-windows-x86_64.zip" /></Publish>
-  <Publish Name="windows-msi"><Installer Format="msi" Output="dist/ngin-${project.version}-windows-x86_64.msi" /></Publish>
-  <Refinements>
-    <Refinement>
-      <Select><Target OS="linux" /></Select>
-      <Build>
-        <LinkOption Value="-static-libstdc++" />
-        <LinkOption Value="-static-libgcc" />
-      </Build>
-    </Refinement>
-    <Refinement>
-      <Select><Option Name="BundledTools" Value="true" /></Select>
-      <Stage>
-        <File Include="../ThirdParty/BuildTools/toolchains.json" Into="share/ngin/tools/toolchains.json" />
-        <Directory Include="../ThirdParty/BuildTools/notices" Into="share/ngin/tools/notices" />
-        <Directory Include="../ThirdParty/BuildTools/cmake" Into="share/ngin/tools/cmake" />
-        <Directory Include="../ThirdParty/BuildTools/ninja" Into="share/ngin/tools/ninja" />
-      </Stage>
-    </Refinement>
-  </Refinements>
-</Project>
+  <Publish>
+    <Archive Name="linux-tgz" Format="tgz" Output="dist/ngin-${project.version}-linux-x86_64.tgz" />
+    <Installer Name="linux-deb" Format="deb" Output="dist/ngin-${project.version}-linux-x86_64.deb" />
+    <Archive Name="windows-zip" Format="zip" Output="dist/ngin-${project.version}-windows-x86_64.zip" />
+    <Installer Name="windows-msi" Format="msi" Output="dist/ngin-${project.version}-windows-x86_64.msi" />
+  </Publish>
+  <When OS="linux">
+    <Build>
+      <LinkOption Value="-static-libstdc++" />
+      <LinkOption Value="-static-libgcc" />
+    </Build>
+  </When>
+  <When Option="BundledTools" Equals="true">
+    <Stage>
+      <File From="../ThirdParty/BuildTools/toolchains.json" To="share/ngin/tools/toolchains.json" />
+      <Directory From="../ThirdParty/BuildTools/notices" To="share/ngin/tools/notices" />
+      <Directory From="../ThirdParty/BuildTools/cmake" To="share/ngin/tools/cmake" />
+      <Directory From="../ThirdParty/BuildTools/ninja" To="share/ngin/tools/ninja" />
+    </Stage>
+  </When>
+</Executable>

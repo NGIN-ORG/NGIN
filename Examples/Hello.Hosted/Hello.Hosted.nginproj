@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello.Hosted" Type="Application">
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1" />
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="config/app.cfg" Into="config/app.cfg" /></Stage>
-  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="Hello.Hosted">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="config/app.cfg" To="config/app.cfg" />
+  </Stage>
+</Executable>

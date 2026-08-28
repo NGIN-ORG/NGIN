@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="ProjectRef.Config.Root" Type="Application">
-  <Dependencies><Project Name="ProjectRef.Config.Library" Path="../Library/ProjectRef.Config.Library.nginproj" /></Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="config/root.cfg" Into="config/root.cfg" /></Stage>
-  <Launch Name="default" Default="true"><Executable Product="ProjectRef.Config.Root" /><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="ProjectRef.Config.Root">
+  <Uses>
+    <Project Path="../Library/ProjectRef.Config.Library.nginproj" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="config/root.cfg" To="config/root.cfg" />
+  </Stage>
+</Executable>

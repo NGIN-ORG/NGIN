@@ -278,8 +278,6 @@ namespace NGIN::CLI
         [[nodiscard]] auto EffectiveContexts(const SemanticResolutionRequest &request) -> std::set<DependencyContext>
         {
             if (!request.dependencyContexts.empty()) return request.dependencyContexts;
-            if (request.project.type == ProductType::Test) return {DependencyContext::Test};
-            if (request.project.type == ProductType::Benchmark) return {DependencyContext::Benchmark};
             return {DependencyContext::Target};
         }
 
@@ -306,7 +304,9 @@ namespace NGIN::CLI
 
         auto AddProjectRoots(const SemanticResolutionRequest &request,
                              std::map<std::string, PendingPackage, std::less<>> &pending,
-                             std::vector<GraphEdge> &projectEdges, std::vector<ManifestDiagnostic> &diagnostics) -> void
+                             std::vector<GraphEdge> &projectEdges,
+                             std::vector<SemanticCapabilityRequirement> &capabilityRequirements,
+                             std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
             const auto contexts = EffectiveContexts(request);
             for (const auto &dependency : request.project.dependencies)
@@ -347,6 +347,41 @@ namespace NGIN::CLI
                                   .scope = project->owner.value_or(""),
                                   .provenance = Provenance(project->source, request.workspaceRoot, "ProjectDependency",
                                                            project->name, DependencyContextName(project->context))});
+                }
+                else if (const auto *capability = std::get_if<ProjectCapabilityRequest>(&dependency))
+                {
+                    if (!contexts.contains(capability->context)) continue;
+                    const auto domain = [&] {
+                        if (capability->domain == "Acquisition") return CapabilityDomain::Acquisition;
+                        if (capability->domain == "Build") return CapabilityDomain::Build;
+                        if (capability->domain == "Generation") return CapabilityDomain::Generation;
+                        if (capability->domain == "Artifact") return CapabilityDomain::Artifact;
+                        if (capability->domain == "Deployment") return CapabilityDomain::Deployment;
+                        return CapabilityDomain::Link;
+                    }();
+                    auto provider = capability->provider;
+                    if (!provider.has_value())
+                        if (const auto preferred = request.capabilityPreferences.find(capability->name);
+                            preferred != request.capabilityPreferences.end())
+                            provider = preferred->second;
+                    capabilityRequirements.push_back(SemanticCapabilityRequirement{
+                        .name = capability->name,
+                        .domain = domain,
+                        .constraint = capability->constraint,
+                        .visibility = RequirementVisibility::Private,
+                        .context = PackageInstanceContext::Target,
+                        .provider = provider,
+                        .requester = request.project.name,
+                        .source = capability->source,
+                    });
+                    if (provider.has_value())
+                        AddPending(pending, *provider, PackageInstanceContext::Target, std::nullopt, {}, true, {},
+                                   std::nullopt,
+                                   PendingOrigin{.from = request.project.name,
+                                                 .kind = "CapabilityPreference",
+                                                 .source = capability->source,
+                                                 .reason = capability->name},
+                                   diagnostics);
                 }
             }
             for (const auto &action : request.project.actions)
@@ -550,7 +585,8 @@ namespace NGIN::CLI
         request.project = *refined.value;
         std::map<std::string, PendingPackage, std::less<>> roots{};
         std::vector<GraphEdge> projectEdges{};
-        AddProjectRoots(request, roots, projectEdges, result.diagnostics);
+        std::vector<SemanticCapabilityRequirement> projectCapabilityRequirements{};
+        AddProjectRoots(request, roots, projectEdges, projectCapabilityRequirements, result.diagnostics);
         if (!result.diagnostics.empty()) return result;
 
         auto pending = roots;
@@ -575,7 +611,7 @@ namespace NGIN::CLI
             }
 
             auto next = roots;
-            std::vector<SemanticCapabilityRequirement> capabilityRequirements{};
+            auto capabilityRequirements = projectCapabilityRequirements;
             std::vector<CapabilityImplementation> implementations{};
             std::map<std::string, std::pair<std::string, ExportUseKind>, std::less<>> implementationOwners{};
             for (const auto &[key, state] : states)
@@ -634,6 +670,7 @@ namespace NGIN::CLI
                     {
                         implementation.context = state.request.context;
                         implementation.packageInstance = state.instance.identity;
+                        implementation.packageName = state.package.coordinate.name;
                         implementation.exportName = exportName;
                         implementationOwners[state.instance.identity + "::" + exportName] = {key, exportModel.kind};
                         implementations.push_back(std::move(implementation));
@@ -718,8 +755,8 @@ namespace NGIN::CLI
                                        : ManifestSourceRange{.path = request.project.manifest.path};
         graph.product = GraphProduct{.identity = request.project.name,
                                      .name = request.project.name,
-                                     .type = request.project.type,
-                                     .linkage = request.project.linkage,
+                                     .artifactKind = request.project.artifactKind,
+                                     .libraryKind = request.project.libraryKind,
                                      .version = request.project.version.has_value()
                                                     ? std::optional<std::string>{VersionText(*request.project.version)}
                                                     : std::nullopt,
@@ -775,30 +812,41 @@ namespace NGIN::CLI
                                   .provenance = Provenance(stage.source, request.workspaceRoot, "ProjectStage",
                                                            request.project.name, "authored project stage input")});
         }
-        for (const auto &launch : request.project.launches)
-            graph.launches.push_back(
-                GraphLaunch{.identity = request.project.name + ":Launch:" + launch.name,
-                            .name = launch.name,
-                            .defaultLaunch = launch.defaultLaunch,
-                            .executableKind = launch.tool.has_value() ? "Tool" : "Product",
-                            .executable = launch.tool.value_or(launch.product.value_or(request.project.name)),
-                            .workingDirectory = launch.workingDirectory.value,
-                            .arguments = launch.arguments,
-                            .environment = launch.environment,
-                            .secrets = launch.secrets,
-                            .provenance = Provenance(launch.source, request.workspaceRoot, "Launch", launch.name,
-                                                     "authored process intent")});
-        if (request.project.testing.has_value() || request.project.type == ProductType::Test ||
-            request.project.type == ProductType::Benchmark)
+        for (const auto &run : request.project.runs)
+            graph.runs.push_back(
+                GraphRun{.identity = request.project.name + ":Run:" + run.name,
+                         .name = run.name,
+                         .defaultRun = run.defaultRun,
+                         .executableKind = run.tool.has_value() ? "Tool" : "Product",
+                         .executable = run.tool.value_or(run.product.value_or(request.project.name)),
+                         .workingDirectory = run.workingDirectory.value,
+                         .arguments = run.arguments,
+                         .environment = run.environment,
+                         .secrets = run.secrets,
+                         .provenance = Provenance(run.source, request.workspaceRoot, "Run", run.name,
+                                                  "authored process intent")});
+        for (const auto &test : request.project.tests)
+            graph.tests.push_back(GraphTestRegistration{
+                .identity = request.project.name + ":Test:" + test.name,
+                .name = test.name,
+                .arguments = test.arguments,
+                .environment = test.environment,
+                .timeoutSeconds = test.timeoutSeconds,
+                .provenance = Provenance(test.source, request.workspaceRoot, "Test", test.name,
+                                         "authored test registration")});
+        for (const auto &benchmark : request.project.benchmarks)
         {
-            const auto &testing = request.project.testing;
-            graph.testing = GraphTesting{
-                .identity = request.project.name + ":Testing",
-                .arguments = testing.has_value() ? testing->arguments : std::vector<std::string>{},
-                .timeoutSeconds = testing.has_value() ? testing->timeoutSeconds : std::nullopt,
-                .provenance = Provenance(testing.has_value() ? testing->source : projectSource, request.workspaceRoot,
-                                         "Testing", request.project.name,
-                                         testing.has_value() ? "authored test intent" : "test product default")};
+            GraphBenchmarkRegistration registration{};
+            registration.identity = request.project.name + ":Benchmark:" + benchmark.name;
+            registration.name = benchmark.name;
+            registration.arguments = benchmark.arguments;
+            registration.environment = benchmark.environment;
+            registration.timeoutSeconds = benchmark.timeoutSeconds;
+            registration.repetitions = benchmark.repetitions;
+            registration.warmupSeconds = benchmark.warmupSeconds;
+            registration.provenance = Provenance(benchmark.source, request.workspaceRoot, "Benchmark",
+                                                  benchmark.name, "authored benchmark registration");
+            graph.benchmarks.push_back(std::move(registration));
         }
         for (const auto &publish : request.project.publishes)
             graph.publishes.push_back(

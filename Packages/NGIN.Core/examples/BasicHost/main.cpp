@@ -96,8 +96,6 @@ extern "C" void NGIN_RegisterPackage_Samples_DemoPackage(
 int main(int argc, char **argv) {
   using namespace NGIN::Core;
 
-  const NGIN::IO::Path sampleDir{NGIN_CORE_BASIC_HOST_DIR};
-
   auto builder = CreateApplicationBuilder(argc, argv);
   builder->SetApplicationName("NGIN.Core.BasicHost");
   builder->SetProfile("Samples.BasicHost");

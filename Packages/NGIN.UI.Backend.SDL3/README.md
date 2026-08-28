@@ -11,7 +11,7 @@ headless platform and recording renderer from `NGIN.UI` for deterministic unit
 tests.
 
 ```xml
-<Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
+<Capability Name="NGIN.UI.Backend" Version="1" />
 ```
 
 Start with the [first-window guide](../../docs/guides/ngin-ui-first-window.md)

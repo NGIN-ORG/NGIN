@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.UI.Accessibility.Windows" Version="0.4.0">
-  <Metadata><Description>Windows UI Automation provider for NGIN.UI.</Description><License>Apache-2.0</License></Metadata>
-  <Requires><Package Name="NGIN.UI" Compatible="0.4" Visibility="Public" /></Requires>
-  <Exports><Library Name="Accessibility" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.UI.Accessibility.Windows" Version="0.4.0">
+  <Metadata>
+    <Description>Windows UI Automation provider for NGIN.UI.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Uses>
+    <Package Name="NGIN.UI" Version="0.4" Public="true" />
+  </Uses>
+  <Library Name="Accessibility" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_UI_ACCESSIBILITY_WINDOWS_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Target Export="Accessibility" Name="NGIN::UI::Accessibility::Windows" />
     </cmake:AddSubdirectory>
-  </Integrations>
-  <Compatibility><Target OS="windows" /></Compatibility>
+  </Adapters>
+  <Compatibility>
+    <Target OS="windows" />
+  </Compatibility>
 </Package>

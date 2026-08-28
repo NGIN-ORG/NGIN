@@ -12,7 +12,8 @@
 namespace NGIN::CLI
 {
     [[nodiscard]] auto ParseOptionDefinitions(const AuthoredElement &options,
-                                              std::vector<ManifestDiagnostic> &diagnostics)
+                                              std::vector<ManifestDiagnostic> &diagnostics,
+                                              bool artifactByDefault = false)
         -> std::map<std::string, OptionDefinition, std::less<>>;
 
     [[nodiscard]] auto ParseAuthoredVersionConstraint(const AuthoredElement &element,

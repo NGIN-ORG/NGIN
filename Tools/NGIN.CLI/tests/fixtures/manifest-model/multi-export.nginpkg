@@ -1,42 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake"
-         Name="Example.Security"
-         Version="3.2.1">
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="Example.Security" Version="3.2.1">
   <Metadata>
     <Description>Multi-export security package fixture</Description>
     <License>Apache-2.0</License>
   </Metadata>
-
   <Contributions>
     <Notices>
-      <Notice Include="LICENSES/**" Into="notices/Example.Security" />
+      <Notice From="LICENSES/**" To="notices/Example.Security" />
     </Notices>
   </Contributions>
-
-  <Exports>
-    <Library Name="Crypto" Default="true">
-      <Provides>
-        <Capability Name="Example.Crypto" Domain="Link" Version="1.0.0" />
-      </Provides>
-    </Library>
-
-    <Library Name="TLS">
-      <Requires>
-        <Export Library="Crypto" Visibility="Public" />
-      </Requires>
-      <Provides>
-        <Capability Name="Example.TLS" Domain="Link" Version="1.0.0" />
-      </Provides>
-      <RuntimeFiles>
-        <File Include="bin/tls-runtime.*" Into="bin" />
-      </RuntimeFiles>
-    </Library>
-  </Exports>
-
-  <Integrations>
+  <Library Name="Crypto" Default="true">
+    <Provides Name="Example.Crypto" Domain="Link" Version="1.0.0" />
+  </Library>
+  <Library Name="TLS">
+    <Uses>
+      <Library Name="Crypto" Public="true" />
+    </Uses>
+    <Provides Name="Example.TLS" Domain="Link" Version="1.0.0" />
+    <RuntimeFiles>
+      <File From="bin/tls-runtime.*" To="bin" />
+    </RuntimeFiles>
+  </Library>
+  <Adapters>
     <cmake:FindPackage Name="ExampleSecurity" Required="true">
       <cmake:Target Export="Crypto" Name="Example::Crypto" />
       <cmake:Target Export="TLS" Name="Example::TLS" />
     </cmake:FindPackage>
-  </Integrations>
+  </Adapters>
 </Package>

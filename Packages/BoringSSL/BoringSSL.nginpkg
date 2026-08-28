@@ -1,30 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="BoringSSL" Version="0.0.0">
-  <Metadata><Description>BoringSSL cryptography library.</Description><License>ISC-style OpenSSL/BoringSSL license</License></Metadata>
-  <Exports>
-    <Library Name="Crypto" Default="true">
-      <Provides>
-        <Capability Name="Crypto.Provider.boringssl" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Random" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Sha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Sha512" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.HmacSha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.HmacSha512" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.HkdfSha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.HkdfSha512" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Pbkdf2Sha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Pbkdf2Sha512" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Aes128Gcm" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Aes256Gcm" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.ChaCha20Poly1305" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Ed25519" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.EcdsaP256Sha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.RsaPssSha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.RsaOaepSha256" Version="0.0.0" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.X25519" Version="0.0.0" Domain="Link" />
-      </Provides>
-    </Library>
-  </Exports>
-  <Integrations><cmake:Manual Source="."><cmake:Target Export="Crypto" Name="BoringSSL::Crypto" /></cmake:Manual></Integrations>
-  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="BoringSSL" Version="0.0.0">
+  <Metadata>
+    <Description>BoringSSL cryptography library.</Description>
+    <License>ISC-style OpenSSL/BoringSSL license</License>
+  </Metadata>
+  <Library Name="Crypto" Default="true">
+    <Provides Name="Crypto.Provider.boringssl" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Random" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Sha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Sha512" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.HmacSha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.HmacSha512" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.HkdfSha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.HkdfSha512" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Pbkdf2Sha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Pbkdf2Sha512" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Aes128Gcm" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Aes256Gcm" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.ChaCha20Poly1305" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Ed25519" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.EcdsaP256Sha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.RsaPssSha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.RsaOaepSha256" Version="0.0.0" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.X25519" Version="0.0.0" Domain="Link" />
+  </Library>
+  <Adapters>
+    <cmake:Manual Source=".">
+      <cmake:Target Export="Crypto" Name="BoringSSL::Crypto" />
+    </cmake:Manual>
+  </Adapters>
+  <Compatibility>
+    <Target OS="linux" />
+    <Target OS="windows" />
+    <Target OS="macos" />
+  </Compatibility>
 </Package>

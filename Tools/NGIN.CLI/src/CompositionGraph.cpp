@@ -26,18 +26,6 @@ namespace NGIN::CLI
             return "Library";
         }
 
-        [[nodiscard]] auto LinkageName(const LibraryLinkage linkage) -> std::string
-        {
-            switch (linkage)
-            {
-            case LibraryLinkage::None: return "None";
-            case LibraryLinkage::Static: return "Static";
-            case LibraryLinkage::Shared: return "Shared";
-            case LibraryLinkage::Interface: return "Interface";
-            }
-            return "None";
-        }
-
         [[nodiscard]] auto ProvenanceValue(const GraphProvenance &provenance) -> CanonicalValue
         {
             return CanonicalValue::Object{{"column", static_cast<std::int64_t>(provenance.column)},
@@ -92,10 +80,10 @@ namespace NGIN::CLI
                                            {"languageExtensions", graph.product.languageExtensions},
                                            {"languageRequired", graph.product.languageRequired},
                                            {"languageStandard", graph.product.languageStandard},
-                                           {"linkage", LinkageName(graph.product.linkage)},
+                                           {"artifactKind", std::string(ProductArtifactKindName(graph.product.artifactKind))},
+                                           {"libraryKind", std::string(LibraryKindName(graph.product.libraryKind))},
                                            {"name", graph.product.name},
-                                           {"provenance", ProvenanceValue(graph.product.provenance)},
-                                           {"type", std::string(ProductTypeName(graph.product.type))}};
+                                           {"provenance", ProvenanceValue(graph.product.provenance)}};
             if (graph.product.version.has_value()) product.emplace("version", *graph.product.version);
             if (graph.product.license.has_value()) product.emplace("license", *graph.product.license);
             const CanonicalValue::Object selection{{"compiler", graph.selection.compiler},
@@ -180,9 +168,9 @@ namespace NGIN::CLI
                                                    {"provenance", ProvenanceValue(value.provenance)}};
                  })},
                 {"kind", "NGIN.CompositionGraph"},
-                {"launches", Array(graph.launches, [](const GraphLaunch &value) {
+                {"runs", Array(graph.runs, [](const GraphRun &value) {
                      return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
-                                                   {"default", value.defaultLaunch},
+                                                   {"default", value.defaultRun},
                                                    {"environment", StringMapValue(value.environment)},
                                                    {"executable", value.executable},
                                                    {"executableKind", value.executableKind},
@@ -191,6 +179,32 @@ namespace NGIN::CLI
                                                    {"provenance", ProvenanceValue(value.provenance)},
                                                    {"secrets", StringMapValue(value.secrets)},
                                                    {"workingDirectory", value.workingDirectory}};
+                 })},
+                {"tests", Array(graph.tests, [](const GraphTestRegistration &value) {
+                     return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
+                                                   {"environment", StringMapValue(value.environment)},
+                                                   {"identity", value.identity},
+                                                   {"name", value.name},
+                                                   {"provenance", ProvenanceValue(value.provenance)},
+                                                   {"timeoutSeconds", value.timeoutSeconds.has_value()
+                                                                          ? CanonicalValue{*value.timeoutSeconds}
+                                                                          : CanonicalValue{nullptr}}};
+                 })},
+                {"benchmarks", Array(graph.benchmarks, [](const GraphBenchmarkRegistration &value) {
+                     return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
+                                                   {"environment", StringMapValue(value.environment)},
+                                                   {"identity", value.identity},
+                                                   {"name", value.name},
+                                                   {"provenance", ProvenanceValue(value.provenance)},
+                                                   {"repetitions", value.repetitions.has_value()
+                                                                       ? CanonicalValue{*value.repetitions}
+                                                                       : CanonicalValue{nullptr}},
+                                                   {"timeoutSeconds", value.timeoutSeconds.has_value()
+                                                                          ? CanonicalValue{*value.timeoutSeconds}
+                                                                          : CanonicalValue{nullptr}},
+                                                   {"warmupSeconds", value.warmupSeconds.has_value()
+                                                                        ? CanonicalValue{*value.warmupSeconds}
+                                                                        : CanonicalValue{nullptr}}};
                  })},
                 {"options", Array(graph.options, [](const GraphOption &value) {
                      return CanonicalValue::Object{{"artifact", value.artifact},
@@ -238,15 +252,6 @@ namespace NGIN::CLI
                  })},
                 {"selection", mutableSelection},
                 {"state", "resolved"},
-                {"testing", graph.testing.has_value()
-                                ? CanonicalValue{CanonicalValue::Object{
-                                      {"arguments", StringArrayValue(graph.testing->arguments)},
-                                      {"identity", graph.testing->identity},
-                                      {"provenance", ProvenanceValue(graph.testing->provenance)},
-                                      {"timeoutSeconds", graph.testing->timeoutSeconds.has_value()
-                                                             ? CanonicalValue{*graph.testing->timeoutSeconds}
-                                                             : CanonicalValue{nullptr}}}}
-                                : CanonicalValue{nullptr}},
             };
         }
 
@@ -266,10 +271,10 @@ namespace NGIN::CLI
             };
             result["product"].emplace(
                 graph.product.identity,
-                SerializeCanonical(CanonicalValue::Object{{"linkage", LinkageName(graph.product.linkage)},
+                SerializeCanonical(CanonicalValue::Object{{"artifactKind", std::string(ProductArtifactKindName(graph.product.artifactKind))},
+                                                           {"libraryKind", std::string(LibraryKindName(graph.product.libraryKind))},
                                                            {"name", graph.product.name},
                                                            {"license", graph.product.license.value_or("")},
-                                                           {"type", std::string(ProductTypeName(graph.product.type))},
                                                            {"version", graph.product.version.value_or("")}}));
             result["selection"].emplace(
                 graph.selection.identity,
@@ -313,20 +318,26 @@ namespace NGIN::CLI
                 if (value.value.has_value()) item.emplace("value", *value.value);
                 return item;
             });
-            add("launch", graph.launches, [](const auto &value) {
+            add("run", graph.runs, [](const auto &value) {
                 return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
                                               {"executable", value.executable},
                                               {"workingDirectory", value.workingDirectory}};
+            });
+            add("test", graph.tests, [](const auto &value) {
+                return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
+                                              {"timeoutSeconds", value.timeoutSeconds.value_or(0)}};
+            });
+            add("benchmark", graph.benchmarks, [](const auto &value) {
+                return CanonicalValue::Object{{"arguments", StringArrayValue(value.arguments)},
+                                              {"repetitions", value.repetitions.value_or(0)},
+                                              {"timeoutSeconds", value.timeoutSeconds.value_or(0)},
+                                              {"warmupSeconds", value.warmupSeconds.value_or(0)}};
             });
             add("publish", graph.publishes, [](const auto &value) {
                 return CanonicalValue::Object{{"format", value.format},
                                               {"output", value.output},
                                               {"outputKind", value.outputKind}};
             });
-            if (graph.testing.has_value())
-                result["testing"].emplace(graph.testing->identity,
-                    SerializeCanonical(CanonicalValue::Object{{"arguments", StringArrayValue(graph.testing->arguments)},
-                                                               {"timeoutSeconds", graph.testing->timeoutSeconds.value_or(0)}}));
             add("edge", graph.edges, [](const auto &value) {
                 return CanonicalValue::Object{{"context", value.context},
                                               {"from", value.from},
@@ -354,7 +365,9 @@ namespace NGIN::CLI
         SortByIdentity(data.plugins);
         SortByIdentity(data.contributions);
         SortByIdentity(data.buildItems);
-        SortByIdentity(data.launches);
+        SortByIdentity(data.runs);
+        SortByIdentity(data.tests);
+        SortByIdentity(data.benchmarks);
         SortByIdentity(data.publishes);
         SortByIdentity(data.edges);
         data_ = std::make_shared<const CompositionGraphData>(std::move(data));
@@ -443,19 +456,12 @@ namespace NGIN::CLI
                            find("option", data.options,
                                 [](const auto &value) { return value.name + "=" + value.value; }) ||
                            find("plugin", data.plugins, [](const auto &value) { return value.exportName; }) ||
-                           find("launch", data.launches, [](const auto &value) { return value.executable; }) ||
+                           find("run", data.runs, [](const auto &value) { return value.executable; }) ||
+                           find("test", data.tests, [](const auto &value) { return value.name; }) ||
+                           find("benchmark", data.benchmarks, [](const auto &value) { return value.name; }) ||
                            find("publish", data.publishes, [](const auto &value) { return value.output; }) ||
                            find("edge", data.edges,
                                 [](const auto &value) { return value.from + " -> " + value.to; });
-        if (!found && data.testing.has_value() && data.testing->identity == identity)
-        {
-            result.category = "testing";
-            result.value = data.testing->timeoutSeconds.has_value()
-                               ? "timeout=" + std::to_string(*data.testing->timeoutSeconds)
-                               : "default timeout";
-            result.provenance.push_back(data.testing->provenance);
-            found = true;
-        }
         if (!found && data.product.identity == identity)
         {
             result.category = "product";

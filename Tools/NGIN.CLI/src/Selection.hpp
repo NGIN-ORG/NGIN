@@ -113,20 +113,19 @@ namespace NGIN::CLI
         std::optional<std::string> target{};
         std::optional<std::string> toolchain{};
         std::map<std::string, std::string, std::less<>> options{};
-        std::optional<std::string> launch{};
+        std::optional<std::string> run{};
 
         [[nodiscard]] friend auto operator==(const SelectionRequest &, const SelectionRequest &) -> bool = default;
     };
 
-    struct Preset
+    struct Profile
     {
         std::string name{};
-        std::string command{};
         SelectionRequest selection{};
         ManifestSourceRange source{};
     };
 
-    struct PresetExpansionResult
+    struct ProfileExpansionResult
     {
         std::optional<SelectionRequest> value{};
         std::vector<ManifestDiagnostic> diagnostics{};
@@ -134,8 +133,8 @@ namespace NGIN::CLI
         [[nodiscard]] auto Succeeded() const -> bool;
     };
 
-    [[nodiscard]] auto ExpandPreset(const Preset &preset, std::string_view command,
-                                    const SelectionRequest &explicitRequest) -> PresetExpansionResult;
+    [[nodiscard]] auto ExpandProfile(const Profile &profile, const SelectionRequest &explicitRequest)
+        -> ProfileExpansionResult;
     [[nodiscard]] auto ResolveTargetAlias(std::string_view name, const std::vector<Target> &targets,
                                           const Target &host, const ManifestSourceRange &source = {})
         -> std::pair<std::optional<Target>, std::vector<ManifestDiagnostic>>;

@@ -121,11 +121,6 @@ namespace NGIN::CLI
                 {A("AtLeast", ManifestValueKind::SemanticVersion), A("After", ManifestValueKind::SemanticVersion),
                  A("AtMost", ManifestValueKind::SemanticVersion), A("Before", ManifestValueKind::SemanticVersion)},
                 {}, false, "Structured version interval.", "validate-version-range");
-            Add(spec, use, "Use",
-                {A("Library", ManifestValueKind::Identifier), A("Tool", ManifestValueKind::Identifier),
-                 A("Plugin", ManifestValueKind::Identifier), A("Action", ManifestValueKind::Identifier),
-                 A("Asset", ManifestValueKind::Identifier)},
-                {}, false, "Activates one named package export.", "validate-one-export-kind");
             return {version, use};
         }
 
@@ -137,13 +132,26 @@ namespace NGIN::CLI
             const auto [version, use] = AddVersionAndUse(spec, base);
             auto attributes = std::vector<Attribute>{
                 Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
-                A("Compatible", ManifestValueKind::VersionCompatibility)};
+                A("Version", ManifestValueKind::VersionCompatibility)};
             if (requirementVisibility)
-                attributes.push_back(
-                    A("Visibility", ManifestValueKind::Enumeration, false, {"Private", "Public"}));
+                attributes.push_back(A("Public", ManifestValueKind::Boolean));
             Add(spec, package, "Package", std::move(attributes),
-                {C(version, 0, 1), C(use), C(base + ".option")}, false, "Package coordinate and export activation.",
+                {C(version, 0, 1), C(base + ".library"), C(base + ".tool"), C(base + ".plugin"),
+                 C(base + ".generator"), C(base + ".analyzer"), C(base + ".formatter"),
+                 C(base + ".validator"), C(base + ".action"), C(base + ".asset"), C(base + ".option")},
+                false, "Package coordinate and typed export activation.",
                 "validate-package-coordinate", "dependency");
+            for (const auto &entry : {std::pair{"library", "Library"}, std::pair{"tool", "Tool"},
+                                      std::pair{"plugin", "Plugin"}, std::pair{"generator", "Generator"},
+                                      std::pair{"analyzer", "Analyzer"}, std::pair{"formatter", "Formatter"},
+                                      std::pair{"validator", "Validator"}, std::pair{"action", "Action"},
+                                      std::pair{"asset", "Asset"}})
+            {
+                auto selectionAttributes = std::vector<Attribute>{Required("Name", ManifestValueKind::Identifier)};
+                if (requirementVisibility)
+                    selectionAttributes.push_back(A("Public", ManifestValueKind::Boolean));
+                Add(spec, base + "." + std::string(entry.first), entry.second, std::move(selectionAttributes));
+            }
             Add(spec, base + ".option", "Option",
                 {Required("Name", ManifestValueKind::Identifier), Required("Value")});
             return package;
@@ -200,19 +208,51 @@ namespace NGIN::CLI
         {
             const auto metadata = AddMetadata(spec, "project", false);
             const auto options = AddOptions(spec, "project");
-            const auto dependencyPackage = AddPackageReference(spec, "project.dependencies");
             const auto build = AddBuild(spec, "project");
+            const auto [usesVersion, ignoredUse] = AddVersionAndUse(spec, "project.uses");
+            (void)ignoredUse;
+            Add(spec, "project.uses", "Uses", {},
+                {C("project.uses.package"), C("project.uses.project"), C("project.uses.capability")}, false,
+                "Packages, source products, and abstract capabilities used by this product.");
+            Add(spec, "project.uses.package", "Package",
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::VersionCompatibility),
+                 A("Exact", ManifestValueKind::SemanticVersion)},
+                {C(usesVersion, 0, 1), C("project.uses.library"), C("project.uses.tool"),
+                 C("project.uses.plugin"), C("project.uses.generator"), C("project.uses.analyzer"),
+                 C("project.uses.formatter"), C("project.uses.validator"), C("project.uses.action"),
+                 C("project.uses.asset"), C("project.uses.option")},
+                false, "Package request and typed export selection.", "validate-package-coordinate", "dependency");
+            for (const auto &entry : {std::pair{"library", "Library"}, std::pair{"tool", "Tool"},
+                                      std::pair{"plugin", "Plugin"}, std::pair{"generator", "Generator"},
+                                      std::pair{"analyzer", "Analyzer"}, std::pair{"formatter", "Formatter"},
+                                      std::pair{"validator", "Validator"}, std::pair{"action", "Action"},
+                                      std::pair{"asset", "Asset"}})
+                Add(spec, "project.uses." + std::string(entry.first), entry.second,
+                    {Required("Name", ManifestValueKind::Identifier)});
+            Add(spec, "project.uses.option", "Option",
+                {Required("Name", ManifestValueKind::Identifier), Required("Value")});
+            Add(spec, "project.uses.project", "Project", {Required("Path", ManifestValueKind::Path)});
+            Add(spec, "project.uses.capability", "Capability",
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::VersionCompatibility),
+                 A("Exact", ManifestValueKind::SemanticVersion), A("Provider", ManifestValueKind::Identifier),
+                 A("Domain", ManifestValueKind::Enumeration, false,
+                   {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})},
+                {C("project.uses.capability.version", 0, 1)});
+            Add(spec, "project.uses.capability.version", "Version",
+                {A("AtLeast", ManifestValueKind::SemanticVersion), A("After", ManifestValueKind::SemanticVersion),
+                 A("AtMost", ManifestValueKind::SemanticVersion), A("Before", ManifestValueKind::SemanticVersion)});
 
-            Add(spec, "project.dependencies", "Dependencies", {},
-                {C(dependencyPackage), C("project.dependencies.project")}, false, "Direct product dependencies.");
-            Add(spec, "project.dependencies.project", "Project",
-                {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
-
-            Add(spec, "project.generate", "Generate", {Required("Action")},
-                {C("project.generate.input"), C("project.generate.option"), C("project.generate.argument")}, false,
-                "Selects a Generate Action.", "validate-action-selection", "action");
-            Add(spec, "project.generate.input", "Input",
-                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)});
+            Add(spec, "project.generate", "Generate",
+                {Required("Using"), A("Version", ManifestValueKind::VersionCompatibility)},
+                {C("project.generate.header"), C("project.generate.source"), C("project.generate.file"),
+                 C("project.generate.option"), C("project.generate.argument")},
+                false, "Selects a package Generator and introduces its host Tool dependency.",
+                "validate-action-selection", "action");
+            const auto actionInput = std::vector<Attribute>{Required("Include", ManifestValueKind::Path),
+                                                            A("Exclude", ManifestValueKind::Path)};
+            Add(spec, "project.generate.header", "Header", actionInput);
+            Add(spec, "project.generate.source", "Source", actionInput);
+            Add(spec, "project.generate.file", "File", actionInput);
             Add(spec, "project.generate.option", "Option",
                 {Required("Name", ManifestValueKind::Identifier), Required("Value")});
             Add(spec, "project.generate.argument", "Argument", {}, {}, true);
@@ -223,94 +263,85 @@ namespace NGIN::CLI
             for (const auto &entry : {std::pair{"analyze", "Analyze"}, std::pair{"format", "Format"},
                                       std::pair{"validate", "Validate"}, std::pair{"custom", "Custom"}})
             {
-                Add(spec, "project.tooling." + std::string(entry.first), entry.second, {Required("Action")});
+                Add(spec, "project.tooling." + std::string(entry.first), entry.second, {Required("Using")});
             }
 
             Add(spec, "project.stage", "Stage", {}, {C("project.stage.file"), C("project.stage.directory")}, false,
                 "Project-owned deployment inputs.", "validate-stage-destinations", "stage");
             Add(spec, "project.stage.file", "File",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
             Add(spec, "project.stage.directory", "Directory",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
 
-            Add(spec, "project.launch", "Launch",
-                {Required("Name", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean)},
-                {C("project.launch.executable", 0, 1), C("project.launch.working-directory", 0, 1),
-                 C("project.launch.argument"), C("project.launch.environment"), C("project.launch.secret")},
-                false, "Process launch intent.", "validate-launch", "launch");
-            Add(spec, "project.launch.executable", "Executable",
-                {A("Product", ManifestValueKind::Identifier), A("Tool")}, {}, false, {}, "validate-executable-selector");
-            Add(spec, "project.launch.working-directory", "WorkingDirectory",
-                {Required("Path", ManifestValueKind::Path)});
-            Add(spec, "project.launch.argument", "Argument", {}, {}, true);
-            Add(spec, "project.launch.environment", "Environment", {Required("Name"), Required("Value")});
-            Add(spec, "project.launch.secret", "Secret", {Required("Name"), Required("From")});
+            Add(spec, "project.run", "Run",
+                {A("Name", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean),
+                 A("WorkingDirectory", ManifestValueKind::Path), A("Using")},
+                {C("project.run.argument"), C("project.run.environment"), C("project.run.secret")},
+                false, "Executable run definition.", "validate-run", "run");
+            Add(spec, "project.run.argument", "Argument", {}, {}, true);
+            Add(spec, "project.run.environment", "Environment", {Required("Name"), Required("Value")});
+            Add(spec, "project.run.secret", "Secret", {Required("Name"), Required("From")});
 
-            const auto testingPackage = AddPackageReference(spec, "project.testing.dependencies");
-            Add(spec, "project.testing.dependencies", "Dependencies", {},
-                {C(testingPackage), C("project.testing.dependencies.project")});
-            Add(spec, "project.testing.dependencies.project", "Project",
-                {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
-            Add(spec, "project.testing", "Testing", {},
-                {C("project.testing.dependencies", 0, 1), C("project.testing.argument"),
-                 C("project.testing.timeout", 0, 1)}, false, {}, "validate-testing", "test");
-            Add(spec, "project.testing.argument", "Argument", {}, {}, true);
-            Add(spec, "project.testing.timeout", "Timeout", {Required("Seconds", ManifestValueKind::Integer)});
+            const auto registrationChildren = std::vector<Child>{C("project.registration.argument"),
+                                                                  C("project.registration.environment")};
+            Add(spec, "project.test", "Test",
+                {A("Name", ManifestValueKind::Identifier), A("Timeout", ManifestValueKind::Integer)},
+                registrationChildren, false, "Test runner registration attached to an Executable.", {}, "test");
+            Add(spec, "project.benchmark", "Benchmark",
+                {A("Name", ManifestValueKind::Identifier), A("Timeout", ManifestValueKind::Integer),
+                 A("Repetitions", ManifestValueKind::Integer), A("Warmup", ManifestValueKind::Integer)},
+                registrationChildren, false, "Benchmark runner registration attached to an Executable.", {},
+                "benchmark");
+            Add(spec, "project.registration.argument", "Argument", {}, {}, true);
+            Add(spec, "project.registration.environment", "Environment", {Required("Name"), Required("Value")});
 
-            const auto publishPackage = AddPackageReference(spec, "project.publish.dependencies");
-            Add(spec, "project.publish.dependencies", "Dependencies", {},
-                {C(publishPackage), C("project.publish.dependencies.project")});
-            Add(spec, "project.publish.dependencies.project", "Project",
-                {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
-            Add(spec, "project.publish", "Publish", {Required("Name", ManifestValueKind::Identifier)},
-                {C("project.publish.folder", 0, 1), C("project.publish.archive", 0, 1),
-                 C("project.publish.installer", 0, 1), C("project.publish.dependencies", 0, 1)}, false, {},
-                "validate-one-publish-output", "publish");
-            Add(spec, "project.publish.folder", "Folder", {Required("Output", ManifestValueKind::Path)});
+            Add(spec, "project.publish", "Publish", {},
+                {C("project.publish.folder"), C("project.publish.archive"), C("project.publish.installer")}, false,
+                "Backend-neutral publish results.", {}, "publish");
+            Add(spec, "project.publish.folder", "Folder",
+                {Required("Name", ManifestValueKind::Identifier), Required("Output", ManifestValueKind::Path)});
             Add(spec, "project.publish.archive", "Archive",
-                {Required("Format", ManifestValueKind::Enumeration, {"zip", "tgz"}),
+                {Required("Name", ManifestValueKind::Identifier),
+                 Required("Format", ManifestValueKind::Enumeration, {"zip", "tgz"}),
                  Required("Output", ManifestValueKind::Path)});
             Add(spec, "project.publish.installer", "Installer",
-                {Required("Format", ManifestValueKind::Enumeration, {"msi", "deb"}),
+                {Required("Name", ManifestValueKind::Identifier),
+                 Required("Format", ManifestValueKind::Enumeration, {"msi", "deb"}),
                  Required("Output", ManifestValueKind::Path)});
 
-            Add(spec, "project.refinements", "Refinements", {}, {C("project.refinement")});
-            Add(spec, "project.refinement", "Refinement", {},
-                {C("project.refinement.select", 1, 1), C("project.refinement.build", 0, 1),
-                 C("project.refinement.dependencies", 0, 1), C("project.refinement.stage", 0, 1)},
-                false, {}, "validate-refinement");
-            Add(spec, "project.refinement.select", "Select", {},
-                {C("project.refinement.select.configuration", 0, 1), C("project.refinement.select.target", 0, 1),
-                 C("project.refinement.select.toolchain", 0, 1), C("project.refinement.select.option")});
-            Add(spec, "project.refinement.select.configuration", "Configuration",
-                {Required("Name", ManifestValueKind::Identifier)});
-            Add(spec, "project.refinement.select.target", "Target",
-                {A("Name", ManifestValueKind::Identifier), A("OS"), A("Architecture")});
-            Add(spec, "project.refinement.select.toolchain", "Toolchain",
-                {A("Name", ManifestValueKind::Identifier), A("Compiler")});
-            Add(spec, "project.refinement.select.option", "Option",
-                {Required("Name", ManifestValueKind::Identifier), Required("Value")});
-            AddBuild(spec, "project.refinement");
-            const auto refinementPackage = AddPackageReference(spec, "project.refinement.dependencies");
-            Add(spec, "project.refinement.dependencies", "Dependencies", {}, {C(refinementPackage)});
-            Add(spec, "project.refinement.stage", "Stage", {},
-                {C("project.refinement.stage.file"), C("project.refinement.stage.directory")});
-            Add(spec, "project.refinement.stage.file", "File",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
-            Add(spec, "project.refinement.stage.directory", "Directory",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+            Add(spec, "project.when", "When",
+                {A("Configuration", ManifestValueKind::Identifier), A("Target", ManifestValueKind::Identifier),
+                 A("OS"), A("Architecture"), A("Toolchain", ManifestValueKind::Identifier), A("Compiler"),
+                 A("Option", ManifestValueKind::Identifier), A("Equals")},
+                {C("project.when.uses", 0, 1), C("project.when.build", 0, 1),
+                 C("project.when.stage", 0, 1)},
+                false, "Typed additive conditional block.", "validate-when");
+            Add(spec, "project.when.uses", "Uses", {},
+                {C("project.uses.package"), C("project.uses.project"), C("project.uses.capability")});
+            AddBuild(spec, "project.when");
+            Add(spec, "project.when.stage", "Stage", {},
+                {C("project.when.stage.file"), C("project.when.stage.directory")});
+            Add(spec, "project.when.stage.file", "File",
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
+            Add(spec, "project.when.stage.directory", "Directory",
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
 
-            Add(spec, "project.root", "Project",
-                {Required("Name", ManifestValueKind::Identifier),
-                 Required("Type", ManifestValueKind::Enumeration,
-                          {"Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "External"}),
-                 A("Version", ManifestValueKind::SemanticVersion),
-                 A("Linkage", ManifestValueKind::Enumeration, false, {"Static", "Shared", "Interface"})},
-                {C(metadata, 0, 1), C(options, 0, 1), C("project.dependencies", 0, 1), C(build, 0, 1),
-                 C("project.generate"), C("project.tooling", 0, 1), C("project.stage", 0, 1),
-                 C("project.launch"), C("project.testing", 0, 1), C("project.publish"),
-                 C("project.refinements", 0, 1)},
-                false, "One primary NGIN product.", "validate-project-product", "product");
+            const auto commonChildren = std::vector<Child>{C(metadata, 0, 1), C(options, 0, 1),
+                                                           C("project.uses", 0, 1), C(build, 0, 1),
+                                                           C("project.generate"), C("project.tooling", 0, 1),
+                                                           C("project.stage", 0, 1), C("project.publish", 0, 1),
+                                                           C("project.when")};
+            auto executableChildren = commonChildren;
+            executableChildren.push_back(C("project.run"));
+            executableChildren.push_back(C("project.test"));
+            executableChildren.push_back(C("project.benchmark"));
+            Add(spec, "project.executable-root", "Executable",
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::SemanticVersion)},
+                executableChildren, false, "One executable build product.", "validate-executable", "product");
+            Add(spec, "project.library-root", "Library",
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::SemanticVersion),
+                 Required("Kind", ManifestValueKind::Enumeration, {"Static", "Shared", "Interface", "Plugin"})},
+                commonChildren, false, "One library build product.", "validate-library", "product");
         }
 
         auto AddPackageSpec(ManifestSpec &spec) -> void
@@ -319,16 +350,21 @@ namespace NGIN::CLI
             const auto options = AddOptions(spec, "package");
             const auto requirementPackage = AddPackageReference(spec, "package.requires", true);
 
-            Add(spec, "package.requires", "Requires", {},
+            Add(spec, "package.requires", "Uses", {},
                 {C(requirementPackage), C("package.requires.project"), C("package.requires.capability"),
-                 C("package.requires.option-predicate"), C("package.requires.export"), C("package.requires.when")},
-                false, "Requirements activated with their owning scope.", "validate-requirements");
+                 C("package.requires.option-predicate"), C("package.requires.library"),
+                 C("package.requires.tool"), C("package.requires.plugin"), C("package.requires.generator"),
+                 C("package.requires.analyzer"), C("package.requires.formatter"),
+                 C("package.requires.validator"), C("package.requires.action"), C("package.requires.asset"),
+                 C("package.requires.when")}, false, "Requirements activated with their owning export.",
+                "validate-requirements");
             Add(spec, "package.requires.project", "Project",
-                {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
+                {Required("Path", ManifestValueKind::Path),
+                 A("Public", ManifestValueKind::Boolean)});
             Add(spec, "package.requires.capability", "Capability",
-                {Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
-                 A("Compatible", ManifestValueKind::VersionCompatibility),
-                 Required("Domain", ManifestValueKind::Enumeration,
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::VersionCompatibility),
+                 A("Exact", ManifestValueKind::SemanticVersion),
+                 A("Domain", ManifestValueKind::Enumeration, false,
                           {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})},
                 {C("package.requires.capability.version", 0, 1)}, false, {}, "validate-capability-requirement");
             Add(spec, "package.requires.capability.version", "Version",
@@ -336,17 +372,15 @@ namespace NGIN::CLI
                  A("AtMost", ManifestValueKind::SemanticVersion), A("Before", ManifestValueKind::SemanticVersion)});
             Add(spec, "package.requires.option-predicate", "Option",
                 {Required("Name", ManifestValueKind::Identifier), Required("Value")});
-            Add(spec, "package.requires.export", "Export",
-                {A("Library", ManifestValueKind::Identifier), A("Tool", ManifestValueKind::Identifier),
-                 A("Plugin", ManifestValueKind::Identifier), A("Action", ManifestValueKind::Identifier),
-                 A("Asset", ManifestValueKind::Identifier),
-                 A("Visibility", ManifestValueKind::Enumeration, false, {"Private", "Public"})}, {}, false, {},
-                "validate-one-export-kind");
             Add(spec, "package.requires.when", "When",
-                {A("Option", ManifestValueKind::Identifier), A("Equals"), A("TargetOS"), A("Architecture"),
+                {A("Option", ManifestValueKind::Identifier), A("Equals"), A("OS"), A("Architecture"),
                  A("Compiler")},
                 {C(requirementPackage), C("package.requires.project"), C("package.requires.capability"),
-                 C("package.requires.export")}, false, {}, "validate-requirement-condition");
+                 C("package.requires.library"), C("package.requires.tool"), C("package.requires.plugin"),
+                 C("package.requires.generator"), C("package.requires.analyzer"),
+                 C("package.requires.formatter"), C("package.requires.validator"),
+                 C("package.requires.action"), C("package.requires.asset")},
+                false, {}, "validate-requirement-condition");
 
             Add(spec, "package.contributions", "Contributions", {},
                 {C("package.contributions.notices", 0, 1), C("package.contributions.runtime-files", 0, 1)});
@@ -354,45 +388,42 @@ namespace NGIN::CLI
             Add(spec, "package.contributions.runtime-files", "RuntimeFiles", {},
                 {C("package.runtime-file"), C("package.runtime-directory")});
             Add(spec, "package.notice", "Notice",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
             Add(spec, "package.runtime-file", "File",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
             Add(spec, "package.runtime-directory", "Directory",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
 
             const std::vector<Child> exportChildren{
-                C("package.requires", 0, 1), C("package.provides", 0, 1), C("package.export.runtime-files", 0, 1),
+                C("package.requires", 0, 1), C("package.provides"), C("package.export.runtime-files", 0, 1),
                 C("package.export.notices", 0, 1)};
-            Add(spec, "package.exports", "Exports", {},
-                {C("package.export.library"), C("package.export.tool"), C("package.export.plugin"),
-                 C("package.export.action"), C("package.export.asset")},
-                false, "Named semantic exports.", "validate-exports", "exports");
             for (const auto &entry : {std::pair{"library", "Library"}, std::pair{"tool", "Tool"},
                                       std::pair{"plugin", "Plugin"}})
             {
                 Add(spec, "package.export." + std::string(entry.first), entry.second,
-                    {Required("Name", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean)},
+                    {Required("Name", ManifestValueKind::Identifier), A("Default", ManifestValueKind::Boolean),
+                     A("Product", ManifestValueKind::Identifier)},
                     exportChildren);
             }
-            Add(spec, "package.provides", "Provides", {}, {C("package.provides.capability")});
-            Add(spec, "package.provides.capability", "Capability",
-                {Required("Name", ManifestValueKind::Identifier),
-                 Required("Version", ManifestValueKind::SemanticVersion),
-                 Required("Domain", ManifestValueKind::Enumeration,
+            Add(spec, "package.provides", "Provides",
+                {Required("Name", ManifestValueKind::Identifier), Required("Version", ManifestValueKind::VersionCompatibility),
+                 A("Domain", ManifestValueKind::Enumeration, false,
                           {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})});
             Add(spec, "package.export.runtime-files", "RuntimeFiles", {},
                 {C("package.runtime-file"), C("package.runtime-directory")});
             Add(spec, "package.export.notices", "Notices", {}, {C("package.notice")});
 
-            Add(spec, "package.export.action", "Action",
-                {Required("Name", ManifestValueKind::Identifier),
-                 Required("Kind", ManifestValueKind::Enumeration,
-                          {"Generate", "Analyze", "Format", "Validate", "Custom"}),
-                 Required("Tool", ManifestValueKind::Identifier), A("Deterministic", ManifestValueKind::Boolean)},
-                {C("package.requires", 0, 1), C("package.provides", 0, 1), C("package.action.inputs", 0, 1),
-                 C("package.action.outputs", 0, 1), C("package.action.argument"),
-                 C("package.action.working-directory", 0, 1), C("package.action.environment")},
-                false, {}, "validate-action", "action");
+            const auto actionChildren = std::vector<Child>{C("package.requires", 0, 1), C("package.provides"),
+                 C("package.action.inputs", 0, 1), C("package.action.outputs", 0, 1),
+                 C("package.action.argument"), C("package.action.working-directory", 0, 1),
+                 C("package.action.environment")};
+            for (const auto &entry : {std::pair{"generator", "Generator"}, std::pair{"analyzer", "Analyzer"},
+                                      std::pair{"formatter", "Formatter"}, std::pair{"validator", "Validator"},
+                                      std::pair{"action", "Action"}})
+                Add(spec, "package.export." + std::string(entry.first), entry.second,
+                    {Required("Name", ManifestValueKind::Identifier), Required("Tool", ManifestValueKind::Identifier),
+                     A("Default", ManifestValueKind::Boolean), A("Deterministic", ManifestValueKind::Boolean)},
+                    actionChildren, false, {}, "validate-action", "action");
             Add(spec, "package.action.inputs", "Inputs", {},
                 {C("package.action.input.header"), C("package.action.input.source"), C("package.action.input.file")});
             const auto actionInput = std::vector<Attribute>{Required("Include", ManifestValueKind::Path),
@@ -417,13 +448,21 @@ namespace NGIN::CLI
                  A("Default", ManifestValueKind::Boolean)},
                 {C("package.asset.file"), C("package.asset.directory")});
             Add(spec, "package.asset.file", "File",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
             Add(spec, "package.asset.directory", "Directory",
-                {Required("Include", ManifestValueKind::Path), Required("Into", ManifestValueKind::Path)});
+                {Required("From", ManifestValueKind::Path), Required("To", ManifestValueKind::Path)});
 
-            Add(spec, "package.integrations", "Integrations", {},
+            Add(spec, "package.adapters", "Adapters", {},
                 {C("cmake.add-subdirectory"), C("cmake.isolated"), C("cmake.find-package"), C("cmake.manual")},
-                false, "Registered backend integration metadata.", "validate-integration-selection");
+                false, "Registered backend adapter metadata.", "validate-adapter-selection");
+            Add(spec, "package.import", "Import", {Required("Cps", ManifestValueKind::Path)});
+            Add(spec, "package.capabilities", "Capabilities", {}, {C("package.capabilities.provide")});
+            Add(spec, "package.capabilities.provide", "Provide",
+                {Required("Name", ManifestValueKind::Identifier),
+                 Required("Version", ManifestValueKind::VersionCompatibility),
+                 Required("Component"),
+                 A("Domain", ManifestValueKind::Enumeration, false,
+                   {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})});
             Add(spec, "package.compatibility", "Compatibility",
                 {A("Coexistence", ManifestValueKind::Enumeration, false, {"Context", "SideBySide"})},
                 {C("package.compatibility.target"), C("package.compatibility.toolchain")}, false, {},
@@ -434,10 +473,15 @@ namespace NGIN::CLI
 
             Add(spec, "package.root", "Package",
                 {Required("Name", ManifestValueKind::Identifier),
-                 Required("Version", ManifestValueKind::SemanticVersion)},
+                 Required("Version", ManifestValueKind::SemanticVersion),
+                 A("CompatibleSince", ManifestValueKind::SemanticVersion)},
                 {C(metadata, 0, 1), C(options, 0, 1), C("package.requires", 0, 1),
-                 C("package.contributions", 0, 1), C("package.exports", 1, 1),
-                 C("package.integrations", 0, 1), C("package.compatibility", 0, 1)},
+                 C("package.import", 0, 1), C("package.capabilities", 0, 1),
+                 C("package.contributions", 0, 1),
+                 C("package.export.library"), C("package.export.tool"), C("package.export.plugin"),
+                 C("package.export.generator"), C("package.export.analyzer"), C("package.export.formatter"),
+                 C("package.export.validator"), C("package.export.action"), C("package.export.asset"),
+                 C("package.adapters", 0, 1), C("package.compatibility", 0, 1)},
                 false, "One exact package release.", "validate-package", "package");
         }
 
@@ -445,7 +489,7 @@ namespace NGIN::CLI
         {
             const auto ns = std::string(CMakeIntegrationNamespace);
             const auto commonChildren = std::vector<Child>{C("cmake.cache"), C("cmake.map-option"),
-                                                           C("cmake.target"), C("cmake.select")};
+                                                           C("cmake.target"), C("cmake.when")};
             Add(spec, "cmake.add-subdirectory", "AddSubdirectory", {Required("Source", ManifestValueKind::Path)},
                 commonChildren, false, "Embeds a source-backed CMake package.", "validate-cmake-add-subdirectory", {}, ns);
             Add(spec, "cmake.manual", "Manual", {Required("Source", ManifestValueKind::Path)}, commonChildren, false,
@@ -453,11 +497,11 @@ namespace NGIN::CLI
             Add(spec, "cmake.find-package", "FindPackage",
                 {Required("Name"), A("Config", ManifestValueKind::Boolean), A("Required", ManifestValueKind::Boolean),
                  A("Version", ManifestValueKind::SemanticVersion)},
-                {C("cmake.target"), C("cmake.select")}, false, "Maps a resolved package through find_package.",
+                {C("cmake.target"), C("cmake.when")}, false, "Maps a resolved package through find_package.",
                 "validate-cmake-find-package", {}, ns);
             Add(spec, "cmake.isolated", "Isolated", {Required("Source", ManifestValueKind::Path)},
                 {C("cmake.cache"), C("cmake.map-option"), C("cmake.install", 0, 1),
-                 C("cmake.find-package", 1, 1), C("cmake.select")},
+                 C("cmake.find-package", 1, 1), C("cmake.when")},
                 false, "Builds and installs a package into an isolated prefix.", "validate-cmake-isolated", {}, ns);
             Add(spec, "cmake.cache", "Cache",
                 {Required("Name"), Required("Value"),
@@ -472,23 +516,23 @@ namespace NGIN::CLI
                 {Required("Export", ManifestValueKind::Identifier), Required("Name")}, {}, false, {},
                 "validate-cmake-target-map", {}, ns);
             Add(spec, "cmake.install", "Install", {}, {}, false, {}, {}, {}, ns);
-            Add(spec, "cmake.select", "Select", {},
-                {C("cmake.select.configuration", 0, 1), C("cmake.select.target", 0, 1),
-                 C("cmake.select.toolchain", 0, 1), C("cmake.select.option"), C("cmake.cache"),
-                 C("cmake.map-option"), C("cmake.target")},
-                false, {}, "validate-cmake-selection", {}, ns);
-            Add(spec, "cmake.select.configuration", "Configuration", {Required("Name")});
-            Add(spec, "cmake.select.target", "Target", {A("Name"), A("OS"), A("Architecture")});
-            Add(spec, "cmake.select.toolchain", "Toolchain", {A("Name"), A("Compiler")});
-            Add(spec, "cmake.select.option", "Option", {Required("Name"), Required("Value")});
+            Add(spec, "cmake.when", "When",
+                {A("Configuration"), A("Target"), A("OS"), A("Architecture"), A("Toolchain"), A("Compiler"),
+                 A("Option", ManifestValueKind::Identifier), A("Equals")},
+                {C("cmake.cache"), C("cmake.map-option"), C("cmake.target")}, false,
+                "Adds backend bindings for one typed selection.", "validate-cmake-condition", {}, ns);
         }
 
         auto AddWorkspaceSpec(ManifestSpec &spec) -> void
         {
-            Add(spec, "workspace.projects", "Projects", {}, {C("workspace.projects.project", 1)});
-            Add(spec, "workspace.projects.project", "Project",
-                {A("Path", ManifestValueKind::Path), A("Include", ManifestValueKind::Path),
-                 A("Exclude", ManifestValueKind::Path)}, {}, false, {}, "validate-project-discovery");
+            Add(spec, "workspace.discover", "Discover", {},
+                {C("workspace.discover.projects"), C("workspace.discover.packages")});
+            Add(spec, "workspace.discover.projects", "Projects",
+                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)}, {}, false, {},
+                "validate-project-discovery");
+            Add(spec, "workspace.discover.packages", "Packages",
+                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)}, {}, false, {},
+                "validate-package-discovery");
 
             Add(spec, "workspace.configurations", "Configurations", {}, {C("workspace.configuration")});
             Add(spec, "workspace.configuration", "Configuration", {Required("Name", ManifestValueKind::Identifier)},
@@ -513,89 +557,41 @@ namespace NGIN::CLI
                 {Required("Name", ManifestValueKind::Identifier), Required("Compiler"), A("CompilerVersion"),
                  A("RuntimeLibrary"), A("Linker"), A("ToolchainFile", ManifestValueKind::Path)});
 
-            Add(spec, "workspace.defaults", "Defaults", {},
-                {C("workspace.defaults.output-root", 0, 1), C("workspace.defaults.configuration", 0, 1),
-                 C("workspace.defaults.target", 0, 1), C("workspace.defaults.toolchain", 0, 1),
-                 C("workspace.defaults.option")});
-            Add(spec, "workspace.defaults.output-root", "OutputRoot", {Required("Path", ManifestValueKind::Path)});
-            Add(spec, "workspace.defaults.configuration", "Configuration", {Required("Name")});
-            Add(spec, "workspace.defaults.target", "Target", {Required("Name")});
-            Add(spec, "workspace.defaults.toolchain", "Toolchain", {Required("Name")});
-            Add(spec, "workspace.defaults.option", "Option", {Required("Name"), Required("Value")});
-
-            Add(spec, "workspace.packages", "Packages", {},
-                {C("workspace.packages.source"), C("workspace.packages.local-package"),
-                 C("workspace.packages.version"), C("workspace.packages.binding")},
-                false, {}, "validate-package-policy");
-            Add(spec, "workspace.packages.source", "Source",
-                {Required("Name", ManifestValueKind::Identifier), Required("Kind"), A("Path", ManifestValueKind::Path),
-                 A("Url")});
-            Add(spec, "workspace.packages.local-package", "LocalPackage",
-                {Required("Name", ManifestValueKind::Identifier), Required("Manifest", ManifestValueKind::Path),
-                 Required("Root", ManifestValueKind::Path)});
-            Add(spec, "workspace.packages.version", "Version",
-                {Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
-                 A("Compatible", ManifestValueKind::VersionCompatibility), A("AtLeast", ManifestValueKind::SemanticVersion),
+            Add(spec, "workspace.versions", "Versions", {}, {C("workspace.versions.package")});
+            Add(spec, "workspace.versions.package", "Package",
+                {Required("Name", ManifestValueKind::Identifier), A("Version", ManifestValueKind::VersionCompatibility),
+                 A("Exact", ManifestValueKind::SemanticVersion), A("AtLeast", ManifestValueKind::SemanticVersion),
                  A("After", ManifestValueKind::SemanticVersion), A("AtMost", ManifestValueKind::SemanticVersion),
                  A("Before", ManifestValueKind::SemanticVersion)}, {}, false, {}, "validate-central-version");
-            Add(spec, "workspace.packages.binding", "Binding",
-                {Required("Package", ManifestValueKind::Identifier), Required("Source", ManifestValueKind::Identifier),
-                 Required("Coordinate")});
 
-            Add(spec, "workspace.policies", "Policies", {},
-                {C("workspace.policies.providers", 0, 1), C("workspace.policies.actions", 0, 1),
-                 C("workspace.policies.paths", 0, 1), C("workspace.policies.stage", 0, 1),
-                 C("workspace.policies.compatibility", 0, 1)},
-                false, "Non-overridable trust and reproducibility gates.", "validate-policies");
-            Add(spec, "workspace.policies.providers", "PackageProviders",
-                {A("IntegrityRequired", ManifestValueKind::Boolean), A("Locked", ManifestValueKind::Boolean),
-                 A("AllowNonHermetic", ManifestValueKind::Boolean)},
-                {C("workspace.policies.providers.allow")});
-            Add(spec, "workspace.policies.providers.allow", "Allow", {Required("Kind")});
-            Add(spec, "workspace.policies.actions", "Actions",
-                {A("Default", ManifestValueKind::Enumeration, false, {"Allow", "Deny", "Confirm"}),
-                 A("RequireLocked", ManifestValueKind::Boolean),
-                 A("IntegrityRequired", ManifestValueKind::Boolean),
-                 A("SignatureRequired", ManifestValueKind::Boolean)},
-                {C("workspace.policies.actions.allow"), C("workspace.policies.actions.deny"),
-                 C("workspace.policies.actions.confirm")});
-            const auto actionTrustRule = std::vector<Attribute>{
-                A("Package", ManifestValueKind::Identifier),
-                A("Kind", ManifestValueKind::Enumeration, false,
-                  {"Generate", "Analyze", "Format", "Validate", "Custom"}),
-                A("Provider"), A("Source", ManifestValueKind::Identifier), A("Trust"), A("Signature"),
-                A("ExecutableOrigin", ManifestValueKind::Path), A("Reason")};
-            Add(spec, "workspace.policies.actions.allow", "Allow", actionTrustRule);
-            Add(spec, "workspace.policies.actions.deny", "Deny", actionTrustRule);
-            Add(spec, "workspace.policies.actions.confirm", "Confirm", actionTrustRule);
-            Add(spec, "workspace.policies.paths", "Paths",
-                {A("AllowSymlinks", ManifestValueKind::Boolean), A("RequireContained", ManifestValueKind::Boolean)});
-            Add(spec, "workspace.policies.stage", "Stage",
-                {A("Collision", ManifestValueKind::Enumeration, false, {"Error", "IdenticalBytes"})});
-            Add(spec, "workspace.policies.compatibility", "Compatibility",
-                {}, {C("workspace.policies.compatibility.target"),
-                     C("workspace.policies.compatibility.toolchain")});
-            Add(spec, "workspace.policies.compatibility.target", "Target", {Required("Name")});
-            Add(spec, "workspace.policies.compatibility.toolchain", "Toolchain", {Required("Name")});
+            Add(spec, "workspace.profiles", "Profiles", {A("Default", ManifestValueKind::Identifier)},
+                {C("workspace.profile")});
+            Add(spec, "workspace.profile", "Profile",
+                {Required("Name", ManifestValueKind::Identifier), A("Configuration", ManifestValueKind::Identifier),
+                 A("Target", ManifestValueKind::Identifier), A("Toolchain", ManifestValueKind::Identifier),
+                 A("Run", ManifestValueKind::Identifier)},
+                {C("workspace.profile.option")});
+            Add(spec, "workspace.profile.option", "Option", {Required("Name"), Required("Value")});
 
-            Add(spec, "workspace.presets", "Presets", {}, {C("workspace.preset")});
-            Add(spec, "workspace.preset", "Preset",
-                {Required("Name", ManifestValueKind::Identifier), Required("Command")},
-                {C("workspace.preset.configuration", 0, 1), C("workspace.preset.target", 0, 1),
-                 C("workspace.preset.toolchain", 0, 1), C("workspace.preset.option"),
-                 C("workspace.preset.launch", 0, 1)});
-            Add(spec, "workspace.preset.configuration", "Configuration", {Required("Name")});
-            Add(spec, "workspace.preset.target", "Target", {Required("Name")});
-            Add(spec, "workspace.preset.toolchain", "Toolchain", {Required("Name")});
-            Add(spec, "workspace.preset.option", "Option", {Required("Name"), Required("Value")});
-            Add(spec, "workspace.preset.launch", "Launch", {Required("Name")});
+            Add(spec, "workspace.capabilities", "Capabilities", {},
+                {C("workspace.capabilities.prefer"), C("workspace.capabilities.when")});
+            Add(spec, "workspace.capabilities.prefer", "Prefer",
+                {Required("Name", ManifestValueKind::Identifier), Required("Provider", ManifestValueKind::Identifier)});
+            Add(spec, "workspace.capabilities.when", "When",
+                {A("OS"), A("Architecture"), A("Configuration", ManifestValueKind::Identifier)},
+                {C("workspace.capabilities.prefer")});
+
+            Add(spec, "workspace.trust", "Trust", {}, {C("workspace.trust.allow-actions")});
+            Add(spec, "workspace.trust.allow-actions", "AllowActions",
+                {Required("From"), Required("Reason")});
 
             Add(spec, "workspace.root", "Workspace", {Required("Name", ManifestValueKind::Identifier)},
-                {C("workspace.projects", 1, 1), C("workspace.configurations", 0, 1),
+                {C("workspace.discover", 0, 1), C("workspace.configurations", 0, 1),
                  C("workspace.targets", 0, 1), C("workspace.toolchains", 0, 1),
-                 C("workspace.defaults", 0, 1), C("workspace.packages", 0, 1),
-                 C("workspace.policies", 0, 1), C("workspace.presets", 0, 1)},
-                false, "Workspace discovery, selection, policy, and presets.", "validate-workspace", "workspace");
+                 C("workspace.versions", 0, 1), C("workspace.profiles", 0, 1),
+                 C("workspace.capabilities", 0, 1), C("workspace.trust", 0, 1)},
+                false, "Workspace discovery, selection, capability preferences, and trust.",
+                "validate-workspace", "workspace");
         }
 
         [[nodiscard]] auto BuildSpec() -> ManifestSpec
@@ -606,9 +602,10 @@ namespace NGIN::CLI
             AddCMakeSpec(spec);
             AddWorkspaceSpec(spec);
             spec.documents = {
-                {ManifestDocumentKind::Project, ".nginproj", "project.root", "project.xsd"},
-                {ManifestDocumentKind::Package, ".nginpkg", "package.root", "package.xsd"},
-                {ManifestDocumentKind::Workspace, ".ngin", "workspace.root", "workspace.xsd"},
+                {ManifestDocumentKind::Project, ".nginproj",
+                 {"project.executable-root", "project.library-root"}, "project.xsd"},
+                {ManifestDocumentKind::Package, ".nginpkg", {"package.root"}, "package.xsd"},
+                {ManifestDocumentKind::Workspace, ".ngin", {"workspace.root"}, "workspace.xsd"},
             };
             spec.namespaces = {{std::string(CMakeIntegrationNamespace), "cmake", "cmake-integration.xsd",
                                 {"cmake.add-subdirectory", "cmake.isolated", "cmake.find-package", "cmake.manual"}}};

@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="libsodium" Version="1.0.19">
-  <Metadata><Description>libsodium cryptography library.</Description><License>ISC</License></Metadata>
-  <Exports>
-    <Library Name="Crypto" Default="true">
-      <Provides>
-        <Capability Name="Crypto.Provider.libsodium" Version="1.0.19" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Random" Version="1.0.19" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.XChaCha20Poly1305" Version="1.0.19" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Ed25519" Version="1.0.19" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.X25519" Version="1.0.19" Domain="Link" />
-        <Capability Name="Crypto.Algorithm.Argon2id" Version="1.0.19" Domain="Link" />
-      </Provides>
-    </Library>
-  </Exports>
-  <Integrations><cmake:Manual Source="."><cmake:Target Export="Crypto" Name="libsodium::libsodium" /></cmake:Manual></Integrations>
-  <Compatibility><Target OS="linux" /><Target OS="windows" /><Target OS="macos" /></Compatibility>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="libsodium" Version="1.0.19">
+  <Metadata>
+    <Description>libsodium cryptography library.</Description>
+    <License>ISC</License>
+  </Metadata>
+  <Library Name="Crypto" Default="true">
+    <Provides Name="Crypto.Provider.libsodium" Version="1.0.19" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Random" Version="1.0.19" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.XChaCha20Poly1305" Version="1.0.19" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Ed25519" Version="1.0.19" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.X25519" Version="1.0.19" Domain="Link" />
+    <Provides Name="Crypto.Algorithm.Argon2id" Version="1.0.19" Domain="Link" />
+  </Library>
+  <Adapters>
+    <cmake:Manual Source=".">
+      <cmake:Target Export="Crypto" Name="libsodium::libsodium" />
+    </cmake:Manual>
+  </Adapters>
+  <Compatibility>
+    <Target OS="linux" />
+    <Target OS="windows" />
+    <Target OS="macos" />
+  </Compatibility>
 </Package>

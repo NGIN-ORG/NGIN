@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Reflection.MetaGen" Version="0.1.0">
-  <Requires><Package Name="NGIN.Reflection" Compatible="0.1" Visibility="Public" /></Requires>
-  <Exports>
-    <Tool Name="MetaGen" />
-    <Action Name="ReflectionCodegen" Kind="Generate" Tool="MetaGen" Deterministic="true">
-      <Inputs><Header Include="**/*.hpp" /></Inputs>
-      <Outputs><Source Path="generated/reflection.generated.cpp" /></Outputs>
-    </Action>
-  </Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Reflection.MetaGen" Version="0.1.0">
+  <Uses>
+    <Package Name="NGIN.Reflection" Version="0.1" Public="true" />
+  </Uses>
+  <Tool Name="MetaGen" />
+  <Generator Name="ReflectionCodegen" Tool="MetaGen" Deterministic="true">
+    <Inputs>
+      <Header Include="**/*.hpp" />
+    </Inputs>
+    <Outputs>
+      <Source Path="generated/reflection.generated.cpp" />
+    </Outputs>
+  </Generator>
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Target Export="MetaGen" Name="ngin_reflection_metagen" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

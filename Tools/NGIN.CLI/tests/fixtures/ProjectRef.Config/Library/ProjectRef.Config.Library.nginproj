@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="ProjectRef.Config.Library" Type="Library" Linkage="Static">
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="config/library.cfg" Into="config/library.cfg" /></Stage>
-</Project>
+
+<Library Name="ProjectRef.Config.Library" Kind="Static">
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="config/library.cfg" To="config/library.cfg" />
+  </Stage>
+</Library>

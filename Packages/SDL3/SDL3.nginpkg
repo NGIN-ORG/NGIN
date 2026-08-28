@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="SDL3" Version="3.4.12">
-  <Exports><Library Name="SDL3" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="SDL3" Version="3.4.12">
+  <Library Name="SDL3" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Target Export="SDL3" Name="SDL3::SDL3-static" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

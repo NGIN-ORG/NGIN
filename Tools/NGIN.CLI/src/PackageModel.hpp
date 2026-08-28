@@ -93,6 +93,7 @@ namespace NGIN::CLI
         std::optional<SourcedVersionConstraint> constraint{};
         RequirementVisibility visibility{RequirementVisibility::Private};
         PackageInstanceContext context{PackageInstanceContext::Target};
+        std::optional<std::string> provider{};
         std::optional<RequirementCondition> condition{};
         std::string requester{};
         ManifestSourceRange source{};
@@ -125,8 +126,19 @@ namespace NGIN::CLI
         SemanticVersion version{};
         PackageInstanceContext context{PackageInstanceContext::Target};
         std::string packageInstance{};
+        std::string packageName{};
         std::string exportName{};
         ManifestSourceRange source{};
+    };
+
+    struct CpsComponentMetadata
+    {
+        std::string type{};
+        std::optional<std::string> location{};
+        std::vector<std::string> includeDirectories{};
+        std::vector<std::string> compileDefinitions{};
+        std::vector<std::string> compileOptions{};
+        std::vector<std::string> linkOptions{};
     };
 
     struct PackageExport
@@ -138,6 +150,7 @@ namespace NGIN::CLI
         std::vector<CapabilityImplementation> capabilities{};
         std::vector<PackageContribution> contributions{};
         std::optional<SemanticActionContract> action{};
+        std::optional<CpsComponentMetadata> cps{};
         std::optional<std::string> description{};
         ManifestSourceRange source{};
     };

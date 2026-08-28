@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.ECS" Version="0.4.0">
-  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" /></Requires>
-  <Exports><Library Name="ECS" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.ECS" Version="0.4.0">
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" Public="true" />
+  </Uses>
+  <Library Name="ECS" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_ECS_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_ECS_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_ECS_BUILD_BENCHMARKS" Value="OFF" Type="BOOL" />
       <cmake:Target Export="ECS" Name="NGIN::ECS" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

@@ -18,30 +18,31 @@ namespace
 Selection:
   --project <file.nginproj>   --workspace <file.ngin>
   --configuration <name>     --target <name>     --toolchain <name>
-  --launch <name>            --preset <name>     --option <Name=Value>
+  --run <name>               --profile <name>    --option <Name=Value>
 
 Authoring:
-  new <app|lib|tool|test|benchmark|plugin|external> <Name>
-  add package <Name> [--exact V|--compatible V|--at-least V --before V]
-                     [--use Kind:Name] [--option Name=Value]
+  new <executable|library> <Name>
+  add package <Name> [--exact V|--version V|--at-least V --before V]
+                     [--export Kind:Name] [--option Name=Value]
   add project-reference <Path>
   add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custom>
   package add|update|remove <Name> [version and activation options]
-  manifest format
+  format [--check]
   schema --format json
 
 Resolution:
   validate
-  inspect --format json
+  inspect --effective | --format json
   graph --format json
   explain <graph-identity>
   diff --against <other.nginproj> [--format json]
 
 Execution commands are driven by typed plans: configure, build, stage, run,
-test, publish, analyze, format, restore, and package lock.
+test, benchmark, publish, analyze, format, restore, and package lock.
 
-Analyzer integration:
+Tooling integration:
   analyze --file <source> [--file <source>...] [--format json]
+  tooling format --file <source> [--file <source>...]
 )";
     }
 }
@@ -73,15 +74,18 @@ auto main(const int argc, char **argv) -> int
         if (command == "stage") return NGIN::CLI::StageProject(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "run") return NGIN::CLI::RunProject(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "test") return NGIN::CLI::TestProject(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
+        if (command == "benchmark") return NGIN::CLI::BenchmarkProject(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "publish") return NGIN::CLI::PublishProject(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
-        if (command == "analyze" || command == "format")
+        if (command == "format") return NGIN::CLI::FormatManifest(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
+        if (command == "analyze")
             return NGIN::CLI::ExecuteProjectActions(root, NGIN::CLI::ParseCliArguments(argc, argv, 2), command);
-        if (command == "restore") return NGIN::CLI::RestorePackages(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
-        if (command == "manifest")
+        if (command == "tooling")
         {
-            if (argc < 3 || std::string{argv[2]} != "format") throw std::runtime_error("manifest requires format");
-            return NGIN::CLI::FormatManifest(root, NGIN::CLI::ParseCliArguments(argc, argv, 3));
+            if (argc < 3 || std::string{argv[2]} != "format")
+                throw std::runtime_error("tooling requires format");
+            return NGIN::CLI::ExecuteProjectActions(root, NGIN::CLI::ParseCliArguments(argc, argv, 3), "format");
         }
+        if (command == "restore") return NGIN::CLI::RestorePackages(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "package")
         {
             if (argc >= 3 && std::string{argv[2]} == "lock")

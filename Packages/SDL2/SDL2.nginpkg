@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="SDL2" Version="2.30.0">
-  <Exports><Library Name="SDL2" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="SDL2" Version="2.30.0">
+  <Library Name="SDL2" Default="true" />
+  <Adapters>
     <cmake:FindPackage Name="SDL2" Required="true">
       <cmake:Target Export="SDL2" Name="SDL2::SDL2" />
     </cmake:FindPackage>
-  </Integrations>
+  </Adapters>
 </Package>

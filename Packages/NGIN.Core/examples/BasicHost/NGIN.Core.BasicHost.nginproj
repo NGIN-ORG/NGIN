@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="NGIN.Core.BasicHost" Type="Application">
-  <Dependencies><Package Name="NGIN.Core" Compatible="0.1" /></Dependencies>
-  <Build><Source Include="*.cpp" /></Build>
-  <Stage><File Include="app.cfg" Into="app.cfg" /></Stage>
-  <Launch Name="default" Default="true"><Executable Product="NGIN.Core.BasicHost" /><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="NGIN.Core.BasicHost">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" />
+  </Uses>
+  <Build>
+    <Source Include="*.cpp" />
+  </Build>
+  <Stage>
+    <File From="app.cfg" To="app.cfg" />
+    <File From="package.cfg" To="package.cfg" />
+  </Stage>
+</Executable>

@@ -2,14 +2,22 @@
 
 #include "Canonical.hpp"
 
+#include <NGIN/Serialization/Core/SourceBuffer.hpp>
+#include <NGIN/Serialization/JSON/JsonParser.hpp>
+
 #include <algorithm>
+#include <fstream>
 #include <functional>
+#include <set>
 #include <sstream>
 
 namespace NGIN::CLI
 {
     namespace
     {
+        using JsonObject = NGIN::Serialization::JSON::ObjectView;
+        using JsonValue = NGIN::Serialization::JSON::ValueView;
+
         [[nodiscard]] auto AttributeValue(const AuthoredElement &element, const std::string_view name,
                                           std::string fallback = {}) -> std::string
         {
@@ -46,6 +54,368 @@ namespace NGIN::CLI
                                                        .relatedSources = std::move(related)});
         }
 
+        [[nodiscard]] auto ReadFileText(const fs::path &path) -> std::optional<std::string>
+        {
+            std::ifstream input(path, std::ios::binary);
+            if (!input) return std::nullopt;
+            std::ostringstream text{};
+            text << input.rdbuf();
+            return text.str();
+        }
+
+        [[nodiscard]] auto JsonString(const JsonObject &object, const std::string_view key)
+            -> std::optional<std::string>
+        {
+            const auto value = object.Find(key);
+            if (!value.has_value()) return std::nullopt;
+            const auto text = value->TryString();
+            return text.has_value() ? std::optional<std::string>{*text} : std::nullopt;
+        }
+
+        auto ReadCpsStringArray(const JsonObject &object, const std::string_view key,
+                                const ManifestSourceRange &source, std::vector<ManifestDiagnostic> &diagnostics)
+            -> std::vector<std::string>
+        {
+            std::vector<std::string> result{};
+            const auto value = object.Find(key);
+            if (!value.has_value()) return result;
+            const auto array = value->TryArray();
+            if (!array.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS component field '" + std::string(key) +
+                                                       "' must be an array",
+                         source);
+                return result;
+            }
+            for (const auto entry : *array)
+            {
+                const auto text = entry.TryString();
+                if (!text.has_value())
+                    AddError(diagnostics, "NGIN4011", "CPS component field '" + std::string(key) +
+                                                           "' must contain strings",
+                             source);
+                else
+                    result.emplace_back(*text);
+            }
+            return result;
+        }
+
+        auto ReadCpsStringList(const JsonObject &object, const std::string_view key,
+                               const ManifestSourceRange &source, std::vector<ManifestDiagnostic> &diagnostics)
+            -> std::vector<std::string>
+        {
+            const auto value = object.Find(key);
+            if (!value.has_value()) return {};
+            if (value->TryArray().has_value()) return ReadCpsStringArray(object, key, source, diagnostics);
+            const auto languages = value->TryObject();
+            if (!languages.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS component field '" + std::string(key) +
+                                                       "' must be an array or language map",
+                         source);
+                return {};
+            }
+            std::vector<std::string> result{};
+            for (const auto &language : *languages)
+            {
+                if (language.Key() != "*" && language.Key() != "cpp") continue;
+                const auto entries = language.Value().TryArray();
+                if (!entries.has_value())
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS language field '" + std::string(key) +
+                                                           "' must contain arrays",
+                             source);
+                    continue;
+                }
+                for (const auto entry : *entries)
+                    if (const auto text = entry.TryString(); text.has_value()) result.emplace_back(*text);
+                    else AddError(diagnostics, "NGIN4011", "CPS language field '" + std::string(key) +
+                                                                "' must contain strings",
+                                  source);
+            }
+            return result;
+        }
+
+        auto ReadCpsDefinitions(const JsonObject &component, const ManifestSourceRange &source,
+                                std::vector<ManifestDiagnostic> &diagnostics) -> std::vector<std::string>
+        {
+            const auto value = component.Find("definitions");
+            if (!value.has_value()) return {};
+            const auto languages = value->TryObject();
+            if (!languages.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS component field 'definitions' must be a language map",
+                         source);
+                return {};
+            }
+            std::vector<std::string> result{};
+            for (const auto &language : *languages)
+            {
+                if (language.Key() != "*" && language.Key() != "cpp") continue;
+                const auto definitions = language.Value().TryObject();
+                if (!definitions.has_value())
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS definitions language entries must be objects", source);
+                    continue;
+                }
+                for (const auto &definition : *definitions)
+                {
+                    if (definition.Value().IsNull()) result.emplace_back(definition.Key());
+                    else if (const auto text = definition.Value().TryString(); text.has_value())
+                        result.emplace_back(std::string(definition.Key()) + "=" + std::string(*text));
+                    else AddError(diagnostics, "NGIN4011", "CPS definition values must be strings or null", source);
+                }
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto CpsPrefix(const JsonObject &root, const fs::path &cpsPath,
+                                     const ManifestSourceRange &source,
+                                     std::vector<ManifestDiagnostic> &diagnostics) -> std::optional<fs::path>
+        {
+            const auto prefix = JsonString(root, "prefix");
+            const auto authoredCpsPath = JsonString(root, "cps_path");
+            if (prefix.has_value() == authoredCpsPath.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS requires exactly one of 'prefix' or 'cps_path'", source);
+                return std::nullopt;
+            }
+            if (prefix.has_value()) return fs::path(*prefix).lexically_normal();
+            constexpr std::string_view token{"@prefix@"};
+            if (!authoredCpsPath->starts_with(token))
+            {
+                AddError(diagnostics, "NGIN4011", "CPS 'cps_path' must start with '@prefix@'", source);
+                return std::nullopt;
+            }
+            auto suffix = fs::path(authoredCpsPath->substr(token.size())).relative_path();
+            auto prefixPath = cpsPath.parent_path();
+            if (suffix.empty()) return prefixPath.lexically_normal();
+            for (const auto &segment : suffix)
+            {
+                if (segment == "." || segment.empty()) continue;
+                if (segment == "..")
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS 'cps_path' cannot escape its prefix", source);
+                    return std::nullopt;
+                }
+                prefixPath = prefixPath.parent_path();
+            }
+            if ((prefixPath / suffix).lexically_normal() != cpsPath.parent_path().lexically_normal())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS file location does not match its 'cps_path'", source);
+                return std::nullopt;
+            }
+            return prefixPath.lexically_normal();
+        }
+
+        [[nodiscard]] auto ResolveCpsPath(const std::string_view authored, const fs::path &cpsPath,
+                                          const fs::path &prefix) -> std::string
+        {
+            constexpr std::string_view token{"@prefix@"};
+            if (authored.starts_with(token))
+                return (prefix / fs::path(authored.substr(token.size())).relative_path()).lexically_normal().generic_string();
+            const auto path = fs::path(authored);
+            return (path.is_absolute() ? path : cpsPath.parent_path() / path).lexically_normal().generic_string();
+        }
+
+        auto AddCpsComponentRequirements(const JsonObject &component, const std::string &packageName,
+                                         const ManifestSourceRange &source,
+                                         std::vector<SemanticRequirement> &requirements,
+                                         std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            for (const auto field : {"requires", "compile_requires", "link_requires"})
+            {
+                const auto value = component.Find(field);
+                if (!value.has_value()) continue;
+                const auto array = value->TryArray();
+                if (!array.has_value())
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS component field '" + std::string(field) +
+                                                           "' must be an array",
+                             source);
+                    continue;
+                }
+                for (const auto entry : *array)
+                {
+                    const auto authored = entry.TryString();
+                    if (!authored.has_value())
+                    {
+                        AddError(diagnostics, "NGIN4011", "CPS component requirement must be a string", source);
+                        continue;
+                    }
+                    auto name = std::string{*authored};
+                    if (const auto configuration = name.find('@'); configuration != std::string::npos)
+                        name.erase(configuration);
+                    if (name.starts_with(':'))
+                    {
+                        requirements.emplace_back(SemanticExportRequirement{
+                            .kind = ExportUseKind::Library,
+                            .name = name.substr(1),
+                            .visibility = RequirementVisibility::Public,
+                            .source = source,
+                        });
+                        continue;
+                    }
+                    const auto separator = name.find(':');
+                    if (separator == std::string::npos)
+                    {
+                        AddError(diagnostics, "NGIN4011", "CPS requirement '" + name +
+                                                               "' is not a component specification",
+                                 source);
+                        continue;
+                    }
+                    const auto dependencyPackage = name.substr(0, separator);
+                    const auto componentName = name.substr(separator + 1);
+                    if (dependencyPackage == packageName)
+                        requirements.emplace_back(SemanticExportRequirement{
+                            .kind = ExportUseKind::Library,
+                            .name = componentName,
+                            .visibility = RequirementVisibility::Public,
+                            .source = source,
+                        });
+                    else
+                        requirements.emplace_back(SemanticPackageRequirement{
+                            .name = dependencyPackage,
+                            .exports = {ExportUse{.kind = ExportUseKind::Library,
+                                                 .name = componentName,
+                                                 .source = source}},
+                            .visibility = RequirementVisibility::Public,
+                            .source = source,
+                        });
+                }
+            }
+        }
+
+        auto ImportCps(const AuthoredElement &import, const AuthoredPackageManifest &package,
+                       SemanticPackage &semantic, std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            const auto cpsPath = package.manifest.path.parent_path() / AttributeValue(import, "Cps");
+            const auto source = ManifestSourceRange{.path = cpsPath};
+            const auto text = ReadFileText(cpsPath);
+            if (!text.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "cannot read CPS import '" + cpsPath.generic_string() + "'",
+                         import.source);
+                return;
+            }
+            auto parsed = NGIN::Serialization::JSON::Parse(NGIN::Serialization::OwnedTextBuffer{*text});
+            if (!parsed.HasValue())
+            {
+                const auto &error = parsed.Error();
+                AddError(diagnostics, "NGIN4011", "invalid CPS JSON: " + std::string(error.message.View()),
+                         ManifestSourceRange{.path = cpsPath,
+                                             .begin = ManifestSourcePosition{.line = error.location.line,
+                                                                             .column = error.location.column}});
+                return;
+            }
+            const auto root = parsed.Value().Root().TryObject();
+            if (!root.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS root must be an object", source);
+                return;
+            }
+            const auto cpsVersion = JsonString(*root, "cps_version");
+            const auto cpsName = JsonString(*root, "name");
+            if (!cpsVersion.has_value() || !cpsName.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS requires string cps_version and name fields", source);
+                return;
+            }
+            if (*cpsName != package.name)
+            {
+                AddError(diagnostics, "NGIN4011", "CPS package name '" + *cpsName +
+                                                       "' does not match overlay package '" + package.name + "'",
+                         source);
+                return;
+            }
+            const auto prefix = CpsPrefix(*root, cpsPath, source, diagnostics);
+            if (!prefix.has_value()) return;
+            if (const auto value = root->Find("requires"); value.has_value())
+            {
+                const auto packageRequirements = value->TryObject();
+                if (!packageRequirements.has_value())
+                    AddError(diagnostics, "NGIN4011", "CPS package requires must be an object", source);
+                else
+                    for (const auto member : *packageRequirements)
+                    {
+                        SemanticPackageRequirement requirement{
+                            .name = std::string(member.Key()),
+                            .visibility = RequirementVisibility::Public,
+                            .source = source,
+                        };
+                        if (const auto object = member.Value().TryObject(); object.has_value())
+                            if (const auto componentsValue = object->Find("components"); componentsValue.has_value())
+                                if (const auto components = componentsValue->TryArray(); components.has_value())
+                                    for (const auto component : *components)
+                                        if (const auto name = component.TryString(); name.has_value())
+                                            requirement.exports.push_back(ExportUse{
+                                                .kind = ExportUseKind::Library,
+                                                .name = std::string{*name},
+                                                .source = source,
+                                            });
+                        semantic.requirements.emplace_back(std::move(requirement));
+                    }
+            }
+            std::set<std::string, std::less<>> defaults{};
+            if (const auto value = root->Find("default_components"); value.has_value())
+                if (const auto array = value->TryArray(); array.has_value())
+                    for (const auto entry : *array)
+                        if (const auto name = entry.TryString(); name.has_value()) defaults.emplace(*name);
+            const auto componentValue = root->Find("components");
+            const auto components = componentValue.has_value() ? componentValue->TryObject() : std::nullopt;
+            if (!components.has_value())
+            {
+                AddError(diagnostics, "NGIN4011", "CPS components must be an object", source);
+                return;
+            }
+            for (const auto member : *components)
+            {
+                const auto component = member.Value().TryObject();
+                if (!component.has_value())
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS component '" + std::string(member.Key()) +
+                                                           "' must be an object",
+                             source);
+                    continue;
+                }
+                const auto type = JsonString(*component, "type");
+                if (!type.has_value())
+                {
+                    AddError(diagnostics, "NGIN4011", "CPS component '" + std::string(member.Key()) +
+                                                           "' requires a type",
+                             source);
+                    continue;
+                }
+                std::optional<ExportUseKind> kind{};
+                if (*type == "executable") kind = ExportUseKind::Tool;
+                else if (*type == "module") kind = ExportUseKind::Plugin;
+                else if (*type == "archive" || *type == "dylib" || *type == "interface")
+                    kind = ExportUseKind::Library;
+                else if (*type == "symbolic") kind = ExportUseKind::Asset;
+                else
+                    continue;
+                PackageExport exportModel{.kind = *kind,
+                                          .name = std::string(member.Key()),
+                                          .defaultExport = defaults.contains(member.Key()),
+                                          .source = source};
+                CpsComponentMetadata metadata{.type = *type};
+                if (const auto location = JsonString(*component, "location"); location.has_value())
+                    metadata.location = ResolveCpsPath(*location, cpsPath, *prefix);
+                for (const auto &include : ReadCpsStringList(*component, "includes", source, diagnostics))
+                    metadata.includeDirectories.push_back(ResolveCpsPath(include, cpsPath, *prefix));
+                metadata.compileDefinitions = ReadCpsDefinitions(*component, source, diagnostics);
+                metadata.compileOptions = ReadCpsStringList(*component, "compile_flags", source, diagnostics);
+                metadata.linkOptions = ReadCpsStringArray(*component, "link_flags", source, diagnostics);
+                exportModel.cps = std::move(metadata);
+                AddCpsComponentRequirements(*component, package.name, source, exportModel.requirements, diagnostics);
+                if (const auto [existing, inserted] = semantic.exports.emplace(exportModel.name, exportModel);
+                    !inserted)
+                    AddError(diagnostics, "NGIN4011", "CPS component '" + exportModel.name +
+                                                           "' conflicts with an authored export",
+                             source, {existing->second.source});
+            }
+        }
+
         [[nodiscard]] auto ArtifactIdentity(const PackageProviderResult &result) -> std::string
         {
             if (!result.artifactIdentity.empty()) return result.artifactIdentity;
@@ -57,7 +427,7 @@ namespace NGIN::CLI
         [[nodiscard]] auto ParseVisibility(const AuthoredElement &element,
                                            const RequirementVisibility fallback) -> RequirementVisibility
         {
-            return AttributeValue(element, "Visibility") == "Public" ? RequirementVisibility::Public : fallback;
+            return BoolAttributeValue(element, "Public") ? RequirementVisibility::Public : fallback;
         }
 
         [[nodiscard]] auto ParseDomain(const std::string_view value) -> CapabilityDomain
@@ -70,12 +440,12 @@ namespace NGIN::CLI
             return CapabilityDomain::Link;
         }
 
-        [[nodiscard]] auto ParseActionKind(const std::string_view value) -> ActionKind
+        [[nodiscard]] auto ParseActionKind(const AuthoredElement &element) -> ActionKind
         {
-            if (value == "Generate") return ActionKind::Generate;
-            if (value == "Analyze") return ActionKind::Analyze;
-            if (value == "Format") return ActionKind::Format;
-            if (value == "Validate") return ActionKind::Validate;
+            if (element.name == "Generator") return ActionKind::Generate;
+            if (element.name == "Analyzer") return ActionKind::Analyze;
+            if (element.name == "Formatter") return ActionKind::Format;
+            if (element.name == "Validator") return ActionKind::Validate;
             return ActionKind::Custom;
         }
 
@@ -98,7 +468,9 @@ namespace NGIN::CLI
         {
             if (element.name == "Tool") return ExportUseKind::Tool;
             if (element.name == "Plugin") return ExportUseKind::Plugin;
-            if (element.name == "Action") return ExportUseKind::Action;
+            if (element.name == "Generator" || element.name == "Analyzer" || element.name == "Formatter" ||
+                element.name == "Validator" || element.name == "Action")
+                return ExportUseKind::Action;
             if (element.name == "Asset") return ExportUseKind::Asset;
             if (element.name == "Library") return ExportUseKind::Library;
             if (HasAttribute(element, "Tool")) return ExportUseKind::Tool;
@@ -110,8 +482,6 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ExportName(const AuthoredElement &element) -> std::string
         {
-            for (const auto name : {"Library", "Tool", "Plugin", "Action", "Asset"})
-                if (const auto value = AttributeValue(element, name); !value.empty()) return value;
             return AttributeValue(element, "Name");
         }
 
@@ -139,7 +509,7 @@ namespace NGIN::CLI
             RequirementCondition condition{.source = node.source};
             const auto option = AttributeValue(node, "Option");
             const auto equals = AttributeValue(node, "Equals");
-            const auto targetOs = AttributeValue(node, "TargetOS");
+            const auto targetOs = AttributeValue(node, "OS");
             const auto architecture = AttributeValue(node, "Architecture");
             const auto compiler = AttributeValue(node, "Compiler");
             const auto hasTarget = !targetOs.empty() || !architecture.empty() || !compiler.empty();
@@ -197,7 +567,9 @@ namespace NGIN::CLI
                     };
                     for (const auto &child : node.children)
                     {
-                        if (child.name == "Use")
+                        if (child.name == "Library" || child.name == "Tool" || child.name == "Plugin" ||
+                            child.name == "Generator" || child.name == "Analyzer" || child.name == "Formatter" ||
+                            child.name == "Validator" || child.name == "Action" || child.name == "Asset")
                             requirement.exports.push_back(ExportUse{.kind = ParseExportKind(child),
                                                                     .name = ExportName(child),
                                                                     .source = child.source});
@@ -215,7 +587,8 @@ namespace NGIN::CLI
                 }
                 else if (node.name == "Project")
                 {
-                    SemanticProjectRequirement requirement{.name = AttributeValue(node, "Name"),
+                    const auto projectPath = AttributeValue(node, "Path");
+                    SemanticProjectRequirement requirement{.name = std::filesystem::path(projectPath).stem().string(),
                                                            .visibility = ParseVisibility(node, fallbackVisibility),
                                                            .condition = inheritedCondition,
                                                            .source = node.source};
@@ -227,7 +600,9 @@ namespace NGIN::CLI
                     }
                     requirements.emplace_back(std::move(requirement));
                 }
-                else if (node.name == "Export")
+                else if (node.name == "Library" || node.name == "Tool" || node.name == "Plugin" ||
+                         node.name == "Generator" || node.name == "Analyzer" || node.name == "Formatter" ||
+                         node.name == "Validator" || node.name == "Action" || node.name == "Asset")
                 {
                     requirements.emplace_back(SemanticExportRequirement{.kind = ParseExportKind(node),
                                                                          .name = ExportName(node),
@@ -276,9 +651,9 @@ namespace NGIN::CLI
                                std::vector<PackageContribution> &contributions,
                                std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            const auto include = NormalizePortablePath(AttributeValue(node, "Include"), PortablePathBase::Manifest,
+            const auto include = NormalizePortablePath(AttributeValue(node, "From"), PortablePathBase::Manifest,
                                                        node.source);
-            const auto destination = NormalizeStageDestination(AttributeValue(node, "Into"), node.source);
+            const auto destination = NormalizeStageDestination(AttributeValue(node, "To"), node.source);
             if (!include.Succeeded())
                 diagnostics.insert(diagnostics.end(), include.diagnostics.begin(), include.diagnostics.end());
             if (!destination.Succeeded())
@@ -399,21 +774,29 @@ namespace NGIN::CLI
                                                                  .exactVersion = package.version},
                                  .source = package.root.source};
         if (const auto *options = Child(package.root, "package.options"))
-            semantic.options = ParseOptionDefinitions(*options, result.diagnostics);
+            semantic.options = ParseOptionDefinitions(*options, result.diagnostics, true);
         if (const auto *requiresElement = Child(package.root, "package.requires"))
             ParseRequirements(*requiresElement, RequirementVisibility::Private, semantic.options, package.name,
                               semantic.requirements, result.diagnostics);
         if (const auto *contributions = Child(package.root, "package.contributions"))
             ParseContributionContainer(*contributions, package.name, semantic.contributions, result.diagnostics);
+        if (const auto *import = Child(package.root, "package.import"))
+            ImportCps(*import, package, semantic, result.diagnostics);
 
-        if (const auto *exports = Child(package.root, "package.exports"))
         {
-            for (const auto &node : exports->children)
-            {
+            bool anyDefault = std::ranges::any_of(semantic.exports, [](const auto &entry) {
+                return entry.second.defaultExport;
+            });
+            std::size_t exportCount = semantic.exports.size();
+            for (const auto &node : package.root.children)
+        {
+                if (!node.specId.starts_with("package.export.")) continue;
+                ++exportCount;
                 PackageExport exportModel{.kind = ParseExportKind(node),
                                           .name = AttributeValue(node, "Name"),
                                           .defaultExport = BoolAttributeValue(node, "Default"),
                                           .source = node.source};
+                anyDefault = anyDefault || exportModel.defaultExport;
                 if (exportModel.kind == ExportUseKind::Action)
                 {
                     if (exportModel.defaultExport)
@@ -421,7 +804,7 @@ namespace NGIN::CLI
                                  "Action exports cannot be defaults and require explicit project selection",
                                  node.source);
                     SemanticActionContract action{
-                        .kind = ParseActionKind(AttributeValue(node, "Kind")),
+                        .kind = ParseActionKind(node),
                         .toolExport = AttributeValue(node, "Tool"),
                         .deterministic = BoolAttributeValue(node, "Deterministic"),
                         .source = node.source,
@@ -509,24 +892,25 @@ namespace NGIN::CLI
                                                    : RequirementVisibility::Private;
                 for (const auto &child : node.children)
                 {
-                    if (child.name == "Requires")
+                    if (child.name == "Uses")
                         ParseRequirements(child, defaultVisibility, semantic.options,
                                           package.name + "::" + exportModel.name, exportModel.requirements,
                                           result.diagnostics);
                     else if (child.name == "Provides")
                     {
-                        for (const auto &capability : child.children)
-                        {
-                            const auto version = ParseSemanticVersion(AttributeValue(capability, "Version"));
-                            if (version.has_value())
+                            const auto constraint = ParseAuthoredVersionConstraint(
+                                child, AttributeValue(child, "Name"), result.diagnostics);
+                            if (constraint.has_value() && constraint->lower.has_value())
                                 exportModel.capabilities.push_back(CapabilityImplementation{
-                                    .name = AttributeValue(capability, "Name"),
-                                    .domain = ParseDomain(AttributeValue(capability, "Domain")),
-                                    .version = *version,
+                                    .name = AttributeValue(child, "Name"),
+                                    .domain = ParseDomain(AttributeValue(child, "Domain",
+                                                                         exportModel.kind == ExportUseKind::Library
+                                                                             ? "Link"
+                                                                             : "Artifact")),
+                                    .version = constraint->lower->version,
                                     .exportName = exportModel.name,
-                                    .source = capability.source,
+                                    .source = child.source,
                                 });
-                        }
                     }
                     else if (child.name == "RuntimeFiles" || child.name == "Notices")
                         ParseContributionContainer(child, exportModel.name, exportModel.contributions,
@@ -545,7 +929,48 @@ namespace NGIN::CLI
                              "duplicate package export name '" + exportModel.name + "'", node.source,
                              {existing->second.source});
             }
+            if (exportCount == 1 && !anyDefault &&
+                semantic.exports.begin()->second.kind != ExportUseKind::Action)
+                semantic.exports.begin()->second.defaultExport = true;
+            if (exportCount == 0)
+                AddError(result.diagnostics, "NGIN4004", "Package requires at least one typed export or CPS Import",
+                         package.root.source);
         }
+        if (const auto *capabilities = Child(package.root, "package.capabilities"))
+            for (const auto &provide : capabilities->children)
+            {
+                auto component = AttributeValue(provide, "Component");
+                if (const auto separator = component.find(':'); separator != std::string::npos)
+                {
+                    if (component.substr(0, separator) != package.name)
+                    {
+                        AddError(result.diagnostics, "NGIN4009", "Capability overlay Component '" + component +
+                                                                      "' belongs to another package",
+                                 provide.source);
+                        continue;
+                    }
+                    component.erase(0, separator + 1);
+                }
+                const auto found = semantic.exports.find(component);
+                if (found == semantic.exports.end())
+                {
+                    AddError(result.diagnostics, "NGIN4009", "Capability overlay references unknown Component '" +
+                                                                  component + "'",
+                             provide.source);
+                    continue;
+                }
+                const auto constraint = ParseAuthoredVersionConstraint(
+                    provide, AttributeValue(provide, "Name"), result.diagnostics);
+                if (!constraint.has_value() || !constraint->lower.has_value()) continue;
+                found->second.capabilities.push_back(CapabilityImplementation{
+                    .name = AttributeValue(provide, "Name"),
+                    .domain = ParseDomain(AttributeValue(
+                        provide, "Domain", found->second.kind == ExportUseKind::Library ? "Link" : "Artifact")),
+                    .version = constraint->lower->version,
+                    .exportName = component,
+                    .source = provide.source,
+                });
+            }
         for (const auto &[name, exportModel] : semantic.exports)
         {
             if (!exportModel.action.has_value()) continue;
@@ -957,6 +1382,8 @@ namespace NGIN::CLI
             for (const auto &implementation : implementations)
                 if (implementation.name == group.front().name && implementation.domain == group.front().domain &&
                     implementation.context == group.front().context &&
+                    (!group.front().provider.has_value() ||
+                     implementation.packageName == *group.front().provider) &&
                     VersionConstraintContains(*intersection.value, implementation.version))
                     candidates.push_back(&implementation);
             std::ranges::sort(candidates, [](const auto *left, const auto *right) {

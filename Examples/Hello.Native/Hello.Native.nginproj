@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello.Native" Type="Application">
+
+<Executable Name="Hello.Native">
   <Build>
     <Source Include="src/**/*.cpp" />
   </Build>
-  <Launch Name="Default" Default="true">
-    <WorkingDirectory Path="." />
-  </Launch>
-  <Refinements>
-    <Refinement>
-      <Select><Configuration Name="Debug" /></Select>
-      <Build><Define Name="HELLO_NATIVE_LOCAL_DEBUG" /></Build>
-    </Refinement>
-  </Refinements>
-</Project>
+  <When Configuration="Debug">
+    <Build>
+      <Define Name="HELLO_NATIVE_LOCAL_DEBUG" />
+    </Build>
+  </When>
+</Executable>

@@ -15,6 +15,8 @@ current path through the project system or an NGIN library.
 | 6 | [Hello.Formatter](Hello.Formatter) | Clang-Format checks and edits |
 | 7 | [NGIN.UI.Gallery](NGIN.UI.Gallery) | Standalone UI controls and features |
 | 8 | [NGIN.UI.Gallery.Hosted](NGIN.UI.Gallery.Hosted) | The same UI through `NGIN.Core` |
+| 9 | [Hello.Benchmark](Hello.Benchmark) | Executable registration through `ngin benchmark` |
+| 10 | [Hello.Plugin](Hello.Plugin) | Loadable Plugin library artifact without runtime activation |
 
 [NGIN.UI.MultiPage](NGIN.UI.MultiPage) demonstrates a smaller hosted,
 service-driven UI application. [Hello.GameOfLife](Hello.GameOfLife) combines

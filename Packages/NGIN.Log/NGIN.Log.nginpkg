@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.Log" Version="0.1.0">
-  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" /></Requires>
-  <Exports><Library Name="Log" Default="true" /></Exports>
-  <Integrations>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Log" Version="0.1.0">
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" Public="true" />
+  </Uses>
+  <Library Name="Log" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_LOG_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_LOG_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_LOG_BUILD_BENCHMARKS" Value="OFF" Type="BOOL" />
       <cmake:Target Export="Log" Name="NGIN::Log" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

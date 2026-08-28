@@ -36,7 +36,8 @@ namespace
     [[nodiscard]] auto Graph(std::vector<GraphPackageInstance> packages) -> ResolvedCompositionGraph
     {
         CompositionGraphData data{};
-        data.product = GraphProduct{.identity = "App", .name = "App", .type = ProductType::Application};
+        data.product = GraphProduct{.identity = "App", .name = "App",
+                                    .artifactKind = ProductArtifactKind::Executable};
         data.selection = GraphSelection{.configuration = "Debug",
                                         .targetOperatingSystem = "linux",
                                         .targetArchitecture = "x64",
@@ -131,7 +132,7 @@ TEST_CASE("catalog PackageProvider preserves provider-native version and honest 
 {
     TempDir temp{};
     const auto manifest = temp.path() / "Example.nginpkg";
-    WriteFile(manifest, R"xml(<Package Name="Example" Version="2.1.0"><Exports><Library Name="Core" Default="true" /></Exports></Package>)xml");
+    WriteFile(manifest, R"xml(<Package Name="Example" Version="2.1.0"><Library Name="Core" /></Package>)xml");
     CatalogPackageProvider provider{
         "vcpkg", "workspace-vcpkg",
         {PackageProviderResult{.coordinate = PackageCoordinate{.name = "Example", .exactVersion = "2.1.0"},

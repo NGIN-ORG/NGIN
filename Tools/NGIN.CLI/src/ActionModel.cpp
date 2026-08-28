@@ -47,7 +47,7 @@ namespace NGIN::CLI
                                        const ActionExecutionContext &context) -> bool
         {
             const auto &provider = action.hostInstance.providerResult;
-            if (rule.package.has_value() && *rule.package != provider.coordinate.name) return false;
+            if (rule.package.has_value() && !GlobMatchesPortable(*rule.package, provider.coordinate.name)) return false;
             if (rule.kind.has_value() && *rule.kind != action.kind) return false;
             if (rule.providerKind.has_value() && *rule.providerKind != provider.providerKind) return false;
             if (rule.sourceBinding.has_value() && provider.coordinate.sourceBinding != rule.sourceBinding) return false;
@@ -79,22 +79,6 @@ namespace NGIN::CLI
             return found == element.children.end() ? nullptr : &*found;
         }
 
-        [[nodiscard]] auto ParseActionKind(const std::string_view value) -> std::optional<ActionKind>
-        {
-            if (value.empty()) return std::nullopt;
-            if (value == "Generate") return ActionKind::Generate;
-            if (value == "Analyze") return ActionKind::Analyze;
-            if (value == "Format") return ActionKind::Format;
-            if (value == "Validate") return ActionKind::Validate;
-            return ActionKind::Custom;
-        }
-
-        [[nodiscard]] auto ParseTrustDecision(const std::string_view value) -> ActionTrustDecision
-        {
-            if (value == "Allow") return ActionTrustDecision::Allow;
-            if (value == "Confirm") return ActionTrustDecision::Confirm;
-            return ActionTrustDecision::Deny;
-        }
     }
 
     auto ActionKindName(const ActionKind kind) -> std::string_view
@@ -303,42 +287,22 @@ namespace NGIN::CLI
     }
 
     auto ParseActionTrustPolicy(const AuthoredWorkspaceManifest &workspace,
-                                std::vector<ManifestDiagnostic> &diagnostics) -> ActionTrustPolicy
+                                std::vector<ManifestDiagnostic> &) -> ActionTrustPolicy
     {
         ActionTrustPolicy result{};
-        const auto *policies = Child(workspace.root, "workspace.policies");
-        if (policies == nullptr) return result;
-        const auto *actions = Child(*policies, "workspace.policies.actions");
-        if (actions == nullptr) return result;
-        result.defaultDecision = ParseTrustDecision(AttributeValue(*actions, "Default", "Deny"));
-        result.requireLocked = AttributeValue(*actions, "RequireLocked") == "true";
-        result.requireIntegrity = AttributeValue(*actions, "IntegrityRequired") == "true";
-        result.requireSignature = AttributeValue(*actions, "SignatureRequired") == "true";
-        for (const auto &node : actions->children)
+        const auto *trust = Child(workspace.root, "workspace.trust");
+        if (trust == nullptr) return result;
+        for (const auto &node : trust->children)
         {
             ActionTrustRule rule{
-                .kind = ParseActionKind(AttributeValue(node, "Kind")),
-                .decision = node.name == "Allow"   ? ActionTrustDecision::Allow
-                            : node.name == "Confirm" ? ActionTrustDecision::Confirm
-                                                     : ActionTrustDecision::Deny,
+                .decision = ActionTrustDecision::Allow,
                 .reason = AttributeValue(node, "Reason"),
                 .source = node.source,
             };
-            const auto optional = [&](const std::string_view name) -> std::optional<std::string> {
-                const auto value = AttributeValue(node, name);
-                return value.empty() ? std::nullopt : std::optional<std::string>{value};
-            };
-            rule.package = optional("Package");
-            rule.providerKind = optional("Provider");
-            rule.sourceBinding = optional("Source");
-            rule.trust = optional("Trust");
-            rule.signature = optional("Signature");
-            if (const auto origin = optional("ExecutableOrigin"); origin.has_value())
-            {
-                const auto parsed = NormalizePortablePath(*origin, PortablePathBase::Workspace, node.source);
-                if (parsed.Succeeded()) rule.executableOrigin = *parsed.value;
-                else diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
-            }
+            auto from = AttributeValue(node, "From");
+            if (from.starts_with("Packages/")) from.erase(0, std::string_view{"Packages/"}.size());
+            if (from.ends_with(".*")) from.replace(from.size() - 2, 2, "*");
+            rule.package = std::move(from);
             result.rules.push_back(std::move(rule));
         }
         return result;

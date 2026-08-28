@@ -56,25 +56,25 @@ TEST_CASE("semantic resolver closes version diamonds and export requirements det
     TempDir temp{};
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }");
     const auto projectPath = temp.path() / "App.nginproj";
-    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Dependencies>
-  <Package Name="Framework" Compatible="1" />
-  <Package Name="Other" Compatible="1" />
-</Dependencies></Project>)xml");
+    WriteFile(projectPath, R"xml(<Executable Name="App"><Uses>
+  <Package Name="Framework" Version="1" />
+  <Package Name="Other" Version="1" />
+</Uses></Executable>)xml");
 
     const auto base = [&](const std::string &version) {
         const auto path = temp.path() / ("Base-" + version + ".nginpkg");
         WriteFile(path, "<Package Name=\"Base\" Version=\"" + version +
-                            "\"><Exports><Library Name=\"Core\" Default=\"true\" /></Exports></Package>");
+                            "\"><Library Name=\"Core\" Default=\"true\" /></Package>");
         return Release(path, "Base", version);
     };
     const auto frameworkPath = temp.path() / "Framework.nginpkg";
-    WriteFile(frameworkPath, R"xml(<Package Name="Framework" Version="1.0.0"><Requires>
+    WriteFile(frameworkPath, R"xml(<Package Name="Framework" Version="1.0.0"><Uses>
   <Package Name="Base"><Version AtLeast="1.0.0" Before="2.0.0" /></Package>
-</Requires><Exports><Library Name="Framework" Default="true" /></Exports></Package>)xml");
+</Uses><Library Name="Framework" /></Package>)xml");
     const auto otherPath = temp.path() / "Other.nginpkg";
-    WriteFile(otherPath, R"xml(<Package Name="Other" Version="1.0.0"><Requires>
+    WriteFile(otherPath, R"xml(<Package Name="Other" Version="1.0.0"><Uses>
   <Package Name="Base"><Version AtLeast="1.5.0" Before="3.0.0" /></Package>
-</Requires><Exports><Library Name="Other" Default="true" /></Exports></Package>)xml");
+</Uses><Library Name="Other" /></Package>)xml");
     DirectoryPackageProvider provider{
         "local", {base("1.4.0"), base("1.8.0"), base("2.5.0"),
                   Release(frameworkPath, "Framework", "1.0.0"), Release(otherPath, "Other", "1.0.0")}};
@@ -129,9 +129,9 @@ TEST_CASE("semantic resolver preserves define values in the Composition Graph")
     TempDir temp{};
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }");
     const auto projectPath = temp.path() / "App.nginproj";
-    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Build>
+    WriteFile(projectPath, R"xml(<Executable Name="App"><Build>
   <Define Name="APP_VERSION" Value="&quot;1.2.3&quot;" Visibility="Private" />
-</Build></Project>)xml");
+</Build></Executable>)xml");
 
     const auto resolved = ResolveComposition(SemanticResolutionRequest{
         .project = ParseProjectForResolution(projectPath),
@@ -147,9 +147,9 @@ TEST_CASE("semantic resolver preserves define values in the Composition Graph")
     REQUIRE(define->value == std::optional<std::string>{"\"1.2.3\""});
     REQUIRE_THAT(resolved.graph->CanonicalSerialization(), ContainsSubstring("\"value\":\"\\\"1.2.3\\\"\""));
 
-    WriteFile(projectPath, R"xml(<Project Name="App" Type="Application"><Build>
+    WriteFile(projectPath, R"xml(<Executable Name="App"><Build>
   <Define Name="APP_VERSION" Value="&quot;2.0.0&quot;" Visibility="Private" />
-</Build></Project>)xml");
+</Build></Executable>)xml");
     const auto changed = ResolveComposition(SemanticResolutionRequest{
         .project = ParseProjectForResolution(projectPath),
         .projectDirectory = temp.path(),
@@ -170,11 +170,11 @@ TEST_CASE("semantic resolver reaches a stable closure for package dependency cyc
     WriteFile(temp.path() / "src/main.cpp", "");
     const auto projectPath = temp.path() / "CycleApp.nginproj";
     WriteFile(projectPath,
-              R"xml(<Project Name="CycleApp" Type="Application"><Dependencies><Package Name="A" Exact="1.0.0" /></Dependencies></Project>)xml");
+              R"xml(<Executable Name="CycleApp"><Uses><Package Name="A" Exact="1.0.0" /></Uses></Executable>)xml");
     const auto aPath = temp.path() / "A.nginpkg";
     const auto bPath = temp.path() / "B.nginpkg";
-    WriteFile(aPath, R"xml(<Package Name="A" Version="1.0.0"><Requires><Package Name="B" Exact="1.0.0" /></Requires><Exports><Library Name="A" Default="true" /></Exports></Package>)xml");
-    WriteFile(bPath, R"xml(<Package Name="B" Version="1.0.0"><Requires><Package Name="A" Exact="1.0.0" /></Requires><Exports><Library Name="B" Default="true" /></Exports></Package>)xml");
+    WriteFile(aPath, R"xml(<Package Name="A" Version="1.0.0"><Uses><Package Name="B" Exact="1.0.0" /></Uses><Library Name="A" /></Package>)xml");
+    WriteFile(bPath, R"xml(<Package Name="B" Version="1.0.0"><Uses><Package Name="A" Exact="1.0.0" /></Uses><Library Name="B" /></Package>)xml");
     DirectoryPackageProvider provider{"local", {Release(aPath, "A", "1.0.0"), Release(bPath, "B", "1.0.0")}};
     const auto resolved = ResolveComposition(SemanticResolutionRequest{
         .project = ParseProjectForResolution(projectPath),
@@ -195,21 +195,21 @@ TEST_CASE("capability binding activates an otherwise inactive implementation exp
     TempDir temp{};
     WriteFile(temp.path() / "src/main.cpp", "");
     const auto projectPath = temp.path() / "CapabilityApp.nginproj";
-    WriteFile(projectPath, R"xml(<Project Name="CapabilityApp" Type="Application"><Dependencies>
+    WriteFile(projectPath, R"xml(<Executable Name="CapabilityApp"><Uses>
   <Package Name="Consumer" Exact="1.0.0" />
   <Package Name="Security" Exact="1.0.0" />
-</Dependencies></Project>)xml");
+</Uses></Executable>)xml");
     const auto consumerPath = temp.path() / "Consumer.nginpkg";
-    WriteFile(consumerPath, R"xml(<Package Name="Consumer" Version="1.0.0"><Requires>
-  <Capability Name="Example.TLS" Domain="Link" Compatible="1" />
-</Requires><Exports><Library Name="Consumer" Default="true" /></Exports></Package>)xml");
+    WriteFile(consumerPath, R"xml(<Package Name="Consumer" Version="1.0.0"><Uses>
+  <Capability Name="Example.TLS" Domain="Link" Version="1" />
+</Uses><Library Name="Consumer" /></Package>)xml");
     const auto securityPath = temp.path() / "Security.nginpkg";
-    WriteFile(securityPath, R"xml(<Package Name="Security" Version="1.0.0"><Exports>
+    WriteFile(securityPath, R"xml(<Package Name="Security" Version="1.0.0">
   <Library Name="Crypto" Default="true" />
-  <Library Name="TLS"><Provides><Capability Name="Example.TLS" Domain="Link" Version="1.2.0" /></Provides>
-    <RuntimeFiles><File Include="bin/tls.so" Into="bin" /></RuntimeFiles>
+  <Library Name="TLS"><Provides Name="Example.TLS" Domain="Link" Version="1.2.0" />
+    <RuntimeFiles><File From="bin/tls.so" To="bin" /></RuntimeFiles>
   </Library>
-</Exports></Package>)xml");
+</Package>)xml");
     DirectoryPackageProvider provider{
         "local", {Release(consumerPath, "Consumer", "1.0.0"), Release(securityPath, "Security", "1.0.0")}};
     const auto resolved = ResolveComposition(SemanticResolutionRequest{
@@ -238,19 +238,19 @@ TEST_CASE("resolved graph includes explicit host Actions Plugins generated items
     TempDir temp{};
     WriteFile(temp.path() / "src/main.cpp", "");
     const auto projectPath = temp.path() / "Rich.nginproj";
-    WriteFile(projectPath, R"xml(<Project Name="Rich" Type="Application"><Dependencies>
-  <Package Name="Extensions" Exact="1.0.0"><Use Plugin="Telemetry" /></Package>
-</Dependencies><Generate Action="Meta::Generate"><Input Include="include/**/*.hpp" /></Generate></Project>)xml");
+    WriteFile(projectPath, R"xml(<Executable Name="Rich"><Uses>
+  <Package Name="Extensions" Exact="1.0.0"><Plugin Name="Telemetry" /></Package>
+</Uses><Generate Using="Meta/Generate"><Header Include="include/**/*.hpp" /></Generate></Executable>)xml");
     const auto extensionsPath = temp.path() / "Extensions.nginpkg";
-    WriteFile(extensionsPath, R"xml(<Package Name="Extensions" Version="1.0.0"><Exports>
-  <Plugin Name="Telemetry"><RuntimeFiles><File Include="plugins/telemetry.so" Into="plugins" /></RuntimeFiles></Plugin>
-</Exports></Package>)xml");
+    WriteFile(extensionsPath, R"xml(<Package Name="Extensions" Version="1.0.0">
+  <Plugin Name="Telemetry"><RuntimeFiles><File From="plugins/telemetry.so" To="plugins" /></RuntimeFiles></Plugin>
+</Package>)xml");
     const auto metaPath = temp.path() / "Meta.nginpkg";
-    WriteFile(metaPath, R"xml(<Package Name="Meta" Version="1.0.0"><Exports>
-  <Tool Name="MetaGen" /><Action Name="Generate" Kind="Generate" Tool="MetaGen" Deterministic="true">
+    WriteFile(metaPath, R"xml(<Package Name="Meta" Version="1.0.0">
+  <Tool Name="MetaGen" /><Generator Name="Generate" Tool="MetaGen" Deterministic="true">
     <Outputs><Source Path="generated/meta.cpp" /></Outputs>
-  </Action>
-</Exports></Package>)xml");
+  </Generator>
+</Package>)xml");
     DirectoryPackageProvider provider{
         "local", {Release(extensionsPath, "Extensions", "1.0.0"), Release(metaPath, "Meta", "1.0.0")}};
     const auto resolved = ResolveComposition(SemanticResolutionRequest{
@@ -277,4 +277,47 @@ TEST_CASE("resolved graph includes explicit host Actions Plugins generated items
     REQUIRE(resolved.graph->Data().actions[0].provenance.line > 0);
     REQUIRE_FALSE(resolved.graph->Data().selection.provenance.document.empty());
     REQUIRE(resolved.graph->Data().selection.provenance.line > 0);
+}
+
+TEST_CASE("CPS imports compiled components and package overlays attach capabilities")
+{
+    TempDir temp{};
+    const auto cpsPath = temp.path() / "Portable.cps";
+    WriteFile(cpsPath, R"json({
+  "cps_version": "0.15.0",
+  "name": "Portable",
+  "version": "1.2.3",
+  "prefix": "/opt/portable",
+  "default_components": ["Core"],
+  "requires": {"Threads": {"components": ["Threads"]}},
+  "components": {
+    "Core": {"type": "archive", "location": "lib/libportable.a"},
+    "Plugin": {"type": "module", "location": "lib/portable-plugin.so", "requires": [":Core"]},
+    "Tool": {"type": "executable", "location": "bin/portable-tool"}
+  }
+})json");
+    const auto overlayPath = temp.path() / "Portable.nginpkg";
+    WriteFile(overlayPath, R"xml(<Package Name="Portable" Version="1.2.3">
+  <Import Cps="Portable.cps" />
+  <Capabilities><Provide Name="Example.Portable" Version="1" Component="Portable:Core" /></Capabilities>
+</Package>)xml");
+    const auto authored = ParseAuthoredManifest(overlayPath);
+    REQUIRE(authored.Succeeded());
+    const auto semantic = ParseSemanticPackage(std::get<AuthoredPackageManifest>(*authored.value));
+    REQUIRE(semantic.Succeeded());
+    REQUIRE(semantic.value->exports.size() == 3);
+    CHECK(semantic.value->exports.at("Core").kind == ExportUseKind::Library);
+    CHECK(semantic.value->exports.at("Core").defaultExport);
+    CHECK(semantic.value->exports.at("Plugin").kind == ExportUseKind::Plugin);
+    CHECK(semantic.value->exports.at("Tool").kind == ExportUseKind::Tool);
+    REQUIRE(semantic.value->exports.at("Core").cps.has_value());
+    CHECK(semantic.value->exports.at("Core").cps->type == "archive");
+    REQUIRE(semantic.value->exports.at("Core").cps->location.has_value());
+    CHECK(*semantic.value->exports.at("Core").cps->location == (temp.path() / "lib/libportable.a").generic_string());
+    REQUIRE(semantic.value->exports.at("Core").capabilities.size() == 1);
+    CHECK(semantic.value->exports.at("Core").capabilities.front().name == "Example.Portable");
+    REQUIRE(std::ranges::any_of(semantic.value->requirements, [](const SemanticRequirement &requirement) {
+        const auto *package = std::get_if<SemanticPackageRequirement>(&requirement);
+        return package != nullptr && package->name == "Threads";
+    }));
 }

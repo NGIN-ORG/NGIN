@@ -158,9 +158,9 @@ namespace NGIN::CLI
         {
             auto filename = std::filesystem::path(source).filename().generic_string();
             if (filename.empty() || source.starts_with("artifact:")) filename = product.name;
-            return (product.type == ProductType::Library  ? "lib/"
-                    : product.type == ProductType::Plugin ? "plugins/"
-                                                          : "bin/") +
+            return (product.artifactKind == ProductArtifactKind::Executable ? "bin/"
+                    : product.libraryKind == LibraryKind::Plugin             ? "plugins/"
+                                                                             : "lib/") +
                    filename;
         }
 
@@ -232,7 +232,6 @@ namespace NGIN::CLI
             return result;
         }
         std::map<std::string, std::size_t, std::less<>> destinations{};
-        if (data.product.type != ProductType::External)
         {
             const auto [source, symbolic] = ArtifactSource(bindings.productArtifacts, data.product.identity,
                                                            "artifact:product:" + data.product.identity);
@@ -367,36 +366,36 @@ namespace NGIN::CLI
         return result;
     }
 
-    auto DeriveLaunchPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
-                          const StagePlanBindings &bindings, std::optional<std::string> launchName)
-        -> DeploymentPlanResult<LaunchPlan>
+    auto DeriveRunPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                       const StagePlanBindings &bindings, std::optional<std::string> runName)
+        -> DeploymentPlanResult<RunPlan>
     {
-        DeploymentPlanResult<LaunchPlan> result{};
-        const auto &launches = graph.Data().launches;
-        if (launches.empty())
+        DeploymentPlanResult<RunPlan> result{};
+        const auto &runs = graph.Data().runs;
+        if (runs.empty())
         {
-            AddError(result.diagnostics, "NGIN7210", "project has no Launch intent");
+            AddError(result.diagnostics, "NGIN7210", "project has no Run intent");
             return result;
         }
-        const GraphLaunch *selected = nullptr;
-        if (launchName.has_value())
+        const GraphRun *selected = nullptr;
+        if (runName.has_value())
         {
-            const auto found = std::ranges::find(launches, *launchName, &GraphLaunch::name);
-            if (found != launches.end()) selected = &*found;
+            const auto found = std::ranges::find(runs, *runName, &GraphRun::name);
+            if (found != runs.end()) selected = &*found;
         }
         else
         {
-            const auto found = std::ranges::find(launches, true, &GraphLaunch::defaultLaunch);
-            selected = found != launches.end() ? &*found : launches.size() == 1 ? &launches.front() : nullptr;
+            const auto found = std::ranges::find(runs, true, &GraphRun::defaultRun);
+            selected = found != runs.end() ? &*found : runs.size() == 1 ? &runs.front() : nullptr;
         }
         if (selected == nullptr)
         {
             AddError(result.diagnostics, "NGIN7210",
-                     launchName.has_value() ? "unknown Launch '" + *launchName + "'"
-                                            : "multiple Launch definitions require a name or Default");
+                     runName.has_value() ? "unknown Run '" + *runName + "'"
+                                            : "multiple Run definitions require a name or Default");
             return result;
         }
-        LaunchPlan plan{.plan = PlanIdentity{.kind = "LaunchPlan",
+        RunPlan plan{.plan = PlanIdentity{.kind = "RunPlan",
                                              .compositionIdentity = graph.CompositionIdentity(),
                                              .adapter = "NGIN.Process",
                                              .adapterVersion = "1"},
@@ -410,7 +409,7 @@ namespace NGIN::CLI
                         .secretReferences = selected->secrets};
         if (selected->workingDirectory != "." && !NormalizeStageDestination(selected->workingDirectory).Succeeded())
         {
-            AddError(result.diagnostics, "NGIN7210", "Launch WorkingDirectory escapes the stage root",
+            AddError(result.diagnostics, "NGIN7210", "Run WorkingDirectory escapes the stage root",
                      selected->provenance);
             return result;
         }
@@ -419,12 +418,12 @@ namespace NGIN::CLI
             if (selected->executable != graph.Data().product.name)
             {
                 AddError(result.diagnostics, "NGIN7210",
-                         "Launch selects unknown Product '" + selected->executable + "'", selected->provenance);
+                         "Run selects unknown Product '" + selected->executable + "'", selected->provenance);
                 return result;
             }
             const auto *artifact = ProductArtifact(stage, graph.Data().product.identity);
             if (artifact == nullptr)
-                AddError(result.diagnostics, "NGIN7210", "Launch product has no staged artifact", selected->provenance);
+                AddError(result.diagnostics, "NGIN7210", "Run product has no staged artifact", selected->provenance);
             else
             {
                 plan.executable = artifact->symbolicArtifact
@@ -452,7 +451,7 @@ namespace NGIN::CLI
             if (active == graph.Data().exports.end())
             {
                 AddError(result.diagnostics, "NGIN7210",
-                         "Launch Tool is not an active Tool Export: '" + selected->executable + "'",
+                         "Run Tool is not an active Tool Export: '" + selected->executable + "'",
                          selected->provenance);
                 return result;
             }
@@ -470,17 +469,26 @@ namespace NGIN::CLI
             plan.environment.emplace(variable, libraryPath);
         if (!result.diagnostics.empty()) return result;
         std::ranges::sort(plan.prerequisites);
-        plan.plan.identity = FingerprintLaunchPlan(plan);
+        plan.plan.identity = FingerprintRunPlan(plan);
         result.plan = std::move(plan);
         return result;
     }
 
-    auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage) -> DeploymentPlanResult<TestPlan>
+    auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                        const std::optional<std::string> testName) -> DeploymentPlanResult<TestPlan>
     {
         DeploymentPlanResult<TestPlan> result{};
-        if (!graph.Data().testing.has_value())
+        if (graph.Data().tests.empty())
         {
-            AddError(result.diagnostics, "NGIN7220", "project has no Testing intent and is not a Test product");
+            AddError(result.diagnostics, "NGIN7220", "project has no Test registration");
+            return result;
+        }
+        const auto registration = testName.has_value()
+                                      ? std::ranges::find(graph.Data().tests, *testName, &GraphTestRegistration::name)
+                                      : graph.Data().tests.begin();
+        if (registration == graph.Data().tests.end())
+        {
+            AddError(result.diagnostics, "NGIN7220", "unknown Test '" + testName.value_or("") + "'");
             return result;
         }
         const auto *artifact = ProductArtifact(stage, graph.Data().product.identity);
@@ -493,20 +501,76 @@ namespace NGIN::CLI
                                            .compositionIdentity = graph.CompositionIdentity(),
                                            .adapter = "NGIN.Test",
                                            .adapterVersion = "1"},
+                      .name = registration->name,
                       .executable = artifact->symbolicArtifact
                                         ? artifact->source
                                         : (std::filesystem::path(stage.stageRoot) / artifact->destination)
                                               .lexically_normal()
                                               .generic_string(),
                       .symbolicExecutable = artifact->symbolicArtifact,
-                      .arguments = graph.Data().testing->arguments,
-                      .timeoutSeconds = graph.Data().testing->timeoutSeconds};
+                      .arguments = registration->arguments,
+                      .environment = registration->environment,
+                      .timeoutSeconds = registration->timeoutSeconds};
         for (const auto &edge : graph.Data().edges)
             if (edge.kind == "ProjectDependency" && edge.context == "Test") plan.dependencyInstances.push_back(edge.to);
         std::ranges::sort(plan.dependencyInstances);
         plan.dependencyInstances.erase(std::unique(plan.dependencyInstances.begin(), plan.dependencyInstances.end()),
                                        plan.dependencyInstances.end());
         plan.plan.identity = FingerprintTestPlan(plan);
+        result.plan = std::move(plan);
+        return result;
+    }
+
+    auto DeriveBenchmarkPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                             const std::optional<std::string> benchmarkName)
+        -> DeploymentPlanResult<BenchmarkPlan>
+    {
+        DeploymentPlanResult<BenchmarkPlan> result{};
+        if (graph.Data().benchmarks.empty())
+        {
+            AddError(result.diagnostics, "NGIN7221", "project has no Benchmark registration");
+            return result;
+        }
+        const auto registration = benchmarkName.has_value()
+                                      ? std::ranges::find(graph.Data().benchmarks, *benchmarkName,
+                                                          &GraphBenchmarkRegistration::name)
+                                      : graph.Data().benchmarks.begin();
+        if (registration == graph.Data().benchmarks.end())
+        {
+            AddError(result.diagnostics, "NGIN7221", "unknown Benchmark '" + benchmarkName.value_or("") + "'");
+            return result;
+        }
+        const auto *artifact = ProductArtifact(stage, graph.Data().product.identity);
+        if (artifact == nullptr)
+        {
+            AddError(result.diagnostics, "NGIN7221", "BenchmarkPlan requires a product artifact");
+            return result;
+        }
+        BenchmarkPlan plan{};
+        plan.plan = PlanIdentity{.kind = "BenchmarkPlan",
+                                 .compositionIdentity = graph.CompositionIdentity(),
+                                 .adapter = "NGIN.Benchmark",
+                                 .adapterVersion = "1"};
+        plan.name = registration->name;
+        plan.executable = artifact->symbolicArtifact
+                              ? artifact->source
+                              : (std::filesystem::path(stage.stageRoot) / artifact->destination)
+                                    .lexically_normal()
+                                    .generic_string();
+        plan.symbolicExecutable = artifact->symbolicArtifact;
+        plan.arguments = registration->arguments;
+        plan.environment = registration->environment;
+        plan.timeoutSeconds = registration->timeoutSeconds;
+        plan.repetitions = registration->repetitions;
+        plan.warmupSeconds = registration->warmupSeconds;
+        for (const auto &edge : graph.Data().edges)
+            if (edge.kind == "ProjectDependency" && edge.context == "Benchmark")
+                plan.dependencyInstances.push_back(edge.to);
+        std::ranges::sort(plan.dependencyInstances);
+        plan.dependencyInstances.erase(
+            std::unique(plan.dependencyInstances.begin(), plan.dependencyInstances.end()),
+            plan.dependencyInstances.end());
+        plan.plan.identity = FingerprintBenchmarkPlan(plan);
         result.plan = std::move(plan);
         return result;
     }
@@ -556,6 +620,15 @@ namespace NGIN::CLI
                                                    .source = item.source,
                                                    .destination = item.destination,
                                                    .reason = item.reason});
+        const auto cpsDestination = "share/cps/" + graph.Data().product.name + ".cps";
+        plan.inputs.push_back(PublishPlanInput{.stageItem = graph.Data().product.identity + ":PublishedCPS",
+                                               .owner = graph.Data().product.identity,
+                                               .category = "Metadata",
+                                               .source = (std::filesystem::path(stage.stageRoot) / cpsDestination)
+                                                             .lexically_normal()
+                                                             .generic_string(),
+                                               .destination = cpsDestination,
+                                               .reason = "generated portable CPS component metadata"});
         for (const auto &edge : graph.Data().edges)
             if (edge.kind == "ProjectDependency" && edge.context == "Publish" && edge.scope == publishName)
                 plan.dependencyInstances.push_back(edge.to);
@@ -578,12 +651,12 @@ namespace NGIN::CLI
                                                          {"stageRoot", plan.stageRoot}});
     }
 
-    auto SerializeLaunchPlan(const LaunchPlan &plan) -> std::string
+    auto SerializeRunPlan(const RunPlan &plan) -> std::string
     {
         return SerializeCanonical(CanonicalValue::Object{{"arguments", StringArray(plan.arguments)},
                                                          {"environment", StringMap(plan.environment)},
                                                          {"executable", plan.executable},
-                                                         {"kind", "NGIN.LaunchPlan"},
+                                                         {"kind", "NGIN.RunPlan"},
                                                          {"name", plan.name},
                                                          {"plan", IdentityValue(plan.plan)},
                                                          {"prerequisites", StringArray(plan.prerequisites)},
@@ -596,13 +669,34 @@ namespace NGIN::CLI
     {
         return SerializeCanonical(CanonicalValue::Object{{"arguments", StringArray(plan.arguments)},
                                                          {"dependencyInstances", StringArray(plan.dependencyInstances)},
+                                                         {"environment", StringMap(plan.environment)},
                                                          {"executable", plan.executable},
                                                          {"kind", "NGIN.TestPlan"},
+                                                         {"name", plan.name},
                                                          {"plan", IdentityValue(plan.plan)},
                                                          {"symbolicExecutable", plan.symbolicExecutable},
                                                          {"timeoutSeconds", plan.timeoutSeconds.has_value()
                                                                                 ? CanonicalValue{*plan.timeoutSeconds}
                                                                                 : CanonicalValue{nullptr}}});
+    }
+
+    auto SerializeBenchmarkPlan(const BenchmarkPlan &plan) -> std::string
+    {
+        return SerializeCanonical(CanonicalValue::Object{
+            {"arguments", StringArray(plan.arguments)},
+            {"dependencyInstances", StringArray(plan.dependencyInstances)},
+            {"environment", StringMap(plan.environment)},
+            {"executable", plan.executable},
+            {"kind", "NGIN.BenchmarkPlan"},
+            {"name", plan.name},
+            {"plan", IdentityValue(plan.plan)},
+            {"repetitions", plan.repetitions.has_value() ? CanonicalValue{*plan.repetitions} : CanonicalValue{nullptr}},
+            {"symbolicExecutable", plan.symbolicExecutable},
+            {"timeoutSeconds", plan.timeoutSeconds.has_value() ? CanonicalValue{*plan.timeoutSeconds}
+                                                                : CanonicalValue{nullptr}},
+            {"warmupSeconds", plan.warmupSeconds.has_value() ? CanonicalValue{*plan.warmupSeconds}
+                                                              : CanonicalValue{nullptr}},
+        });
     }
 
     auto SerializePublishPlan(const PublishPlan &plan) -> std::string
@@ -627,17 +721,76 @@ namespace NGIN::CLI
         return SerializeCanonical(root);
     }
 
+    auto GenerateCpsDescription(const ResolvedCompositionGraph &graph, const StagePlan &stage) -> std::string
+    {
+        const auto &product = graph.Data().product;
+        auto type = std::string{"executable"};
+        if (product.artifactKind == ProductArtifactKind::Library)
+        {
+            if (product.libraryKind == LibraryKind::Static) type = "archive";
+            else if (product.libraryKind == LibraryKind::Shared) type = "dylib";
+            else if (product.libraryKind == LibraryKind::Interface) type = "interface";
+            else if (product.libraryKind == LibraryKind::Plugin) type = "module";
+        }
+        CanonicalValue::Object component{{"type", type}};
+        if (type != "interface")
+        {
+            const auto artifact = std::ranges::find(stage.items, StagePlanItemKind::ProductArtifact,
+                                                    &StagePlanItem::kind);
+            if (artifact != stage.items.end()) component.emplace("location", "@prefix@/" + artifact->destination);
+        }
+        CanonicalValue::Array includes{};
+        CanonicalValue::Array definitions{};
+        CanonicalValue::Array compileFlags{};
+        CanonicalValue::Array linkFlags{};
+        for (const auto &item : graph.Data().buildItems)
+        {
+            if (item.visibility != "Public" && item.visibility != "Interface") continue;
+            if (item.kind == "IncludeDirectory") includes.emplace_back("@prefix@/" + item.path);
+            else if (item.kind == "Define")
+                definitions.emplace_back(CanonicalValue::Object{{item.path, item.value.has_value()
+                                                                               ? CanonicalValue{*item.value}
+                                                                               : CanonicalValue{nullptr}}});
+            else if (item.kind == "CompileOption") compileFlags.emplace_back(item.path);
+            else if (item.kind == "LinkOption") linkFlags.emplace_back(item.path);
+        }
+        if (!includes.empty()) component.emplace("includes", includes);
+        if (!definitions.empty())
+        {
+            CanonicalValue::Object allDefinitions{};
+            for (const auto &definition : definitions)
+                for (const auto &[name, value] : std::get<CanonicalValue::Object>(definition.value))
+                    allDefinitions.emplace(name, value);
+            component.emplace("definitions", CanonicalValue::Object{{"*", std::move(allDefinitions)}});
+        }
+        if (!compileFlags.empty()) component.emplace("compile_flags", compileFlags);
+        if (!linkFlags.empty()) component.emplace("link_flags", linkFlags);
+        CanonicalValue::Object components{};
+        components.emplace(product.name, std::move(component));
+        return SerializeCanonical(CanonicalValue::Object{
+            {"components", components},
+            {"cps_path", "@prefix@/share/cps"},
+            {"cps_version", "0.15.0"},
+            {"default_components", CanonicalValue::Array{product.name}},
+            {"name", product.name},
+            {"version", product.version.value_or("0.0.0")}});
+    }
+
     auto FingerprintStagePlan(const StagePlan &plan) -> std::string
     {
         return Fingerprint(plan, "StagePlanFingerprint", SerializeStagePlan);
     }
-    auto FingerprintLaunchPlan(const LaunchPlan &plan) -> std::string
+    auto FingerprintRunPlan(const RunPlan &plan) -> std::string
     {
-        return Fingerprint(plan, "LaunchPlanFingerprint", SerializeLaunchPlan);
+        return Fingerprint(plan, "RunPlanFingerprint", SerializeRunPlan);
     }
     auto FingerprintTestPlan(const TestPlan &plan) -> std::string
     {
         return Fingerprint(plan, "TestPlanFingerprint", SerializeTestPlan);
+    }
+    auto FingerprintBenchmarkPlan(const BenchmarkPlan &plan) -> std::string
+    {
+        return Fingerprint(plan, "BenchmarkPlanFingerprint", SerializeBenchmarkPlan);
     }
     auto FingerprintPublishPlan(const PublishPlan &plan) -> std::string
     {

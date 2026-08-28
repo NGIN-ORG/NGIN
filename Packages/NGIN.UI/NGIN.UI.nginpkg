@@ -1,23 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package xmlns:cmake="urn:ngin:integration:cmake" Name="NGIN.UI" Version="0.4.0">
-  <Metadata><Description>Backend-neutral retained desktop UI toolkit.</Description><License>Apache-2.0</License></Metadata>
-  <Requires><Package Name="NGIN.Base" Compatible="0.1" Visibility="Public" /></Requires>
+
+<Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.UI" Version="0.4.0">
+  <Metadata>
+    <Description>Backend-neutral retained desktop UI toolkit.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1" Public="true" />
+  </Uses>
   <Contributions>
     <RuntimeFiles>
-      <File Include="assets/fonts/NotoSans/NotoSans-Variable.ttf" Into="fonts/NGIN.UI/NotoSans-Variable.ttf" />
-      <File Include="assets/fonts/NotoSansArabic/NotoSansArabic-Variable.ttf" Into="fonts/NGIN.UI/NotoSansArabic-Variable.ttf" />
-      <File Include="assets/fonts/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf" Into="fonts/NGIN.UI/NotoSansSymbols2-Regular.ttf" />
+      <File From="assets/fonts/NotoSans/NotoSans-Variable.ttf" To="fonts/NGIN.UI/NotoSans-Variable.ttf" />
+      <File From="assets/fonts/NotoSansArabic/NotoSansArabic-Variable.ttf" To="fonts/NGIN.UI/NotoSansArabic-Variable.ttf" />
+      <File From="assets/fonts/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf" To="fonts/NGIN.UI/NotoSansSymbols2-Regular.ttf" />
     </RuntimeFiles>
     <Notices>
-      <Notice Include="assets/fonts/NotoSans/OFL.txt" Into="licenses/NGIN.UI/NotoSans-OFL.txt" />
-      <Notice Include="assets/fonts/NotoSansArabic/OFL.txt" Into="licenses/NGIN.UI/NotoSansArabic-OFL.txt" />
-      <Notice Include="assets/fonts/NotoSansSymbols2/OFL.txt" Into="licenses/NGIN.UI/NotoSansSymbols2-OFL.txt" />
-      <Notice Include="assets/licenses/stb-LICENSE.txt" Into="licenses/NGIN.UI/stb-LICENSE.txt" />
-      <Notice Include="THIRD_PARTY_NOTICES.md" Into="licenses/NGIN.UI/THIRD_PARTY_NOTICES.md" />
+      <Notice From="assets/fonts/NotoSans/OFL.txt" To="licenses/NGIN.UI/NotoSans-OFL.txt" />
+      <Notice From="assets/fonts/NotoSansArabic/OFL.txt" To="licenses/NGIN.UI/NotoSansArabic-OFL.txt" />
+      <Notice From="assets/fonts/NotoSansSymbols2/OFL.txt" To="licenses/NGIN.UI/NotoSansSymbols2-OFL.txt" />
+      <Notice From="assets/licenses/stb-LICENSE.txt" To="licenses/NGIN.UI/stb-LICENSE.txt" />
+      <Notice From="THIRD_PARTY_NOTICES.md" To="licenses/NGIN.UI/THIRD_PARTY_NOTICES.md" />
     </Notices>
   </Contributions>
-  <Exports><Library Name="UI" Default="true" /></Exports>
-  <Integrations>
+  <Library Name="UI" Default="true" />
+  <Adapters>
     <cmake:AddSubdirectory Source=".">
       <cmake:Cache Name="NGIN_UI_BUILD_TESTS" Value="OFF" Type="BOOL" />
       <cmake:Cache Name="NGIN_UI_BUILD_EXAMPLES" Value="OFF" Type="BOOL" />
@@ -26,5 +32,5 @@
       <cmake:Cache Name="NGIN_UI_FETCH_THIRD_PARTY" Value="ON" Type="BOOL" />
       <cmake:Target Export="UI" Name="NGIN::UI" />
     </cmake:AddSubdirectory>
-  </Integrations>
+  </Adapters>
 </Package>

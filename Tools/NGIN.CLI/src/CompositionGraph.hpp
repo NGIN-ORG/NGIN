@@ -29,8 +29,8 @@ namespace NGIN::CLI
     {
         std::string identity{};
         std::string name{};
-        ProductType type{ProductType::Application};
-        LibraryLinkage linkage{LibraryLinkage::None};
+        ProductArtifactKind artifactKind{ProductArtifactKind::Executable};
+        LibraryKind libraryKind{LibraryKind::None};
         std::optional<std::string> version{};
         std::optional<std::string> license{};
         std::string languageStandard{"C++23"};
@@ -146,11 +146,11 @@ namespace NGIN::CLI
         GraphProvenance provenance{};
     };
 
-    struct GraphLaunch
+    struct GraphRun
     {
         std::string identity{};
         std::string name{};
-        bool defaultLaunch{false};
+        bool defaultRun{false};
         std::string executableKind{};
         std::string executable{};
         std::string workingDirectory{"."};
@@ -160,12 +160,20 @@ namespace NGIN::CLI
         GraphProvenance provenance{};
     };
 
-    struct GraphTesting
+    struct GraphTestRegistration
     {
         std::string identity{};
+        std::string name{};
         std::vector<std::string> arguments{};
+        std::map<std::string, std::string, std::less<>> environment{};
         std::optional<std::int64_t> timeoutSeconds{};
         GraphProvenance provenance{};
+    };
+
+    struct GraphBenchmarkRegistration : GraphTestRegistration
+    {
+        std::optional<std::int64_t> repetitions{};
+        std::optional<std::int64_t> warmupSeconds{};
     };
 
     struct GraphPublish
@@ -202,8 +210,9 @@ namespace NGIN::CLI
         std::vector<GraphPlugin> plugins{};
         std::vector<GraphContribution> contributions{};
         std::vector<GraphBuildItem> buildItems{};
-        std::vector<GraphLaunch> launches{};
-        std::optional<GraphTesting> testing{};
+        std::vector<GraphRun> runs{};
+        std::vector<GraphTestRegistration> tests{};
+        std::vector<GraphBenchmarkRegistration> benchmarks{};
         std::vector<GraphPublish> publishes{};
         std::vector<GraphEdge> edges{};
     };

@@ -369,7 +369,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto KindFromRoot(const std::string_view localName) -> std::optional<ManifestDocumentKind>
         {
-            if (localName == "Project") return ManifestDocumentKind::Project;
+            if (localName == "Executable" || localName == "Library") return ManifestDocumentKind::Project;
             if (localName == "Package") return ManifestDocumentKind::Package;
             if (localName == "Workspace") return ManifestDocumentKind::Workspace;
             return std::nullopt;
@@ -401,7 +401,10 @@ namespace NGIN::CLI
                 const auto version = value("Version");
                 return AuthoredProjectManifest{.manifest = identity,
                                                .name = value("Name"),
-                                               .type = value("Type"),
+                                               .artifactKind = root.name,
+                                               .libraryKind = root.name == "Library"
+                                                                  ? std::optional<std::string>{value("Kind")}
+                                                                  : std::nullopt,
                                                .version = version.empty() ? std::nullopt
                                                                           : std::optional<std::string>{version},
                                                .root = std::move(root)};
@@ -484,7 +487,8 @@ namespace NGIN::CLI
         if (!kind.has_value())
         {
             AddDiagnostic(result.diagnostics, "NGIN1001",
-                          "unknown manifest root <" + qualified.local + ">; expected Project, Package, or Workspace",
+                          "unknown manifest root <" + qualified.local +
+                              ">; expected Executable, Library, Package, or Workspace",
                           rootSource);
             return result;
         }
@@ -498,7 +502,18 @@ namespace NGIN::CLI
                           rootSource);
         }
 
-        auto authoredRoot = ParseElement(root, spec.Element(documentSpec.rootElementId), namespaces, context, true);
+        const auto rootSpec = std::ranges::find_if(documentSpec.rootElementIds, [&](const std::string &id) {
+            return spec.Element(id).name == qualified.local;
+        });
+        if (rootSpec == documentSpec.rootElementIds.end())
+        {
+            AddDiagnostic(result.diagnostics, "NGIN1001",
+                          "root <" + qualified.local + "> is not valid for " +
+                              std::string(ManifestDocumentKindName(*kind)) + " manifests",
+                          rootSource);
+            return result;
+        }
+        auto authoredRoot = ParseElement(root, spec.Element(*rootSpec), namespaces, context, true);
         if (std::ranges::any_of(result.diagnostics, [](const ManifestDiagnostic &diagnostic) {
                 return diagnostic.severity == ManifestDiagnosticSeverity::Error;
             }))

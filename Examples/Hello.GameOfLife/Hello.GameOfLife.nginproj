@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello.GameOfLife" Type="Application" Version="0.1.0">
-  <Dependencies>
-    <Package Name="NGIN.ECS" Compatible="0.4" />
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="../../LICENSE" Into="licenses/NGIN/LICENSE" /></Stage>
-  <Launch Name="Default" Default="true"><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="Hello.GameOfLife" Version="0.1.0">
+  <Uses>
+    <Package Name="NGIN.ECS" Version="0.4" />
+    <Capability Name="NGIN.UI.Backend" Version="1" />
+    <Package Name="NGIN.UI" Version="0.4" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="../../LICENSE" To="licenses/NGIN/LICENSE" />
+  </Stage>
+</Executable>

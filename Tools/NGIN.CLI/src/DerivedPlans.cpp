@@ -35,6 +35,29 @@ namespace NGIN::CLI
             return result;
         }
 
+        [[nodiscard]] auto StringArrayValue(const std::vector<std::string> &values) -> CanonicalValue
+        {
+            CanonicalValue::Array result{};
+            for (const auto &value : values) result.emplace_back(value);
+            return result;
+        }
+
+        [[nodiscard]] auto TargetValue(const std::vector<CMakeTargetBinding> &values) -> CanonicalValue
+        {
+            CanonicalValue::Array result{};
+            for (const auto &value : values)
+                result.push_back(CanonicalValue::Object{{"compileDefinitions", StringArrayValue(value.compileDefinitions)},
+                                                        {"compileOptions", StringArrayValue(value.compileOptions)},
+                                                        {"exportIdentity", value.exportIdentity},
+                                                        {"exportName", value.exportName},
+                                                        {"importedKind", value.importedKind},
+                                                        {"includeDirectories", StringArrayValue(value.includeDirectories)},
+                                                        {"linkOptions", StringArrayValue(value.linkOptions)},
+                                                        {"location", value.location},
+                                                        {"targetName", value.targetName}});
+            return result;
+        }
+
         [[nodiscard]] auto StringMapValue(const std::map<std::string, std::string, std::less<>> &values)
             -> CanonicalValue
         {
@@ -72,7 +95,8 @@ namespace NGIN::CLI
                                          {"installBeforeUse", package.installBeforeUse},
                                          {"kind", std::string(CMakeIntegrationKindName(package.kind))},
                                          {"packageInstance", package.packageInstance},
-                                         {"source", package.source}};
+                                         {"source", package.source},
+                                         {"targets", TargetValue(package.targets)}};
             if (package.findPackage.has_value())
                 value.emplace("findPackage",
                               CanonicalValue::Object{{"config", package.findPackage->config},

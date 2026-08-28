@@ -56,6 +56,11 @@ namespace NGIN::CLI
             return !relative.empty() && relative != ".." && !relative.generic_string().starts_with("../");
         }
 
+        [[nodiscard]] auto HasMagic(const std::string_view value) -> bool
+        {
+            return value.find_first_of("*?[") != std::string_view::npos;
+        }
+
         [[nodiscard]] auto ResolveWorkspacePath(const std::filesystem::path &root, const std::string &authored,
                                                 const ManifestSourceRange &source,
                                                 std::vector<ManifestDiagnostic> &diagnostics)
@@ -85,10 +90,12 @@ namespace NGIN::CLI
             const auto identity = (error ? path.lexically_normal() : canonical).generic_string();
             if (const auto existing = discovered.find(identity); existing != discovered.end())
             {
-                AddError(diagnostics,
-                         "project is discovered by more than one workspace declaration: '" + path.generic_string() +
-                             "'",
-                         discoveredBy, {existing->second});
+                diagnostics.push_back(ManifestDiagnostic{.severity = ManifestDiagnosticSeverity::Warning,
+                                                         .code = "NGIN7001",
+                                                         .message = "project discovery deduplicated '" +
+                                                                    path.generic_string() + "'",
+                                                         .source = discoveredBy,
+                                                         .relatedSources = {existing->second}});
                 return;
             }
             discovered.emplace(identity, discoveredBy);
@@ -111,25 +118,16 @@ namespace NGIN::CLI
         auto ParseProjects(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
                            std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            const auto *projects = Child(workspace.root, "workspace.projects");
-            if (projects == nullptr) return;
+            const auto *discover = Child(workspace.root, "workspace.discover");
+            if (discover == nullptr) return;
             std::map<std::string, ManifestSourceRange, std::less<>> discovered{};
-            for (const auto *declaration : Children(*projects, "workspace.projects.project"))
+            for (const auto *declaration : Children(*discover, "workspace.discover.projects"))
             {
-                const auto path = AttributeValue(*declaration, "Path");
                 const auto include = AttributeValue(*declaration, "Include");
                 const auto exclude = AttributeValue(*declaration, "Exclude");
-                if ((path.empty() == include.empty()) || (!path.empty() && !exclude.empty()))
+                if (!HasMagic(include))
                 {
-                    AddError(diagnostics,
-                             "Project discovery requires exactly one of Path or Include; "
-                             "Exclude is valid only with Include",
-                             declaration->source);
-                    continue;
-                }
-                if (!path.empty())
-                {
-                    if (const auto resolved = ResolveWorkspacePath(model.root, path, declaration->source, diagnostics))
+                    if (const auto resolved = ResolveWorkspacePath(model.root, include, declaration->source, diagnostics))
                         AddProject(*resolved, declaration->source, model, discovered, diagnostics);
                     continue;
                 }
@@ -152,73 +150,51 @@ namespace NGIN::CLI
         auto ParsePackages(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
                            std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            const auto *packages = Child(workspace.root, "workspace.packages");
-            if (packages == nullptr) return;
-            for (const auto *node : Children(*packages, "workspace.packages.source"))
+            const auto *discover = Child(workspace.root, "workspace.discover");
+            if (discover != nullptr)
             {
-                WorkspacePackageSource source{.name = AttributeValue(*node, "Name"),
-                                              .kind = AttributeValue(*node, "Kind"),
-                                              .source = node->source};
-                if (const auto path = AttributeValue(*node, "Path"); !path.empty())
+                for (const auto *node : Children(*discover, "workspace.discover.packages"))
                 {
-                    const auto normalized = NormalizePortablePath(path, PortablePathBase::Workspace, node->source);
-                    if (path == ".")
-                        source.path = PortablePath{.value = ".", .base = PortablePathBase::Workspace};
-                    else if (normalized.Succeeded())
-                        source.path = *normalized.value;
+                    const auto include = AttributeValue(*node, "Include");
+                    const auto exclude = AttributeValue(*node, "Exclude");
+                    GlobResult matches{};
+                    if (HasMagic(include))
+                        matches = ExpandPortableGlob(model.root, include, false, node->source,
+                                                     model.pathPolicy.allowSymlinks, true);
                     else
-                        diagnostics.insert(diagnostics.end(), normalized.diagnostics.begin(),
-                                           normalized.diagnostics.end());
+                        matches.matches.push_back(PortablePath{.value = include,
+                                                               .base = PortablePathBase::Workspace});
+                    diagnostics.insert(diagnostics.end(), matches.diagnostics.begin(), matches.diagnostics.end());
+                    for (const auto &match : matches.matches)
+                    {
+                        if (!match.value.ends_with(".nginpkg") ||
+                            (!exclude.empty() && GlobMatchesPortable(exclude, match.value)))
+                            continue;
+                        const auto manifestPath = model.root / std::filesystem::path(match.value);
+                        const auto parsed = ParseAuthoredManifest(manifestPath);
+                        diagnostics.insert(diagnostics.end(), parsed.diagnostics.begin(), parsed.diagnostics.end());
+                        if (!parsed.Succeeded()) continue;
+                        const auto *authored = std::get_if<AuthoredPackageManifest>(&*parsed.value);
+                        if (authored == nullptr) continue;
+                        const auto relativeRoot = std::filesystem::path(match.value).parent_path().generic_string();
+                        WorkspaceLocalPackage local{
+                            .name = authored->name,
+                            .manifest = match,
+                            .root = PortablePath{.value = relativeRoot.empty() ? "." : relativeRoot,
+                                                 .base = PortablePathBase::Workspace},
+                            .coordinate = PackageCoordinate{.name = authored->name,
+                                                            .exactVersion = authored->version},
+                            .source = node->source};
+                        if (const auto [existing, inserted] =
+                                model.localPackages.emplace(authored->name, std::move(local));
+                            !inserted)
+                            AddError(diagnostics, "duplicate discovered Package '" + authored->name + "'",
+                                     node->source, {existing->second.source});
+                    }
                 }
-                if (const auto url = AttributeValue(*node, "Url"); !url.empty()) source.url = url;
-                if (source.path.has_value() == source.url.has_value())
-                    AddError(diagnostics, "Package Source '" + source.name + "' requires exactly one of Path or Url",
-                             node->source);
-                if (const auto [existing, inserted] = model.packageSources.emplace(source.name, std::move(source));
-                    !inserted)
-                    AddError(diagnostics, "duplicate PackageProvider Source '" + existing->first + "'", node->source,
-                             {existing->second.source});
             }
-            for (const auto *node : Children(*packages, "workspace.packages.local-package"))
-            {
-                const auto manifestText = AttributeValue(*node, "Manifest");
-                const auto rootText = AttributeValue(*node, "Root");
-                const auto manifest = NormalizePortablePath(manifestText, PortablePathBase::Workspace, node->source);
-                auto root = NormalizePortablePath(rootText, PortablePathBase::Workspace, node->source);
-                if (rootText == ".")
-                    root = PortablePathResult{.value = PortablePath{.value = ".", .base = PortablePathBase::Workspace}};
-                if (!manifest.Succeeded() || !root.Succeeded())
-                {
-                    diagnostics.insert(diagnostics.end(), manifest.diagnostics.begin(), manifest.diagnostics.end());
-                    diagnostics.insert(diagnostics.end(), root.diagnostics.begin(), root.diagnostics.end());
-                    continue;
-                }
-                const auto manifestPath = model.root / std::filesystem::path(manifest.value->value);
-                const auto package = ParseAuthoredManifest(manifestPath);
-                diagnostics.insert(diagnostics.end(), package.diagnostics.begin(), package.diagnostics.end());
-                if (!package.Succeeded() || !std::holds_alternative<AuthoredPackageManifest>(*package.value)) continue;
-                const auto &authoredPackage = std::get<AuthoredPackageManifest>(*package.value);
-                const auto name = AttributeValue(*node, "Name");
-                if (authoredPackage.name != name)
-                    AddError(diagnostics,
-                             "LocalPackage name '" + name + "' does not match manifest package '" +
-                                 authoredPackage.name + "'",
-                             node->source, {authoredPackage.root.source});
-                if (!IsContained(model.root / std::filesystem::path(root.value->value), model.root))
-                    AddError(diagnostics, "LocalPackage root escapes the workspace", node->source);
-                const auto version = ParseSemanticVersion(authoredPackage.version);
-                if (!version.has_value()) continue;
-                WorkspaceLocalPackage local{
-                    .name = name,
-                    .manifest = *manifest.value,
-                    .root = *root.value,
-                    .coordinate = PackageCoordinate{.name = name, .exactVersion = authoredPackage.version},
-                    .source = node->source};
-                if (const auto [existing, inserted] = model.localPackages.emplace(name, std::move(local)); !inserted)
-                    AddError(diagnostics, "duplicate LocalPackage '" + name + "'", node->source,
-                             {existing->second.source});
-            }
-            for (const auto *node : Children(*packages, "workspace.packages.version"))
+            if (const auto *versions = Child(workspace.root, "workspace.versions"))
+            for (const auto *node : Children(*versions, "workspace.versions.package"))
             {
                 const auto name = AttributeValue(*node, "Name");
                 const auto constraint = ParseAuthoredVersionConstraint(*node, name, diagnostics);
@@ -231,60 +207,54 @@ namespace NGIN::CLI
                     AddError(diagnostics, "duplicate central Version '" + name + "'", node->source,
                              {existing->second.source});
             }
-            for (const auto *node : Children(*packages, "workspace.packages.binding"))
-            {
-                WorkspacePackageBinding binding{.package = AttributeValue(*node, "Package"),
-                                                .sourceName = AttributeValue(*node, "Source"),
-                                                .coordinate = AttributeValue(*node, "Coordinate"),
-                                                .source = node->source};
-                if (!model.packageSources.contains(binding.sourceName))
-                    AddError(diagnostics,
-                             "Binding for '" + binding.package + "' references unknown Source '" + binding.sourceName +
-                                 "'",
-                             node->source);
-                if (const auto [existing, inserted] = model.packageBindings.emplace(binding.package, binding);
-                    !inserted)
-                    AddError(diagnostics, "duplicate package Binding for '" + binding.package + "'", node->source,
-                             {existing->second.source});
-            }
         }
 
         auto ParsePolicies(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
                            std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            const auto *policies = Child(workspace.root, "workspace.policies");
-            if (policies == nullptr) return;
-            if (const auto *providers = Child(*policies, "workspace.policies.providers"))
-            {
-                model.providerPolicy.integrityRequired = AttributeValue(*providers, "IntegrityRequired") == "true";
-                model.providerPolicy.locked = AttributeValue(*providers, "Locked") == "true";
-                model.providerPolicy.allowNonHermetic = AttributeValue(*providers, "AllowNonHermetic") == "true";
-                for (const auto *allow : Children(*providers, "workspace.policies.providers.allow"))
-                    model.providerPolicy.allowedKinds.insert(AttributeValue(*allow, "Kind"));
-                if (model.providerPolicy.locked && model.providerPolicy.allowNonHermetic)
-                    AddError(diagnostics, "Locked PackageProvider policy cannot allow non-hermetic results",
-                             providers->source);
-                if (model.providerPolicy.locked && !model.providerPolicy.integrityRequired)
-                    AddError(diagnostics, "Locked PackageProvider policy requires IntegrityRequired=\"true\"",
-                             providers->source);
-            }
-            if (const auto *paths = Child(*policies, "workspace.policies.paths"))
-            {
-                model.pathPolicy.allowSymlinks = AttributeValue(*paths, "AllowSymlinks") == "true";
-                model.pathPolicy.requireContained = AttributeValue(*paths, "RequireContained", "true") == "true";
-            }
-            if (const auto *stage = Child(*policies, "workspace.policies.stage"))
-                model.stageCollision = AttributeValue(*stage, "Collision", "Error") == "IdenticalBytes"
-                                           ? WorkspaceStageCollisionPolicy::IdenticalBytes
-                                           : WorkspaceStageCollisionPolicy::Error;
-            if (const auto *compatibility = Child(*policies, "workspace.policies.compatibility"))
-            {
-                for (const auto *target : Children(*compatibility, "workspace.policies.compatibility.target"))
-                    model.compatibilityPolicy.targets.insert(AttributeValue(*target, "Name"));
-                for (const auto *toolchain : Children(*compatibility, "workspace.policies.compatibility.toolchain"))
-                    model.compatibilityPolicy.toolchains.insert(AttributeValue(*toolchain, "Name"));
-            }
             model.actionTrustPolicy = ParseActionTrustPolicy(workspace, diagnostics);
+        }
+
+        auto ParseCapabilityPreferences(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
+                                        std::vector<ManifestDiagnostic> &diagnostics) -> void
+        {
+            const auto *capabilities = Child(workspace.root, "workspace.capabilities");
+            if (capabilities == nullptr) return;
+            const auto append = [&](const AuthoredElement &node, const AuthoredElement *condition) {
+                WorkspaceCapabilityPreference preference{
+                    .name = AttributeValue(node, "Name"),
+                    .provider = AttributeValue(node, "Provider"),
+                    .source = node.source,
+                };
+                if (condition != nullptr)
+                {
+                    if (const auto value = AttributeValue(*condition, "OS"); !value.empty())
+                        preference.operatingSystem = value;
+                    if (const auto value = AttributeValue(*condition, "Architecture"); !value.empty())
+                        preference.architecture = value;
+                    if (const auto value = AttributeValue(*condition, "Configuration"); !value.empty())
+                        preference.configuration = value;
+                }
+                model.capabilityPreferences.push_back(std::move(preference));
+            };
+            for (const auto &child : capabilities->children)
+            {
+                if (child.specId == "workspace.capabilities.prefer")
+                    append(child, nullptr);
+                else if (child.specId == "workspace.capabilities.when")
+                    for (const auto &preference : child.children) append(preference, &child);
+            }
+            for (std::size_t left = 0; left < model.capabilityPreferences.size(); ++left)
+                for (std::size_t right = left + 1; right < model.capabilityPreferences.size(); ++right)
+                {
+                    const auto &a = model.capabilityPreferences[left];
+                    const auto &b = model.capabilityPreferences[right];
+                    if (a.name == b.name && a.operatingSystem == b.operatingSystem &&
+                        a.architecture == b.architecture && a.configuration == b.configuration &&
+                        a.provider != b.provider)
+                        AddError(diagnostics, "conflicting capability preferences for '" + a.name + "'", b.source,
+                                 {a.source});
+                }
         }
 
         auto ValidateWorkspace(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
@@ -295,10 +265,19 @@ namespace NGIN::CLI
                 for (const auto &dependency : project.project.dependencies)
                     if (const auto *package = std::get_if<PackageDependencyRequest>(&dependency))
                         dependencies.insert(package->name);
+                    else if (const auto *capability = std::get_if<ProjectCapabilityRequest>(&dependency))
+                    {
+                        if (capability->provider.has_value()) dependencies.insert(*capability->provider);
+                        for (const auto &preference : model.capabilityPreferences)
+                            if (preference.name == capability->name) dependencies.insert(preference.provider);
+                    }
             for (const auto &[name, constraint] : model.centralVersions)
                 if (!dependencies.contains(name))
-                    AddError(diagnostics, "central Version '" + name + "' is unused by discovered projects",
-                             constraint.source);
+                    diagnostics.push_back(ManifestDiagnostic{
+                        .severity = ManifestDiagnosticSeverity::Warning,
+                        .code = "NGIN7001",
+                        .message = "central Version '" + name + "' is unused by discovered projects",
+                        .source = constraint.source});
 
             for (const auto &[_, source] : model.packageSources)
                 if (!model.providerPolicy.allowedKinds.empty() &&
@@ -323,7 +302,12 @@ namespace NGIN::CLI
         }
     } // namespace
 
-    auto SemanticWorkspaceResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
+    auto SemanticWorkspaceResult::Succeeded() const -> bool
+    {
+        return value.has_value() && std::ranges::none_of(diagnostics, [](const ManifestDiagnostic &diagnostic) {
+                   return diagnostic.severity == ManifestDiagnosticSeverity::Error;
+               });
+    }
 
     auto ParseSemanticWorkspace(const AuthoredWorkspaceManifest &workspace) -> SemanticWorkspaceResult
     {
@@ -333,22 +317,16 @@ namespace NGIN::CLI
         auto selection = ParseWorkspaceSelection(workspace);
         result.diagnostics.insert(result.diagnostics.end(), selection.diagnostics.begin(), selection.diagnostics.end());
         if (selection.value.has_value()) model.selection = std::move(*selection.value);
-        if (const auto *defaults = Child(workspace.root, "workspace.defaults"))
-            if (const auto *output = Child(*defaults, "workspace.defaults.output-root"))
-            {
-                const auto normalized =
-                    NormalizePortablePath(AttributeValue(*output, "Path"), PortablePathBase::Workspace, output->source);
-                if (normalized.Succeeded())
-                    model.outputRoot = *normalized.value;
-                else
-                    result.diagnostics.insert(result.diagnostics.end(), normalized.diagnostics.begin(),
-                                              normalized.diagnostics.end());
-            }
+        model.outputRoot = PortablePath{.value = ".ngin/build", .base = PortablePathBase::Workspace};
         ParsePolicies(workspace, model, result.diagnostics);
+        ParseCapabilityPreferences(workspace, model, result.diagnostics);
         ParseProjects(workspace, model, result.diagnostics);
         ParsePackages(workspace, model, result.diagnostics);
         ValidateWorkspace(workspace, model, result.diagnostics);
-        if (result.diagnostics.empty()) result.value = std::move(model);
+        if (std::ranges::none_of(result.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+                return diagnostic.severity == ManifestDiagnosticSeverity::Error;
+            }))
+            result.value = std::move(model);
         return result;
     }
 } // namespace NGIN::CLI

@@ -54,7 +54,7 @@ namespace NGIN::CLI
         bool allowSymlinks{false};
     };
 
-    struct LaunchPlan
+    struct RunPlan
     {
         PlanIdentity plan{};
         std::string name{};
@@ -70,11 +70,19 @@ namespace NGIN::CLI
     struct TestPlan
     {
         PlanIdentity plan{};
+        std::string name{};
         std::string executable{};
         bool symbolicExecutable{false};
         std::vector<std::string> arguments{};
+        std::map<std::string, std::string, std::less<>> environment{};
         std::optional<std::int64_t> timeoutSeconds{};
         std::vector<std::string> dependencyInstances{};
+    };
+
+    struct BenchmarkPlan : TestPlan
+    {
+        std::optional<std::int64_t> repetitions{};
+        std::optional<std::int64_t> warmupSeconds{};
     };
 
     struct PublishPlanInput
@@ -117,22 +125,30 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto DeriveStagePlan(const ResolvedCompositionGraph &graph, const StagePlanBindings &bindings)
         -> DeploymentPlanResult<StagePlan>;
-    [[nodiscard]] auto DeriveLaunchPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
-                                        const StagePlanBindings &bindings,
-                                        std::optional<std::string> launchName = std::nullopt)
-        -> DeploymentPlanResult<LaunchPlan>;
-    [[nodiscard]] auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage)
+    [[nodiscard]] auto DeriveRunPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                                     const StagePlanBindings &bindings,
+                                     std::optional<std::string> runName = std::nullopt)
+        -> DeploymentPlanResult<RunPlan>;
+    [[nodiscard]] auto DeriveTestPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                                      std::optional<std::string> testName = std::nullopt)
         -> DeploymentPlanResult<TestPlan>;
+    [[nodiscard]] auto DeriveBenchmarkPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
+                                           std::optional<std::string> benchmarkName = std::nullopt)
+        -> DeploymentPlanResult<BenchmarkPlan>;
     [[nodiscard]] auto DerivePublishPlan(const ResolvedCompositionGraph &graph, const StagePlan &stage,
                                          std::string_view publishName) -> DeploymentPlanResult<PublishPlan>;
 
     [[nodiscard]] auto SerializeStagePlan(const StagePlan &plan) -> std::string;
-    [[nodiscard]] auto SerializeLaunchPlan(const LaunchPlan &plan) -> std::string;
+    [[nodiscard]] auto SerializeRunPlan(const RunPlan &plan) -> std::string;
     [[nodiscard]] auto SerializeTestPlan(const TestPlan &plan) -> std::string;
+    [[nodiscard]] auto SerializeBenchmarkPlan(const BenchmarkPlan &plan) -> std::string;
     [[nodiscard]] auto SerializePublishPlan(const PublishPlan &plan) -> std::string;
+    [[nodiscard]] auto GenerateCpsDescription(const ResolvedCompositionGraph &graph, const StagePlan &stage)
+        -> std::string;
     [[nodiscard]] auto FingerprintStagePlan(const StagePlan &plan) -> std::string;
-    [[nodiscard]] auto FingerprintLaunchPlan(const LaunchPlan &plan) -> std::string;
+    [[nodiscard]] auto FingerprintRunPlan(const RunPlan &plan) -> std::string;
     [[nodiscard]] auto FingerprintTestPlan(const TestPlan &plan) -> std::string;
+    [[nodiscard]] auto FingerprintBenchmarkPlan(const BenchmarkPlan &plan) -> std::string;
     [[nodiscard]] auto FingerprintPublishPlan(const PublishPlan &plan) -> std::string;
 
     [[nodiscard]] auto ExecuteStagePlan(const StagePlan &plan) -> StageExecutionResult;

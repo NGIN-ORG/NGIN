@@ -22,6 +22,7 @@ namespace NGIN::CLI
         std::map<std::string, std::vector<SourcedVersionConstraint>, std::less<>> centralVersions{};
         std::map<std::string, std::string, std::less<>> packageSourceBindings{};
         std::map<std::string, std::vector<PackageOptionAssignment>, std::less<>> packageOptions{};
+        std::map<std::string, std::string, std::less<>> capabilityPreferences{};
         std::set<DependencyContext> dependencyContexts{};
         std::set<ActionKind> actionKinds{ActionKind::Generate};
         bool targetCaseInsensitive{false};
