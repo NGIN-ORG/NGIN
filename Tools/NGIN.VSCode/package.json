@@ -168,6 +168,13 @@
         "enablement": "ngin.hasProjects"
       },
       {
+        "command": "ngin.selectProject",
+        "title": "Select Project",
+        "category": "NGIN",
+        "enablement": "ngin.hasProjects && !ngin.busy",
+        "icon": "$(check)"
+      },
+      {
         "command": "ngin.selectConfiguration",
         "title": "Select Configuration",
         "category": "NGIN",
@@ -252,13 +259,15 @@
         "command": "ngin.rebuild",
         "title": "Rebuild",
         "category": "NGIN",
-        "enablement": "ngin.hasProject && !ngin.busy"
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(sync)"
       },
       {
         "command": "ngin.clean",
         "title": "Clean Output",
         "category": "NGIN",
-        "enablement": "ngin.hasProject && !ngin.busy"
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(trash)"
       },
       {
         "command": "ngin.stage",
@@ -270,20 +279,20 @@
         "command": "ngin.run",
         "title": "Run",
         "category": "NGIN",
-        "enablement": "ngin.canRun && !ngin.busy",
+        "enablement": "ngin.hasProjects && !ngin.busy",
         "icon": "$(play)"
       },
       {
         "command": "ngin.runWithArguments",
         "title": "Run with Arguments",
         "category": "NGIN",
-        "enablement": "ngin.canRun && !ngin.busy"
+        "enablement": "ngin.hasProjects && !ngin.busy"
       },
       {
         "command": "ngin.debug",
         "title": "Debug",
         "category": "NGIN",
-        "enablement": "ngin.canRun && !ngin.busy",
+        "enablement": "ngin.hasProjects && !ngin.busy",
         "icon": "$(debug-alt)"
       },
       {
@@ -382,6 +391,13 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.openOutputDirectory",
+        "title": "Open Output Folder",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "ngin.cancel",
         "title": "Cancel Active Operation",
         "category": "NGIN",
@@ -474,6 +490,12 @@
         "title": "Reveal Owning Project",
         "category": "NGIN",
         "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.revealProjectFile",
+        "title": "Reveal in Explorer",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject"
       }
     ],
     "submenus": [
@@ -512,29 +534,84 @@
           "group": "inline@3"
         },
         {
+          "command": "ngin.selectProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "1_project@1"
+        },
+        {
+          "command": "ngin.configure",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "2_lifecycle@1"
+        },
+        {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "2_lifecycle@2"
+        },
+        {
+          "command": "ngin.run",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "group": "2_lifecycle@3"
+        },
+        {
+          "command": "ngin.debug",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "group": "2_lifecycle@4"
+        },
+        {
+          "command": "ngin.rebuild",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "2_lifecycle@5"
+        },
+        {
+          "command": "ngin.clean",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "group": "2_lifecycle@6"
+        },
+        {
           "command": "ngin.projectActions",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "3_project@1"
         },
         {
-          "command": "ngin.setDefaultProject",
+          "command": "ngin.openManifest",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "3_project@2"
         },
         {
-          "command": "ngin.openManifest",
+          "command": "ngin.openOutputDirectory",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
           "group": "3_project@3"
         },
         {
           "command": "ngin.newSourceFile",
-          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginSourcesGroup)",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProductFilesGroup)",
           "group": "3_project@4"
         },
         {
           "command": "ngin.newHeaderFile",
-          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginHeadersGroup)",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProductFilesGroup)",
           "group": "3_project@5"
+        },
+        {
+          "command": "ngin.changeMembership",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/ && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
+          "group": "4_file@1"
+        },
+        {
+          "command": "ngin.analyzeFile",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/ && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
+          "group": "4_file@2"
+        },
+        {
+          "command": "ngin.formatFile",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/ && resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
+          "group": "4_file@3"
+        },
+        {
+          "command": "ngin.revealProjectFile",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/",
+          "group": "4_file@4"
         }
       ],
       "editor/title": [

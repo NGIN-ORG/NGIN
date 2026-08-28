@@ -1,9 +1,10 @@
 import { promises as fs, type Dirent } from 'node:fs';
 import * as path from 'node:path';
 import type { CompositionGraph } from '../model';
+import { kindForPath } from './manifestEdits';
 import { normalizeForComparison } from './paths';
 
-export type ProjectFileState = 'authored' | 'selected' | 'unselected' | 'generated' | 'external' | 'missing' | 'boundary';
+export type ProjectFileState = 'authored' | 'selected' | 'input' | 'unselected' | 'generated' | 'external' | 'missing' | 'boundary';
 
 export interface ProjectFileEntry {
   name: string;
@@ -34,7 +35,7 @@ export async function enumerateProjectFiles(
   respectProjectBoundaries = true,
   generatedDirectory?: string
 ): Promise<ProjectFileEntry[]> {
-  const selected = new Map<string, { kind: string; generated: boolean; relative: string; absolute: string }>();
+  const selected = new Map<string, { kind: string; state: 'selected' | 'input' | 'generated'; relative: string; absolute: string }>();
   const external: ProjectFileEntry[] = [];
   for (const item of (graph?.buildItems ?? []).filter(item => fileKinds.has(item.kind))) {
     const generated = Boolean(item.generated);
@@ -44,7 +45,39 @@ export async function enumerateProjectFiles(
     if (!generated && (relative.startsWith('../') || path.isAbsolute(relative))) {
       external.push({ name: path.basename(absolute), path: absolute, relativePath: item.path, directory: false, state: 'external', kind: item.kind });
     } else {
-      selected.set(normalizeForComparison(absolute), { kind: item.kind, generated, relative, absolute });
+      selected.set(normalizeForComparison(absolute), { kind: item.kind, state: generated ? 'generated' : 'selected', relative, absolute });
+    }
+  }
+  for (const action of graph?.actions ?? []) {
+    const inputs = Array.isArray(action.inputs)
+      ? action.inputs.filter((value): value is string => typeof value === 'string')
+      : [];
+    for (const input of inputs) {
+      const absolute = path.isAbsolute(input) ? path.normalize(input) : path.resolve(projectDirectory, input);
+      const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
+      if (relative.startsWith('../') || path.isAbsolute(relative)) {
+        external.push({
+          name: path.basename(absolute), path: absolute, relativePath: input,
+          directory: false, state: 'external', kind: kindForPath(input)
+        });
+      } else if (!selected.has(normalizeForComparison(absolute))) {
+        selected.set(normalizeForComparison(absolute), {
+          kind: kindForPath(input), state: 'input', relative, absolute
+        });
+      }
+    }
+    const outputs = Array.isArray(action.outputs)
+      ? action.outputs.filter((value): value is string => typeof value === 'string')
+      : [];
+    for (const output of outputs) {
+      const baseDirectory = generatedDirectory ?? projectDirectory;
+      const absolute = path.isAbsolute(output) ? path.normalize(output) : path.resolve(baseDirectory, output);
+      if (!selected.has(normalizeForComparison(absolute))) {
+        selected.set(normalizeForComparison(absolute), {
+          kind: kindForPath(output), state: 'generated',
+          relative: path.relative(baseDirectory, absolute).split(path.sep).join('/'), absolute
+        });
+      }
     }
   }
 
@@ -72,7 +105,7 @@ export async function enumerateProjectFiles(
           relativePath: relative,
           directory: false,
           state: normalizeForComparison(absolute) === normalizeForComparison(projectManifest) ? 'authored'
-            : membership?.generated ? 'generated' : membership ? 'selected' : 'unselected',
+            : membership?.state ?? 'unselected',
           kind: membership?.kind
         });
         selected.delete(normalizeForComparison(absolute));
@@ -87,7 +120,7 @@ export async function enumerateProjectFiles(
     const exists = await fs.stat(absolute).then(() => true, () => false);
     physical.push({
       name: path.basename(absolute), path: absolute, relativePath: membership.relative,
-      directory: false, state: membership.generated && exists ? 'generated' : 'missing', kind: membership.kind
+      directory: false, state: exists ? membership.state : 'missing', kind: membership.kind
     });
   }
   if (external.length) {

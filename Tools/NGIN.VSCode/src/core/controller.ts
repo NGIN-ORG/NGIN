@@ -17,6 +17,7 @@ import { parseCompositionGraph } from './graph';
 import { contextKey, projectOutputDirectory } from './paths';
 import { parseCompilerDiagnostics } from './diagnostics';
 import { shouldLoadGraph } from './cliCompatibility';
+import { resolveWorkspaceChoice } from './selectionChoices';
 
 interface PersistedSelection {
   projectManifest?: string;
@@ -138,12 +139,21 @@ export class NginController implements vscode.Disposable {
   contextForProject(project: ProjectCandidate, selection: Partial<PersistedSelection | NginContext> = {}): NginContext {
     const remembered = this.projectSelections[project.manifest] ?? {};
     const choices = project.workspaceChoices;
-    const configuration = selection.configuration ?? remembered.configuration
-      ?? choices?.defaults.configuration
-      ?? choices?.configurations[0]
-      ?? 'Debug';
-    const target = selection.target ?? remembered.target ?? choices?.defaults.target ?? choices?.targets[0] ?? 'host';
-    const toolchain = selection.toolchain ?? remembered.toolchain ?? choices?.defaults.toolchain ?? choices?.toolchains[0] ?? 'auto';
+    const configuration = resolveWorkspaceChoice(
+      selection.configuration ?? remembered.configuration,
+      choices?.configurations,
+      choices?.defaults.configuration
+    ) ?? 'Debug';
+    const target = resolveWorkspaceChoice(
+      selection.target ?? remembered.target,
+      choices?.targets,
+      choices?.defaults.target
+    ) ?? 'host';
+    const toolchain = resolveWorkspaceChoice(
+      selection.toolchain ?? remembered.toolchain,
+      choices?.toolchains,
+      choices?.defaults.toolchain
+    ) ?? 'auto';
     const rememberedRun = remembered.runs
       ? remembered.runs[runSelectionKey(configuration, target, toolchain)]
       : remembered.run;

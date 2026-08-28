@@ -34,6 +34,8 @@ import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetad
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
 import { projectCanRun } from '../../core/projectCapabilities';
 import { projectActionDescriptors } from '../../core/projectActions';
+import { projectTreePresentation } from '../../core/projectTreePresentation';
+import { resolveWorkspaceChoice } from '../../core/selectionChoices';
 import { statusPresentation } from '../../core/statusPresentation';
 import { isTransientAnalysisFailure } from '../../core/analysisPolicy';
 import { outputPolicy } from '../../core/outputPolicy';
@@ -86,7 +88,11 @@ test('project actions prioritize valid lifecycle work and progressively disclose
     'Build Project', 'Run Project', 'Debug Project', 'Test Project', 'Benchmark Project'
   ]);
   assert.equal(actions.find(action => action.label === 'Select Configuration')?.description, 'Debug');
+  assert.equal(actions.find(action => action.command === 'ngin.selectProject')?.label, 'Select Project');
   assert.ok(actions.some(action => action.group === 'Advanced' && action.command === 'ngin.showGraph'));
+  assert.ok(actions.some(action => action.command === 'ngin.rebuild'));
+  assert.ok(actions.some(action => action.command === 'ngin.clean'));
+  assert.ok(actions.some(action => action.command === 'ngin.openOutputDirectory'));
   assert.ok(actions.some(action => action.command === 'ngin.analyze'));
   assert.equal(actions.some(action => action.command === 'ngin.formatSources'), false);
 
@@ -96,6 +102,44 @@ test('project actions prioritize valid lifecycle work and progressively disclose
     configurationChoices: 0, targetChoices: 0, toolchainChoices: 0, busy: 'build'
   });
   assert.deepEqual(busy.map(action => action.command), ['ngin.cancel', 'ngin.showOutput']);
+});
+
+test('project row context menu exposes selection and lifecycle commands directly', async () => {
+  const manifest = JSON.parse(await fs.readFile(path.resolve('package.json'), 'utf8')) as {
+    contributes: { menus: { 'view/item/context': Array<{ command: string; group: string }> } };
+  };
+  const menu = manifest.contributes.menus['view/item/context'];
+  assert.equal(menu.find(item => item.group === '1_project@1')?.command, 'ngin.selectProject');
+  assert.deepEqual(menu.filter(item => item.group.startsWith('2_lifecycle@')).map(item => item.command), [
+    'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.debug', 'ngin.rebuild', 'ngin.clean'
+  ]);
+});
+
+test('stale persisted workspace selections fall back to valid defaults', () => {
+  assert.equal(resolveWorkspaceChoice('default', ['auto'], 'auto'), 'auto');
+  assert.equal(resolveWorkspaceChoice('clang', ['auto', 'clang'], 'auto'), 'clang');
+  assert.equal(resolveWorkspaceChoice(undefined, ['Debug', 'Release'], 'Debug'), 'Debug');
+  assert.equal(resolveWorkspaceChoice('default', undefined, 'auto'), 'default');
+});
+
+test('project tree keeps context and readiness compact', () => {
+  assert.deepEqual(projectTreePresentation({
+    configuration: 'Debug', activeFile: true, fallback: false, graphReady: true, configured: true
+  }), { description: 'Debug · active file · configured', status: 'configured' });
+  assert.equal(projectTreePresentation({
+    configuration: 'Release', activeFile: false, fallback: true, graphReady: true, configured: false
+  }).description, 'Release · selected · needs build');
+  assert.equal(projectTreePresentation({
+    configuration: 'Debug', activeFile: false, fallback: false, graphReady: true, configured: true,
+    lastOperation: { command: 'build', state: 'failed', durationMs: 500 }
+  }).status, 'build failed');
+  assert.equal(projectTreePresentation({
+    configuration: 'Debug', activeFile: false, fallback: false, graphReady: true, configured: true, busy: 'stage'
+  }).status, 'stage in progress');
+  assert.equal(projectTreePresentation({
+    configuration: 'Debug', activeFile: false, fallback: false, graphReady: true, configured: true,
+    lastOperation: { command: 'build', state: 'succeeded', durationMs: 500 }
+  }).status, 'built');
 });
 
 test('status presentation explains active-file, fallback, busy, and issue states', () => {
@@ -481,6 +525,7 @@ test('project files distinguish graph membership and physical boundaries', async
     await fs.mkdir(path.join(root, 'Nested'), { recursive: true });
     await fs.writeFile(path.join(root, 'App.nginproj'), '<Executable Name="App" />');
     await fs.writeFile(path.join(root, 'src', 'main.cpp'), 'int main() {}');
+    await fs.writeFile(path.join(root, 'src', 'Player.hpp'), '#pragma once');
     await fs.writeFile(path.join(root, 'src', 'unused.cpp'), '');
     await fs.writeFile(path.join(root, '.env'), 'MODE=development');
     await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Library Name="Nested" Kind="Static" />');
@@ -488,7 +533,13 @@ test('project files distinguish graph membership and physical boundaries', async
     const generatedDirectory = path.join(root, 'build', 'actions');
     await fs.mkdir(generatedDirectory, { recursive: true });
     await fs.writeFile(path.join(generatedDirectory, 'generated.hpp'), '// generated');
+    await fs.mkdir(path.join(generatedDirectory, 'generated'), { recursive: true });
+    await fs.writeFile(path.join(generatedDirectory, 'generated', 'action.cpp'), '// generated action');
     const value = graph();
+    value.actions = [{
+      identity: 'Example.Generator::Generate', kind: 'Generate',
+      inputs: ['src/Player.hpp'], outputs: ['generated/action.cpp']
+    }];
     value.buildItems.push(
       { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
       { identity: 'Header:generated.hpp', kind: 'Header', path: 'generated.hpp', generated: true },
@@ -500,9 +551,11 @@ test('project files distinguish graph membership and physical boundaries', async
     const all = flatten(files);
     assert.equal(all.find(item => item.name === 'App.nginproj')?.state, 'authored');
     assert.equal(all.find(item => item.name === 'main.cpp')?.state, 'selected');
+    assert.equal(all.find(item => item.name === 'Player.hpp')?.state, 'input');
     assert.equal(all.find(item => item.name === 'unused.cpp')?.state, 'unselected');
     assert.equal(all.find(item => item.name === 'generated.hpp')?.state, 'generated');
     assert.equal(all.find(item => item.name === 'generated.hpp')?.path, path.join(generatedDirectory, 'generated.hpp'));
+    assert.equal(all.find(item => item.name === 'action.cpp')?.state, 'generated');
     assert.equal(all.find(item => item.name === 'stale.generated.hpp')?.state, 'missing');
     assert.equal(all.find(item => item.name === 'missing.hpp')?.state, 'missing');
     assert.equal(all.find(item => item.name === 'Nested')?.state, 'boundary');

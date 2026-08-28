@@ -198,6 +198,21 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.showProjectView', () => vscode.commands.executeCommand('ngin.projects.focus'));
   register(extensionContext, 'ngin.refreshGraph', () => controller.refreshGraph(true));
   register(extensionContext, 'ngin.showOutput', () => cli.showOutput());
+  register(extensionContext, 'ngin.openOutputDirectory', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN project is available.');
+    const output = vscode.Uri.file(sourceAnalysis.contextForProject(project).outputDirectory);
+    if (!await exists(output)) {
+      const action = await vscode.window.showInformationMessage(`No output exists for ${project.name} yet.`, 'Build Project');
+      if (action === 'Build Project') await vscode.commands.executeCommand('ngin.build', project);
+      return;
+    }
+    await vscode.commands.executeCommand('revealFileInOS', output);
+  });
+  register(extensionContext, 'ngin.revealProjectFile', async (argument?: unknown) => {
+    const uri = resourceArgument(argument);
+    if (uri) await vscode.commands.executeCommand('revealInExplorer', uri);
+  });
   register(extensionContext, 'ngin.cancel', () => cli.cancel());
   register(extensionContext, 'ngin.projectActions', (argument?: unknown) =>
     openProjectActions(controller, sourceAnalysis, projectArgument(argument)));

@@ -77,7 +77,8 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
 
   result.push(
     { group: 'Project', label: 'Open Manifest', description: path.basename(project.manifest), icon: 'file-code', command: 'ngin.openManifest', argument: project },
-    { group: 'Project', label: 'Set as Default Project', description: 'Used when the active file has no owner', icon: 'pinned', command: 'ngin.setDefaultProject', argument: project },
+    { group: 'Project', label: 'Open Output Folder', description: 'Current build context', detail: state.context.outputDirectory, icon: 'folder-opened', command: 'ngin.openOutputDirectory', argument: project },
+    { group: 'Project', label: 'Select Project', description: 'Used when the active file has no owner', icon: 'check', command: 'ngin.selectProject', argument: project },
     { group: 'Project', label: 'Add Package', description: 'Add a semantic package dependency', icon: 'package', command: 'ngin.addPackage', argument: project },
     { group: 'Project', label: 'New C++ Source File', description: 'Create and include a source file', icon: 'new-file', command: 'ngin.newSourceFile', argument: project },
     { group: 'Project', label: 'New C++ Header File', description: 'Create and include a header', icon: 'new-file', command: 'ngin.newHeaderFile', argument: project }
@@ -91,6 +92,8 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
 
   result.push(
     { group: 'Advanced', label: 'Configure Project', description: 'Force regeneration for troubleshooting', icon: 'gear', command: 'ngin.configure', argument: project },
+    { group: 'Advanced', label: 'Rebuild Project', description: 'Clean the output and build again', icon: 'sync', command: 'ngin.rebuild', argument: project },
+    { group: 'Advanced', label: 'Clean Output', description: 'Move this build context to the trash', icon: 'trash', command: 'ngin.clean', argument: project },
     { group: 'Advanced', label: 'Stage Project', description: 'Prepare the runtime layout', icon: 'package', command: 'ngin.stage', argument: project },
     { group: 'Advanced', label: 'Restore Packages', icon: 'cloud-download', command: 'ngin.restore', argument: project },
     { group: 'Advanced', label: 'Lock Dependencies', icon: 'lock', command: 'ngin.lock', argument: project },

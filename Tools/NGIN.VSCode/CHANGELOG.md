@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Invalid selections persisted by older extension builds now fall back to the
+  current workspace choices instead of being passed to the CLI.
+- Added direct project-row selection, Configure/Build/Run/Debug/Rebuild/Clean
+  context actions, file context actions, generator inputs and outputs in
+  Product files, and an actionable state for projects whose model cannot load.
+- Fixed clean VSIX packaging by explicitly pinning VSCE's Secretlint preset.
+- Simplified the Projects sidebar around the normal developer loop: compact
+  Configuration and lifecycle state, one Product files group, versioned
+  dependencies, Run selection only when needed, conditional issues, and direct
+  access to the current output folder.
 - Redesigned project navigation, default-project context, Explorer decorations,
   lifecycle feedback, onboarding, input flows, and the Project Overview.
 - Added schema-derived manifest choices, project creation, manifest and analyzer

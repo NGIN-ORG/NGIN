@@ -10,24 +10,30 @@ run intent.
 
 ## Projects and effective context
 
-The NGIN Activity Bar contains one compact **Projects** view. It shows each
-product's manifest, sources, headers, resources, dependencies, Runs,
-generated inputs, nested projects, and issues. The native Explorer remains the
-physical workspace browser.
+The NGIN Activity Bar contains one compact **Projects** view. Each project row
+shows its Configuration and current state when known, with Build, Run, and
+Debug kept inline.
+Expansion is limited to Product files, dependencies, multiple Run
+configurations when selection matters, and issues when something needs
+attention. The native Explorer remains the physical workspace browser.
 
 A project row reports one of two context states:
 
 - **active file** means the project owns the file in the active editor and is
   the effective project for normal commands;
-- **default** means the project is used only when the active file has no owner.
+- **selected** means the project is the fallback when the active file has no
+  owner.
 
-Selecting or expanding a tree row never changes the default project. Use **Set
-as Default Project** explicitly. Ambiguous file ownership is chosen once and
-remembered.
+Selecting or expanding a tree row never changes the default project. Use
+**Select Project** from the project row's context menu; it sets the fallback
+used when the active file has no owner. Ambiguous file ownership is chosen once
+and remembered.
 
-Project rows expose only valid Build, Run, and Debug actions. Libraries and
-other non-runable products do not show Run or Debug. Advanced operations
-remain in the project context menu and Command Palette.
+Project rows expose only valid Build, Run, and Debug actions. Their context
+menu starts with **Select Project** and directly provides Configure, Build,
+Run, Debug, Rebuild, and Clean. It can also open the manifest or current output
+folder. Libraries and other non-runable products do not show Run or Debug.
+Advanced operations remain in Project Actions and the Command Palette.
 
 ## One project-context status item
 

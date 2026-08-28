@@ -14,7 +14,7 @@ export async function run(): Promise<void> {
   assert.equal(extension.isActive, true);
 
   const commands = await vscode.commands.getCommands(true);
-  for (const command of ['ngin.setDefaultProject', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.showGraph', 'ngin.openDashboard']) {
+  for (const command of ['ngin.selectProject', 'ngin.setDefaultProject', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.rebuild', 'ngin.clean', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.revealProjectFile', 'ngin.showGraph', 'ngin.openDashboard', 'ngin.openOutputDirectory']) {
     assert.ok(commands.includes(command), `${command} is registered`);
   }
   for (const command of ['ngin.newFile', 'ngin.newFolder', 'ngin.renameFile', 'ngin.duplicateFile', 'ngin.deleteFile', 'ngin.revealFile']) {
