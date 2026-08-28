@@ -1,16 +1,16 @@
-# Project authoring
+# `.nginproj` authoring
 
-A `.nginproj` describes one product directly:
+A project manifest has an `Executable` or `Library` root and directly contains
+Uses, Build, Generate, Tooling, Stage, Run, Test, Benchmark, Publish, Options,
+and additive When sections as applicable.
 
 ```xml
-<Project Name="App" Type="Application">
-  <Dependencies><Package Name="NGIN.Base" Compatible="0.1" /></Dependencies>
+<Executable Name="App">
+  <Uses><Package Name="NGIN.Base" Version="0.1" /></Uses>
   <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true"><Executable Product="App" /></Launch>
-</Project>
+</Executable>
 ```
 
-There is no format number, product wrapper, generic Feature, Scope string, or
-profile overlay. Use named exports for package components, typed Options for
-product choices, Actions for tools, and workspaces for shared selection and
-policy. The complete contract is in the [project manifest reference](../reference/project-manifest.md).
+Run `ngin validate`, `ngin format --check`, and
+`ngin inspect --effective` while authoring. The precise grammar is documented
+in [project-manifest.md](../reference/project-manifest.md).

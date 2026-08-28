@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="MyGame" Type="Application">
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1" />
-    <Package Name="NGIN.ECS" Compatible="0.1" />
-    <Package Name="SDL2"><Version AtLeast="2.30.0" Before="3.0.0" /></Package>
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Stage><File Include="config/game.xml" Into="config/game.xml" /></Stage>
-  <Launch Name="game" Default="true"><Executable Product="MyGame" /><WorkingDirectory Path="." /></Launch>
-</Project>
+
+<Executable Name="MyGame">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" />
+    <Package Name="NGIN.ECS" Version="0.1" />
+    <Package Name="SDL2">
+      <Version AtLeast="2.30.0" Before="3.0.0" />
+    </Package>
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Stage>
+    <File From="config/game.xml" To="config/game.xml" />
+  </Stage>
+</Executable>

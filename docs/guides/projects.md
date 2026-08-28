@@ -1,30 +1,28 @@
-# Projects
+# Authoring projects
 
-One `.nginproj` describes one primary product directly. Choose `Application`,
-`Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, or `External` with the root
-`Type` attribute. There is no generic Module product: linked reusable code is a
-Library, dynamically loaded code is a Plugin, and C++ modules are Build items.
+Choose the physical output first:
 
 ```xml
-<Project Name="Math" Type="Library" Linkage="Static">
+<Executable Name="App">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+</Executable>
+```
+
+```xml
+<Library Name="Math" Kind="Static">
   <Build>
-    <Language Standard="C++23" Required="true" Extensions="false" />
     <Source Include="src/**/*.cpp" />
     <Header Include="include/**/*.hpp" Visibility="Public" />
     <IncludeDirectory Path="include" Visibility="Public" />
-    <Define Name="MATH_BUILDING" Value="1" Visibility="Private" />
   </Build>
-</Project>
+</Library>
 ```
 
-Build declarations are additive and have stable identities. `Include`,
-`Exclude`, `Remove`, and `Update` are explicit operations. Product differences
-use typed Options and narrowly matched Refinements over Configuration, Target,
-or Toolchain facts—there is no general condition language.
+An Executable has an implicit Run. Add Run only to customize arguments,
+environment, or working directory. Add Test or Benchmark registrations when a
+runner should execute the product. Build a loadable artifact with
+`Library Kind="Plugin"`; runtime loading remains application-owned.
 
-Dependencies name packages or projects. Package `<Use>` children activate
-specific Libraries, Tools, Actions, Plugins, or Assets. Testing and publishing
-dependencies live in their own semantic sections.
-
-Use `ngin validate`, `ngin graph`, and `ngin explain <kind>:<identity>` to see
-the resolved result and provenance. See the [project manifest reference](../reference/project-manifest.md).
+Put package, project, and capability requirements under Uses. Use shallow When
+blocks for platform-specific additions. See the complete
+[project manifest reference](../reference/project-manifest.md).

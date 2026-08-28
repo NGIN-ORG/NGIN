@@ -38,12 +38,14 @@ Run `ngin` without arguments for the complete command list, or see the
 The default workspace output is:
 
 ```text
-build/ngin/<Project>/<Configuration>-<Target>-<Toolchain>/
+.ngin/build/<Configuration>-<OS>-<Compiler>/
 ```
 
 `ngin build` creates the selected product. `ngin stage` derives and executes a
 StagePlan for product artifacts, runtime files, assets, plugins, and notices.
-`ngin run` derives a LaunchPlan directly from the same resolved graph.
+`ngin run` derives a RunPlan directly from the same resolved graph. `ngin
+test` and `ngin benchmark` derive distinct registration plans for Executable
+products.
 
 Projects can run without a workspace. Use `--project` to select a project and
 `--workspace` when workspace discovery, package policy, or named selection is

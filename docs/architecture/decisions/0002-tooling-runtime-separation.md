@@ -15,7 +15,7 @@ The `ngin` CLI and manifest model are build-time tooling. `NGIN.Core` is an
 optional C++ library/framework selected like any other dependency.
 
 Manifests describe what must be acquired, built, linked, generated, staged,
-published, and launched. Application source and its chosen runtime framework
+published, run, tested, and benchmarked. Application source and its chosen runtime framework
 describe dependency injection, services, runtime modules, backend selection,
 startup/shutdown ordering, and application behavior.
 

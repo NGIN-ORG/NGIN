@@ -1,27 +1,20 @@
-# Packages
+# Consuming packages and capabilities
 
-Declare APIs your source uses directly. A package with one default Library is
-concise:
-
-```xml
-<Dependencies><Package Name="NGIN.UI" Compatible="0.4" /></Dependencies>
-```
-
-Select a non-default or optional export by name:
+Put requirements under project Uses:
 
 ```xml
-<Package Name="OpenSSL">
-  <Version AtLeast="3.2.0" Before="4.0.0" />
-  <Use Library="TLS" />
-</Package>
+<Uses>
+  <Package Name="NGIN.UI" Version="0.4" />
+  <Capability Name="NGIN.UI.Backend" Version="1" />
+</Uses>
 ```
 
-Package selection and export activation are separate. Libraries, Tools,
-Actions, Plugins, and Assets are typed exports; public package configuration is
-declared through typed Options. Required runtime files and notices are
-automatic contributions, so consumers do not enable housekeeping Features.
+Omitting children selects default exports. Select a non-default export with a
+typed child such as `<Library Name="TLS" />` or `<Plugin Name="Diagnostics" />`.
+`Version` is a compatibility request; Exact and bounded Version children are
+available for stricter needs.
 
-Workspaces may manage constraints centrally with `<Version Name="..."
-Compatible="..." />` and bind coordinates to PackageProviders. CMake target
-names live only in the package's `cmake:` integration extension. See the
-[package reference](../reference/package-manifest.md).
+PackageProviders acquire exact instances. `ngin package lock` records those
+results; the project manifest remains portable. Prefer capabilities when a
+project needs a semantic contract rather than one implementation. See
+[package-manifest.md](../reference/package-manifest.md).

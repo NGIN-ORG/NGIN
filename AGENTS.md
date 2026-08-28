@@ -10,11 +10,11 @@ repository combines a native CLI, package wrappers, a locally owned runtime
 package, and source-backed dependency trees that are composed through the
 workspace model.
 
-The project model is product-first: one `.nginproj` describes one primary
-product identity through `<Project Type="Application|Library|Tool|Test|Benchmark|Plugin|External">`.
-Project behavior belongs in direct semantic sections such as `<Build>`,
-`<Stage>`, and `<Launch>`. Product wrappers and generic Module products are
-rejected. The resolved Composition Graph is the source of truth for
+The project model is product-first: one `.nginproj` describes one physical
+product through an `<Executable>` or `<Library Kind="Static|Shared|Interface|Plugin">`
+root. Project behavior belongs in direct semantic sections such as `<Build>`,
+`<Stage>`, `<Run>`, `<Test>`, and `<Benchmark>`. Generic Project wrappers and
+Module products are rejected. The resolved Composition Graph is the source of truth for
 build, packages, generation, staging, runtime, tests, launch, publish, editor
 tooling, diff, and explanation.
 
@@ -80,7 +80,7 @@ Treat these as authored inputs:
 
 Project-level handwritten `CMakeLists.txt` files are no longer the normal app
 authoring path. Prefer direct product-first `.nginproj` sections such as
-`<Project Type="Application"><Build>...</Build></Project>`.
+`<Executable><Build>...</Build></Executable>`.
 
 Treat these as generated outputs unless the user explicitly asks otherwise:
 

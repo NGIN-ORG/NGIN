@@ -14,20 +14,17 @@ Create `Hello.UI.nginproj`:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello.UI" Type="Application">
-  <Dependencies>
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-  </Dependencies>
+<Executable Name="Hello.UI">
+  <Uses>
+    <Package Name="NGIN.UI" Version="0.4" />
+    <Capability Name="NGIN.UI.Backend" Version="1" />
+  </Uses>
   <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true">
-    <Executable Product="Hello.UI" />
-    <WorkingDirectory Path="." />
-  </Launch>
-</Project>
+</Executable>
 ```
 
-`NGIN.UI.Backend.SDL3` brings in SDL3 transitively. Fonts and legal notices are
+The workspace preference selects `NGIN.UI.Backend.SDL3`, which brings in SDL3
+transitively. Fonts and legal notices are
 required package contributions, so applications never need magic features to
 receive them. The project still declares `NGIN.UI` directly because its source
 uses that public API.

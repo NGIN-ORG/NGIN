@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Package Name="Portable" Version="1.2.0">
+  <Import Cps="Portable.cps" />
+  <Capabilities>
+    <Provide Name="Example.Portable.Core" Version="1" Component="Portable:Core" />
+  </Capabilities>
+</Package>

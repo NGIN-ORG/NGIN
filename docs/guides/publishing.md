@@ -1,19 +1,18 @@
 # Publishing
 
-Publishing consumes the resolved StagePlan rather than rediscovering files:
+Publish intent is attached directly to a product:
 
 ```xml
-<Project Name="Gallery" Type="Application" Version="1.2.3">
-  <Publish Name="portable">
-    <Archive Format="zip" Output="dist/Gallery-${project.version}.zip" />
+<Executable Name="Gallery" Version="1.2.3">
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <Publish>
+    <Archive Name="portable" Format="zip" Output="dist/gallery-1.2.3.zip" />
   </Publish>
-  <Publish Name="windows">
-    <Installer Format="msi" Output="dist/Gallery-${project.version}.msi" />
-  </Publish>
-</Project>
+</Executable>
 ```
 
-Each Publish definition has exactly one Folder, Archive, or Installer output.
-Publish-only dependencies belong in its `<Dependencies>` child. The semantic
-PublishPlan is backend-neutral; the currently implemented publisher maps it to
-CPack where applicable.
+`ngin publish portable` builds and stages the resolved product, derives a
+PublishPlan, and invokes the current packaging backend. Publish intent remains
+backend-neutral and does not execute arbitrary package scripts. Published NGIN
+products emit portable CPS component metadata from the resolved product rather
+than requiring parallel handwritten component metadata.

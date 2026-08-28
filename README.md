@@ -107,15 +107,16 @@ MyApp/
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="MyApp" Type="Application">
+<Executable Name="MyApp">
   <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true"><Executable Product="MyApp" /></Launch>
-</Project>
+</Executable>
 ```
 
-One `.nginproj` describes one primary product: an application, library, tool,
-test, benchmark, plugin, or external product. Workspaces supply reusable
-configurations, targets, toolchains, policy, and optional presets.
+One `.nginproj` describes one physical C++ product: an `Executable` or a
+`Library`. Executables have an implicit default Run and may add Test or
+Benchmark registrations. A loadable plugin is a `Library Kind="Plugin"`;
+Tool and Plugin are package export roles rather than project kinds. Workspaces
+provide discovery, versions, profiles, capability preferences, and trust policy.
 
 ## Examples
 
@@ -129,6 +130,8 @@ Start with the example closest to what you want to build:
 | [Hello.ECS](Examples/Hello.ECS) | Entity-component-system integration |
 | [Hello.Analyzer](Examples/Hello.Analyzer) | Package-provided Clang-Tidy execution |
 | [Hello.Formatter](Examples/Hello.Formatter) | Package-provided formatting |
+| [Hello.Benchmark](Examples/Hello.Benchmark) | Executable Benchmark registration |
+| [Hello.Plugin](Examples/Hello.Plugin) | Loadable Plugin library artifact |
 | [NGIN.UI.Gallery](Examples/NGIN.UI.Gallery) | Standalone UI gallery |
 | [NGIN.UI.Gallery.Hosted](Examples/NGIN.UI.Gallery.Hosted) | UI hosted through `NGIN.Core` |
 

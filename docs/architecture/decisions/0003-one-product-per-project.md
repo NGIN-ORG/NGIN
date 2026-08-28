@@ -7,26 +7,30 @@ Accepted
 ## Context
 
 Projects that mix several unrelated targets make identity, profiles,
-dependencies, launch behavior, staging, and publishing ambiguous.
+dependencies, run behavior, staging, and publishing ambiguous. Treating
+Application, Tool, Test, Benchmark, and Plugin as peer artifact kinds also
+mixes physical output with consumption or execution roles.
 
 ## Decision
 
-One `.nginproj` describes one primary product: an application, library, tool,
-test, benchmark, plugin, or external product. A workspace groups related
-projects.
+One `.nginproj` describes one physical product with an `Executable` or
+`Library` root. A workspace groups related projects.
 
-There is no generic Module product. Linked reusable code is a
-Library, dynamically loaded code is a Plugin, and C++ language modules are
-typed build items within a product.
+Test and Benchmark are registrations attached to an Executable. Tool is a
+package export role for an executable. A dynamically loaded plugin is a
+`Library Kind="Plugin"` and may be exposed through a package Plugin export.
+None of those roles changes the physical product kind.
 
-Library products may select backend-neutral `Linkage="Static"`, `Shared`, or
-`Interface`; omission means `Static`. The attribute is invalid for every other
-product Type. This closes artifact intent without adding a product wrapper or a
-backend target name.
+Libraries select `Kind="Static"`, `Shared`, `Interface`, or `Plugin`.
+Executables have an implicit Run and may declare customized Runs. There is no
+generic Module or External project product. C++ language modules remain typed
+`CxxModule` build items, while external build integration belongs to packages
+and providers.
 
 ## Consequences
 
-Every resolved graph has one clear product identity. Cross-product relationships
-are explicit project references. Repositories with many binaries use more
-project manifests, but each manifest stays focused and independently
-inspectable.
+Every resolved graph records `artifactKind` and, for libraries, `libraryKind`.
+Cross-product relationships are explicit project requirements. Repositories
+with many binaries use more project manifests, but each stays independently
+inspectable. Runtime module registration remains application-owned and does
+not enter manifests or the Composition Graph.

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="NGIN.Samples.ApplicationModel" Type="Application">
+
+<Executable Name="NGIN.Samples.ApplicationModel">
   <Options>
     <Enum Name="Experience" Default="Game">
       <Value Name="Game" />
@@ -7,28 +8,32 @@
       <Value Name="ToolsDiagnostics" />
     </Enum>
   </Options>
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1" />
-    <Package Name="NGIN.ECS" Compatible="0.1" />
-  </Dependencies>
-  <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="app" Default="true"><Executable Product="NGIN.Samples.ApplicationModel" /><WorkingDirectory Path="." /></Launch>
-  <Refinements>
-    <Refinement>
-      <Select><Option Name="Experience" Value="Game" /></Select>
-      <Stage><File Include="config/game.xml" Into="config/app.xml" /></Stage>
-    </Refinement>
-    <Refinement>
-      <Select><Option Name="Experience" Value="ToolsCLI" /></Select>
-      <Stage><File Include="config/cli.xml" Into="config/app.xml" /></Stage>
-    </Refinement>
-    <Refinement>
-      <Select><Option Name="Experience" Value="ToolsDiagnostics" /></Select>
-      <Dependencies>
-        <Package Name="NGIN.Reflection" Compatible="0.1" />
-        <Package Name="NGIN.Diagnostics" Compatible="0.1"><Use Plugin="Diagnostics" /></Package>
-      </Dependencies>
-      <Stage><File Include="config/tooling.xml" Into="config/app.xml" /></Stage>
-    </Refinement>
-  </Refinements>
-</Project>
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" />
+    <Package Name="NGIN.ECS" Version="0.1" />
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <When Option="Experience" Equals="Game">
+    <Stage>
+      <File From="config/game.xml" To="config/app.xml" />
+    </Stage>
+  </When>
+  <When Option="Experience" Equals="ToolsCLI">
+    <Stage>
+      <File From="config/cli.xml" To="config/app.xml" />
+    </Stage>
+  </When>
+  <When Option="Experience" Equals="ToolsDiagnostics">
+    <Uses>
+      <Package Name="NGIN.Reflection" Version="0.1" />
+      <Package Name="NGIN.Diagnostics" Version="0.1">
+        <Plugin Name="Diagnostics" />
+      </Package>
+    </Uses>
+    <Stage>
+      <File From="config/tooling.xml" To="config/app.xml" />
+    </Stage>
+  </When>
+</Executable>

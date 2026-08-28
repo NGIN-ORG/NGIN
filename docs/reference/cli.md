@@ -1,8 +1,8 @@
 # CLI reference
 
-Run `ngin help` for the command list supported by the executable. The CLI has
-one authoring and resolution path: every lifecycle command resolves the direct
-XML model into a Composition Graph and then derives a typed plan.
+Run `ngin` without arguments for the command list supported by the current
+executable. Every command uses one authored grammar, lowers it to Manifest IR,
+and resolves semantic work through the Composition Graph.
 
 ## Selection
 
@@ -14,39 +14,39 @@ Project commands accept:
 --configuration <name>
 --target <name-or-alias>
 --toolchain <name>
---launch <name>
+--run <name>
+--profile <name>
 --option <Name=Value>
---preset <name>
 ```
 
-`--launch` selects a named Launch definition for `run`; it is also available to
-editor integrations that keep Run and Debug on the same launch intent.
+Profiles expand to configuration, target, toolchain, Run, and Option facts
+before resolution. A profile label does not enter graph identity. Explicit
+selection that conflicts with a profile is an error.
 
-Presets expand command inputs before resolution. Their names do not enter the
-Composition Graph identity. An unknown selection is an error; it never falls
-back to the first workspace entry.
-
-## Authoring
+## Authoring and formatting
 
 ```text
-ngin new <app|lib|tool|test|benchmark|plugin|external> <Name>
-ngin add package <Name> [--exact V|--compatible V|interval flags]
-                        [--use Kind:Name] [--option Name=Value]
+ngin new executable <Name>
+ngin new library <Name>
+ngin add package <Name> [--exact V|--version V|version interval flags]
+                        [--export Kind:Name] [--option Name=Value]
 ngin add project-reference <Path>
 ngin add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custom>
-ngin package add|update|remove <Name> [dependency options]
-ngin manifest format --project <file.nginproj>
+ngin package add|update|remove <Name> [version and activation options]
+ngin format [--check] [--project <manifest>]
 ngin schema --format json
 ```
 
-Readable interval flags are `--at-least`, `--after`, `--at-most`, and
-`--before`. They produce a structured `<Version>` element and avoid encoded XML
-comparison operators.
+`--version` is a compatibility request. Readable interval flags are
+`--at-least`, `--after`, `--at-most`, and `--before`; they author a structured
+`Version` child. `ngin format` performs stable canonical manifest formatting,
+while `ngin format --check` reports files that would change without writing.
 
-## Validation and explanation
+## Validation, effective inspection, and explanation
 
 ```text
 ngin validate
+ngin inspect --effective
 ngin inspect --format json
 ngin graph --format json
 ngin explain <graph-identity> [--format json]
@@ -54,9 +54,10 @@ ngin diff --against <other.nginproj> [--format json]
 ```
 
 `validate` performs structural and document-local semantic validation.
-`inspect` and `graph` also resolve packages, exports, options, capabilities,
-actions, provenance, and the selected target facts. `diff` returns `0` when the
-graphs are equivalent and `2` when semantic differences exist.
+`inspect --effective` emits normalized Manifest IR before package resolution,
+including matching `When` additions, built-in defaults, implicit Runs, and
+registration provenance. `graph` emits the canonical resolved Composition
+Graph. `diff` returns `0` for equivalent graphs and `2` for semantic changes.
 
 ## Build and deployment
 
@@ -66,33 +67,26 @@ ngin build [--output <dir>]
 ngin stage [--output <dir>]
 ngin run [--output <dir>] [-- process arguments]
 ngin test [--output <dir>] [-- process arguments]
+ngin benchmark [--output <dir>] [-- process arguments]
 ngin publish [PublishName] [--output <dir>]
 ```
 
-CMake is the only implemented build adapter. Configure and build consume the
-derived CMake BuildPlan; stage, launch, test, and publish consume their own
-backend-neutral plans. `run` and `test` use native process execution with the
-planned working directory, environment, and timeout.
+The current build adapter generates CMake. Stage, Run, Test, Benchmark, and
+Publish each consume their own backend-neutral typed plan. An Executable has an
+implicit default Run. Test and Benchmark execute their respective registrations
+and do not change the product artifact kind.
 
 ## Actions
 
 ```text
 ngin analyze [--file <source>]... [--format json] [--lock <ngin.lock>] [--output <dir>]
-ngin format [--file <source>]... [--lock <ngin.lock>] [--output <dir>]
+ngin tooling format [--file <source>]... [--lock <ngin.lock>] [--output <dir>]
 ```
 
-Only explicitly selected Actions of the requested kind execute. The CLI
-resolves their Tool exports in host package context, verifies workspace trust
-policy, configures the CMake tool binding, and invokes the derived ActionPlan.
-Normal builds execute only selected `Generate` Actions; analyzers and formatters
-do not run as a side effect of package presence or `ngin build`.
-
-Repeated `--file` arguments narrow Action inputs for editor and incremental
-tooling. A header selects the closest declared translation unit. Analyze JSON
-uses the `NGIN.ActionDiagnostics` envelope and emits successful warnings as
-machine-readable diagnostics without mixing configure or tool logs into
-standard output. The envelope records source ranges, severity, Action identity,
-rule codes, messages, and an optional fix inventory.
+Only explicitly selected actions of the requested kind execute. Selection of a
+Generator, Analyzer, Formatter, or Validator introduces its package, action
+export, and backing Tool in host context. Package presence alone never runs an
+action. Normal builds execute selected Generate actions only.
 
 ## Packages and reproducibility
 
@@ -102,14 +96,11 @@ ngin package lock [--output <ngin.lock>]
 ngin package verify-lock [--lock <ngin.lock>]
 ```
 
-The dependency lock records exact acquired PackageInstances, including
-provider identity, host/target context, binary compatibility, integrity,
-artifact options, trust, and signature provenance. The separate Composition
-Graph fingerprint covers semantic activation and does not turn the dependency
-lock into a second graph lock.
+The dependency lock records exact acquired package instances. The Composition
+Graph fingerprint separately covers semantic activation and selection.
 
 ## Exit behavior
 
-Invalid syntax, failed validation or resolution, stale locks, denied Actions,
-backend failures, staging failures, and failed child processes return nonzero.
-Diagnostics are written to stderr; graph JSON is written to stdout.
+Invalid syntax, failed resolution, stale locks, denied actions, backend or
+staging failures, and failed child processes return nonzero. Diagnostics go to
+stderr; requested machine-readable payloads go to stdout.

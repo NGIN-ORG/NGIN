@@ -1,23 +1,19 @@
 # Workspaces
 
-A workspace supplies discovery, package acquisition policy, named selections,
-defaults, and convenience presets. It does not rewrite project semantics.
+A workspace discovers authored inputs and centralizes policy:
 
 ```xml
 <Workspace Name="Example">
-  <Projects><Project Include="apps/**/*.nginproj" /></Projects>
-  <Configurations><Configuration Name="Debug"><Optimization Mode="Off" /></Configuration></Configurations>
-  <Targets><Target Name="host" OS="host" Architecture="host" /></Targets>
-  <Toolchains><Toolchain Name="default" Compiler="default" /></Toolchains>
-  <Defaults><Configuration Name="Debug" /><Target Name="host" /><Toolchain Name="default" /></Defaults>
-  <Packages>
-    <Source Name="local" Kind="Directory" Path="Packages" />
-    <LocalPackage Name="Example.Core" Manifest="Packages/Example.Core/Example.Core.nginpkg" Root="src/Example.Core" />
-    <Version Name="Example.Core" Compatible="1" />
-  </Packages>
-  <Policies><PackageProviders><Allow Kind="Directory" /></PackageProviders></Policies>
+  <Discover>
+    <Projects Include="apps/**/*.nginproj" />
+    <Packages Include="Packages/**/*.nginpkg" />
+  </Discover>
+  <Versions><Package Name="Example.Core" Version="1" /></Versions>
+  <Profiles Default="dev"><Profile Name="dev" Configuration="Debug" /></Profiles>
 </Workspace>
 ```
 
-Lists use repeated elements. PackageProvider and compatibility allow-lists are
-typed children, not encoded strings. See the [workspace reference](../reference/workspace-manifest.md).
+Use Versions for shared constraints, Capabilities/Prefer for deterministic
+implementation preferences, and Trust/AllowActions for explicit action trust.
+Local package roots are inferred from discovered manifests. See
+[workspace-manifest.md](../reference/workspace-manifest.md).

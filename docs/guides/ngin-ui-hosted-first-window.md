@@ -15,22 +15,18 @@ The application product declares the Core runtime, hosting bridge, and concrete
 backend:
 
 ```xml
-<Project Name="Hello.UI.Hosted" Type="Application">
-  <Dependencies>
-    <Package Name="NGIN.Core" Compatible="0.1" />
-    <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
-    <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
-    <Package Name="NGIN.UI" Compatible="0.4" />
-  </Dependencies>
+<Executable Name="Hello.UI.Hosted">
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" />
+    <Package Name="NGIN.UI.Hosting" Version="0.4" />
+    <Package Name="NGIN.UI" Version="0.4" />
+    <Capability Name="NGIN.UI.Backend" Version="1" />
+  </Uses>
   <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true">
-    <Executable Product="Hello.UI.Hosted" />
-    <WorkingDirectory Path="." />
-  </Launch>
-</Project>
+</Executable>
 ```
 
-The manifest answers what must be acquired, linked, staged, and launched.
+The manifest answers what must be acquired, linked, staged, and run.
 Application code owns service registration, module ordering, and lifecycle
 through NGIN.Core; those are deliberately not build-manifest concepts.
 

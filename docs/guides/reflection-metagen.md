@@ -12,14 +12,11 @@ target compiler to validate.
 Enable the package Action and declare its header inputs:
 
 ```xml
-<Dependencies>
-  <Package Name="NGIN.Reflection" Compatible="0.1" />
-  <Package Name="NGIN.Reflection.MetaGen" Compatible="0.1">
-    <Use Action="ReflectionCodegen" />
-  </Package>
-</Dependencies>
-<Generate Action="NGIN.Reflection.MetaGen::ReflectionCodegen">
-  <Input Include="src/**/*.hpp" />
+<Uses>
+  <Package Name="NGIN.Reflection" Version="0.1" />
+</Uses>
+<Generate Using="NGIN.Reflection.MetaGen/ReflectionCodegen" Version="0.1">
+  <Header Include="src/**/*.hpp" />
 </Generate>
 ```
 

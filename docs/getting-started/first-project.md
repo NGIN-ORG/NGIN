@@ -26,10 +26,9 @@ int main() {
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project Name="Hello" Type="Application">
+<Executable Name="Hello">
   <Build><Source Include="src/**/*.cpp" /></Build>
-  <Launch Name="default" Default="true"><Executable Product="Hello" /></Launch>
-</Project>
+</Executable>
 ```
 
 ## Validate, build, and run
@@ -46,22 +45,22 @@ NGIN discovers `Hello.nginproj`, resolves the selected configuration, target,
 and toolchain, generates a CMake build, compiles the executable, and creates a
 staged runnable directory.
 
-Use `ngin graph` to see the resolved project and `ngin inspect --format json`
-for machine-readable output.
+Use `ngin graph --format json` to see the resolved Composition Graph and
+`ngin inspect --effective` to see the normalized Manifest IR, including the
+implicit default Run and built-in selection facts.
 
 ## Create a project from the CLI
 
-The CLI can create the starting layout for common product kinds:
+The CLI creates either physical product kind:
 
 ```bash
-ngin new app Hello
-ngin new lib Math
-ngin new tool AssetCompiler
+ngin new executable Hello
+ngin new library Math
 ```
 
 ## Next steps
 
 - Learn how [projects](../guides/projects.md) are structured.
-- Add workspace [selection and presets](../reference/workspace-manifest.md).
+- Add workspace [selection and profiles](../reference/workspace-manifest.md).
 - Consume a [package](../guides/packages.md).
 - Compare your project with [Hello.Native](../../Examples/Hello.Native).

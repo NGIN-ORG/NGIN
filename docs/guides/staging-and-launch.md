@@ -1,21 +1,20 @@
-# Staging and launch
+# Staging and running
 
-Projects stage their own files directly:
+Executable products have an implicit default Run. Customize it only when
+needed:
 
 ```xml
-<Stage>
-  <File Include="config/app.json" Into="config/app.json" />
-  <Directory Include="assets" Into="assets" />
-</Stage>
-<Launch Name="default" Default="true">
-  <Executable Product="App" />
-  <WorkingDirectory Path="." />
-  <Argument>--local</Argument>
+<Run WorkingDirectory="content">
+  <Argument>--development</Argument>
   <Environment Name="LOG_LEVEL" Value="debug" />
-</Launch>
+</Run>
+<Stage>
+  <File From="config/app.cfg" To="config/app.cfg" />
+  <Directory From="content" To="content" />
+</Stage>
 ```
 
-Activated packages add required runtime files, notices, selected Assets, and
-Plugin artifacts automatically. Stage destinations are relative, normalized,
-and cannot escape the stage root. Secrets name an external source and are
-resolved only at launch; they never enter the graph or generated files.
+`ngin stage` combines product artifacts with project and activated-package
+contributions in one StagePlan. Collisions are errors. `ngin run` derives a
+RunPlan from the same graph. Staging a Plugin makes the artifact available but
+does not load it.

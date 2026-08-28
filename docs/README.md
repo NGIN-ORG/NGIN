@@ -25,7 +25,6 @@ Start with the path that matches what you are trying to do.
 
 - [Manifest authoring model](reference/manifest-authoring-model.md)
 - [CMake integration extension](reference/cmake-integration.md)
-- [Manifest migration ledger](reference/manifest-migration.md)
 - [Project manifest](reference/project-manifest.md)
 - [Package manifest](reference/package-manifest.md)
 - [Workspace manifest](reference/workspace-manifest.md)

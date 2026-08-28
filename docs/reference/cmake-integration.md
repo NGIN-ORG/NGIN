@@ -12,7 +12,7 @@ another backend is an error; NGIN does not approximate it through CMake.
 ## Namespace
 
 ```xml
-<Package xmlns:cmake="urn:ngin:integration:cmake"
+<Package xmlns:cmake="urn:ngin:adapter:cmake"
          Name="Example"
          Version="1.0.0">
 </Package>
@@ -50,20 +50,19 @@ semantic export fields or graph serialization.
 
 ## Integration elements
 
-One package may declare one applicable CMake integration for a selected
-PackageInstance. Refinement by Target/Toolchain belongs in structured
-`cmake:Select` children and follows the same no-order/tie-error rules as core
-refinements.
+One package may declare one applicable CMake adapter for a selected
+PackageInstance. Platform additions use the same shallow typed `When` model as
+core authoring and never select a winner by order.
 
 ### AddSubdirectory
 
 ```xml
-<Integrations>
+<Adapters>
   <cmake:AddSubdirectory Source=".">
     <cmake:Cache Name="BUILD_TESTING" Value="OFF" />
     <cmake:Target Export="Library" Name="Example::Example" />
   </cmake:AddSubdirectory>
-</Integrations>
+</Adapters>
 ```
 
 `Source` is relative to the package provider root and must contain a
@@ -77,7 +76,7 @@ dependency integration.
 ### Isolated
 
 ```xml
-<Integrations>
+<Adapters>
   <cmake:Isolated Source=".">
     <cmake:Cache Name="BUILD_TESTING" Value="OFF" />
     <cmake:Install />
@@ -85,7 +84,7 @@ dependency integration.
       <cmake:Target Export="Library" Name="Example::Example" />
     </cmake:FindPackage>
   </cmake:Isolated>
-</Integrations>
+</Adapters>
 ```
 
 Isolated configures/builds/installs into an NGIN-controlled prefix before the
@@ -104,12 +103,12 @@ PackageInstance identity.
 ### FindPackage
 
 ```xml
-<Integrations>
+<Adapters>
   <cmake:FindPackage Name="OpenSSL" Config="false" Required="true">
     <cmake:Target Export="Crypto" Name="OpenSSL::Crypto" />
     <cmake:Target Export="TLS" Name="OpenSSL::SSL" />
   </cmake:FindPackage>
-</Integrations>
+</Adapters>
 ```
 
 | Attribute | Meaning |
@@ -125,11 +124,11 @@ whose discovered version conflicts with the PackageInstance is an error.
 ### Manual
 
 ```xml
-<Integrations>
+<Adapters>
   <cmake:Manual Source="cmake-wrapper">
     <cmake:Target Export="Library" Name="Example::Example" />
   </cmake:Manual>
-</Integrations>
+</Adapters>
 ```
 
 Manual integrates a package-wrapper-owned `CMakeLists.txt`. It is not an escape
@@ -192,19 +191,18 @@ contract are errors.
 ## Selection
 
 ```xml
-<cmake:Select>
-  <Target OS="windows" Architecture="x64" />
-  <Toolchain Compiler="msvc" />
+<cmake:When OS="windows" Architecture="x64" Compiler="msvc">
   <cmake:Cache Name="EXAMPLE_WINDOWS_BACKEND" Value="ON" />
-</cmake:Select>
+</cmake:When>
 ```
 
 Selection may inspect core Configuration, Target, Toolchain, and declared
 Option facts. It cannot introduce another semantic dimension, runtime
 environment, profile, arbitrary expression, or XML-order precedence.
 
-Two applicable CMake selections that produce incompatible bindings/cache inputs
-at equal specificity are errors.
+Every matching block contributes additively. Applicable blocks that produce
+incompatible keyed bindings or cache inputs are errors; there is no priority or
+specificity winner.
 
 ## Generated project bindings
 

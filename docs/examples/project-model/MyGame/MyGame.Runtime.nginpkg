@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <Package Name="MyGame.Runtime" Version="0.1.0">
-  <Metadata><Description>Example reusable game runtime package.</Description><License>MIT</License></Metadata>
-  <Requires>
-    <Package Name="NGIN.Core" Compatible="0.1" Visibility="Public" />
-    <Package Name="NGIN.ECS" Compatible="0.1" Visibility="Public" />
-    <Package Name="SDL2" Compatible="2.30" Visibility="Private" />
-  </Requires>
-  <Exports><Library Name="Runtime" Default="true" /></Exports>
+  <Metadata>
+    <Description>Example reusable game runtime package.</Description>
+    <License>MIT</License>
+  </Metadata>
+  <Uses>
+    <Package Name="NGIN.Core" Version="0.1" Public="true" />
+    <Package Name="NGIN.ECS" Version="0.1" Public="true" />
+    <Package Name="SDL2" Version="2.30" />
+  </Uses>
+  <Library Name="Runtime" />
 </Package>

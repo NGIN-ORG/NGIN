@@ -1,241 +1,82 @@
 # Package manifest reference
 
-A `.nginpkg` describes one exact package release, its semantic requirements,
-and its named Exports. Backend integration is optional extension metadata; it
-does not define package meaning.
+A `.nginpkg` describes package semantics that are not already supplied by a
+published NGIN product or portable CPS metadata. Typed exports are direct
+children of `Package`; there is no Exports wrapper.
 
 ```xml
-<Package xmlns:cmake="urn:ngin:integration:cmake"
-         Name="Math"
-         Version="1.0.0">
-  <Exports>
-    <Library Name="Math" Default="true" />
-  </Exports>
-
-  <Integrations>
-    <cmake:AddSubdirectory Source=".">
-      <cmake:Target Export="Math" Name="Math::Math" />
-    </cmake:AddSubdirectory>
-  </Integrations>
-</Package>
-```
-
-`Name` and `Version` form the logical PackageCoordinate. The pre-release
-grammar has no public format number.
-
-## Package shape
-
-| Section | Purpose |
-| --- | --- |
-| `Metadata` | Human-facing description, license, homepage, and repository facts |
-| `Options` | Typed public package choices |
-| `Requires` | Package, project, Export, Capability, and Option requirements |
-| `Contributions` | Package-level notices, runtime files, and assets |
-| `Exports` | Named Libraries, Tools, Plugins, Actions, and Assets |
-| `Integrations` | Registered backend extension metadata outside package semantics |
-| `Compatibility` | Target/toolchain compatibility and coexistence policy |
-
-At least one Export is required. A package with several Exports is one acquired
-package release, not several packages.
-
-## Exports and activation
-
-Export types are explicit:
-
-```xml
-<Exports>
-  <Library Name="Core" Default="true" />
-  <Library Name="TLS">
-    <Requires>
-      <Export Library="Core" Visibility="Public" />
-    </Requires>
+<Package Name="Example.Security" Version="3.2.1" CompatibleSince="3.0.0">
+  <Library Name="Crypto" Default="true">
+    <Provides Name="NGIN.Crypto" Version="1" />
   </Library>
-  <Tool Name="Codegen" />
-  <Plugin Name="Telemetry" />
-  <Asset Name="Fonts" />
-</Exports>
-```
-
-The default Export set activates only when a project requests the package
-without explicit `<Use>` children. Explicit use selects named Exports:
-
-```xml
-<Package Name="Example.Security" Compatible="3">
-  <Use Library="TLS" />
+  <Library Name="TLS">
+    <Uses><Library Name="Crypto" Public="true" /></Uses>
+    <Provides Name="NGIN.Net.TLS" Version="1" />
+    <RuntimeFiles><File From="bin/tls-runtime.*" To="bin/" /></RuntimeFiles>
+  </Library>
 </Package>
 ```
 
-Activation follows typed Export requirements to a fixed point. It does not
-activate every Export in the package. `Public` and `Private` describe dependency
-propagation; they are not encoded scope strings.
+## Typed exports
 
-## Requirements
+Direct exports are Library, Tool, Plugin, Generator, Analyzer, Formatter,
+Validator, Action, and Asset. One export is implicitly the default; packages
+with several exports mark their default set explicitly. Local export
+requirements are typed children of Uses and public propagation is explicit.
 
-Package requirements use readable Version forms that need no escaped comparison
-operators:
+Tool is a consumption role backed by an executable product or component.
+Plugin is a deployable role backed by a Plugin library or CPS module. Selecting
+a Plugin activates and stages its artifact and contributions only.
 
-```xml
-<Requires>
-  <Package Name="Example.Base" Visibility="Public">
-    <Version AtLeast="2.1.0" Before="3.0.0" />
-    <Use Library="Core" />
-  </Package>
+## Capabilities and options
 
-  <Capability Name="Example.TLS"
-              Domain="Link"
-              Compatible="1" />
-</Requires>
-```
+Exports provide versioned semantic capabilities with `Provides`. Package and
+project Uses may require `Capability`; exactly one compatible implementation
+must remain after provider constraints and workspace preferences.
 
-Supported requirement categories are:
+Boolean and Enum options are declared under Options. Options affect artifact
+identity by default; use `Artifact="false"` only for a semantic choice that does
+not change the acquired or built artifact. Additive conditional package facts
+use the same shallow typed When vocabulary as projects.
 
-- Package requirements with exact, compatible, or structured Version
-  constraints;
-- project requirements where workspace composition provides another product;
-- local Export requirements within the same package;
-- versioned Capability requirements in an explicit semantic domain; and
-- restricted Option predicates.
+## Actions
 
-Requirement conditions may inspect declared Options and structured Target or
-Toolchain facts. Packages cannot define arbitrary expression languages,
-profiles, or runtime environments.
+Generator, Analyzer, Formatter, and Validator are meaningful authored action
+roles that lower to the generic normalized action model. An action names its
+backing Tool and declares typed Inputs and Outputs. Definitions are inert until
+a project selects the corresponding verb.
 
-## Options
+## CPS overlays
 
-Options are typed and have one documented merge authority:
+CPS is the preferred contract for portable compiled components and usage
+requirements:
 
 ```xml
-<Options>
-  <Boolean Name="Reflection" Default="false" Artifact="true" />
-  <Enum Name="Allocator" Default="System" Artifact="true">
-    <Value Name="System" />
-    <Value Name="Mimalloc" />
-  </Enum>
-  <String Name="Namespace" Default="example" />
-  <Integer Name="ShardCount" Default="1" Minimum="1" Maximum="64" />
-  <Path Name="SchemaRoot" Default="schemas" />
-</Options>
+<Package Name="OpenSSL" Version="3.5.2">
+  <Import Cps="OpenSSL.cps" />
+  <Capabilities>
+    <Provide Name="NGIN.Crypto" Version="1" Component="OpenSSL:Crypto" />
+    <Provide Name="NGIN.Net.TLS" Version="1" Component="OpenSSL:SSL" />
+  </Capabilities>
+</Package>
 ```
 
-`Artifact="true"` means the resolved value participates in PackageInstance
-identity. A backend extension may map a semantic Option to native inputs, but it
-must agree with this artifact declaration.
+NGIN imports CPS executable, archive, dynamic-library, interface, and module
+components. The supported compiled metadata is `location`, `includes`,
+language-keyed `definitions` and `compile_flags`, `link_flags`, default
+components, and component/package requirements. `@prefix@`, `cps_path`, and
+non-relocatable `prefix` follow the [CPS schema](https://cps-org.github.io/cps/schema.html).
+The overlay owns NGIN-specific capabilities, actions, assets, notices, and
+staging semantics; it does not duplicate those imported CPS fields.
 
-Options replace the old generic Feature mechanism only when the concept is
-genuinely a user choice. Libraries, Tools, Plugins, Actions, Assets,
-Capabilities, and required contributions remain their own types.
+See the checked-in [Portable CPS overlay](../examples/project-model/Portable.nginpkg).
 
-## Capabilities
+## Adapters
 
-An Export can provide a versioned build/package/deployment Capability:
+Backend-specific bindings live under Adapters using a strongly validated XML
+namespace, for example `cmake:AddSubdirectory`. Adapter fields lower to an
+immutable sidecar keyed by semantic identities and do not enter Composition
+Graph identity. Prefer CPS when portable metadata exists.
 
-```xml
-<Library Name="TLS">
-  <Provides>
-    <Capability Name="Example.TLS"
-                Domain="Link"
-                Version="1.2.0" />
-  </Provides>
-</Library>
-```
-
-Resolution binds each Capability requirement to exactly one compatible
-implementation Export. No implementation and multiple compatible
-implementations are both errors. Capabilities do not model runtime services,
-modules, dependency injection, or application lifecycle.
-
-## Tools and Actions
-
-Tools are host-executable Exports. Actions are declarative contracts that name a
-Tool; they do not execute merely because the package is present.
-
-```xml
-<Exports>
-  <Tool Name="MetaGen" />
-  <Action Name="Generate"
-          Kind="Generate"
-          Tool="MetaGen"
-          Deterministic="true">
-    <Outputs>
-      <Source Path="generated/reflection.cpp" />
-    </Outputs>
-  </Action>
-</Exports>
-```
-
-An explicit project verb selects the Action. Resolution creates a distinct host
-PackageInstance, activates the Action and its Tool, applies workspace trust
-policy, and derives an ActionPlan. Action output paths resolve under the
-ActionPlan output root.
-
-## Contributions
-
-Package- or Export-level contributions may contain notices, runtime files or
-directories, and asset files or directories. They become active only when their
-owner is active and retain source provenance in the Composition Graph.
-
-```xml
-<Plugin Name="Telemetry">
-  <RuntimeFiles>
-    <File Include="plugins/telemetry.*" Into="plugins" />
-  </RuntimeFiles>
-</Plugin>
-```
-
-A Plugin describes a deployable dynamically loadable artifact. It does not tell
-an application framework to load, configure, or order the Plugin.
-
-## Compatibility and coexistence
-
-```xml
-<Compatibility Coexistence="Context">
-  <Target OS="windows" Architecture="x64" />
-  <Toolchain Compiler="msvc" />
-</Compatibility>
-```
-
-`Context` allows distinct host and target instances but rejects incompatible
-instances in one linkage closure. `SideBySide` additionally requires explicit
-platform support; declaring it does not make an ABI or loader capable of
-side-by-side use.
-
-## CMake integration
-
-CMake-specific source modes, cache variables, discovery names, and target
-mappings live under the registered CMake namespace:
-
-```xml
-<Integrations>
-  <cmake:FindPackage Name="OpenSSL" Required="true">
-    <cmake:Target Export="Crypto" Name="OpenSSL::Crypto" />
-    <cmake:Target Export="TLS" Name="OpenSSL::SSL" />
-  </cmake:FindPackage>
-</Integrations>
-```
-
-The implemented modes are `cmake:AddSubdirectory`, `cmake:Isolated`,
-`cmake:FindPackage`, and `cmake:Manual`. They resolve into immutable
-`CMakeIntegrationBindings` outside the Composition Graph. See
-[CMake integration](cmake-integration.md) for their exact contracts.
-
-## PackageProviders and identity
-
-A PackageProvider resolves a logical request to an exact
-PackageProviderResult. The resolver combines that result with host/target
-context, derived BinaryCompatibility, and artifact-affecting Options to form a
-PackageInstance. Named Exports activate on that PackageInstance.
-
-The normalized result keeps the NGIN `PackageCoordinate` separate from the
-provider kind, provider-native coordinate, provider-native version, revision,
-integrity, and provider-native artifact identity. A Conan recipe/package
-revision or vcpkg port/baseline therefore remains exact without being forced
-into NGIN's semantic-version grammar. Local/directory results use their
-manifest version as the native version unless the provider supplies a more
-specific value.
-
-Hermetic results must provide integrity. Providers backed by mutable system or
-external state set `hermetic=false`; they are usable in an explicitly relaxed
-workflow but rejected by locked CI policy. Provenance, trust, acquisition roots,
-and installed prefixes do not become backend cache variables. The dependency
-lock records exact acquired instances; the separate composition fingerprint
-records active semantic choices. See [dependency-lock.md](dependency-lock.md).
+Runtime application registration, dependency injection, plugin loading, and
+module lifecycle never belong in package manifests.
