@@ -13,6 +13,14 @@
 
 namespace NGIN::CLI
 {
+    enum class ProjectSystem
+    {
+        Ngin,
+        CMake,
+    };
+
+    [[nodiscard]] auto ProjectSystemName(ProjectSystem system) -> std::string_view;
+
     struct WorkspaceCapabilityPreference
     {
         std::string name{};
@@ -25,8 +33,13 @@ namespace NGIN::CLI
 
     struct WorkspaceProject
     {
+        std::string id{};
+        std::string name{};
+        ProjectSystem system{ProjectSystem::Ngin};
         std::filesystem::path path{};
-        SemanticProject project{};
+        std::filesystem::path root{};
+        std::optional<SemanticProject> project{};
+        std::set<std::string, std::less<>> capabilities{};
         ManifestSourceRange discoveredBy{};
     };
 
@@ -45,6 +58,7 @@ namespace NGIN::CLI
         PortablePath manifest{};
         PortablePath root{};
         PackageCoordinate coordinate{};
+        std::optional<PortablePath> developmentProject{};
         ManifestSourceRange source{};
     };
 

@@ -8,6 +8,11 @@ diff, and explanation behavior derives from that graph or a typed plan.
 The graph is backend-free. CMake target names, cache variables, generated
 commands, acquired filesystem roots, and adapter fields do not enter it.
 
+An explicitly registered CMake Workspace Project is inspected through CMake's
+File API and CTest. That tagged editor model is deliberately not synthesized
+into an NGIN Composition Graph: CMake remains authoritative for its targets,
+sources, compile groups, artifacts, and tests.
+
 ## Resolution boundary
 
 Before a graph exists, NGIN resolves:

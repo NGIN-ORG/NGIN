@@ -19,6 +19,25 @@ Project commands accept:
 --option <Name=Value>
 ```
 
+Explicitly registered CMake workspace projects use a project directory and
+CMake-specific operation selection:
+
+```text
+--project <cmake-project-directory>
+--configure-preset <name>
+--configuration <name>          # when relevant to a multi-config generator
+--build-preset <name>            # build operation only
+--test-preset <name>             # test operation only
+--target <file-api-target-id>     # build one target
+--test-name <ctest-name>          # repeat to run selected tests
+```
+
+Configure presets are persistent CMake context. Build and test presets are
+operation choices. NGIN delegates configure, build, and test execution to
+`cmake` and `ctest`; it does not reinterpret arbitrary CMake source or create
+presets. CMake projects do not support NGIN Stage, Run, Debug, Benchmark, or
+Composition Graph commands in version 1.
+
 Profiles expand to configuration, target, toolchain, Run, and Option facts
 before resolution. A profile label does not enter graph identity. Explicit
 selection that conflicts with a profile is an error.
@@ -50,6 +69,14 @@ while `ngin format --check` reports files that would change without writing.
 contract. Plans contain precondition hashes and minimal manifest text edits;
 the caller applies them through its own workspace transaction. See the
 [editor protocol](editor-protocol.md).
+
+`editor workspace` protocol version 2 returns mixed `Ngin` and `CMake`
+Workspace Projects with stable IDs and explicit capabilities. For a CMake
+project, `editor snapshot --project <directory>` safely lists preset display
+metadata without configuring. Supplying `--configure-preset` reads the newest
+CMake File API reply and returns configurations, directories, targets, sources,
+compile groups, artifacts, declaration backtraces, toolchains, stale state,
+and CTest tests. Snapshots whitelist fields and omit cache/environment values.
 
 ## Validation, effective inspection, and explanation
 

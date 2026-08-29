@@ -470,6 +470,9 @@ namespace NGIN::CLI
             Add(spec, "package.compatibility.target", "Target", {A("OS"), A("Architecture")});
             Add(spec, "package.compatibility.toolchain", "Toolchain",
                 {A("Compiler"), A("RuntimeLibrary"), A("Linker")});
+            Add(spec, "package.development", "Development",
+                {Required("Project", ManifestValueKind::Path)}, {}, false,
+                "Optional local development-project navigation metadata.");
 
             Add(spec, "package.root", "Package",
                 {Required("Name", ManifestValueKind::Identifier),
@@ -481,7 +484,8 @@ namespace NGIN::CLI
                  C("package.export.library"), C("package.export.tool"), C("package.export.plugin"),
                  C("package.export.generator"), C("package.export.analyzer"), C("package.export.formatter"),
                  C("package.export.validator"), C("package.export.action"), C("package.export.asset"),
-                 C("package.adapters", 0, 1), C("package.compatibility", 0, 1)},
+                 C("package.adapters", 0, 1), C("package.compatibility", 0, 1),
+                 C("package.development", 0, 1)},
                 false, "One exact package release.", "validate-package", "package");
         }
 
@@ -528,7 +532,8 @@ namespace NGIN::CLI
             Add(spec, "workspace.discover", "Discover", {},
                 {C("workspace.discover.projects"), C("workspace.discover.packages")});
             Add(spec, "workspace.discover.projects", "Projects",
-                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)}, {}, false, {},
+                {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path),
+                 A("System", ManifestValueKind::Enumeration, false, {"Ngin", "CMake"})}, {}, false, {},
                 "validate-project-discovery");
             Add(spec, "workspace.discover.packages", "Packages",
                 {Required("Include", ManifestValueKind::Path), A("Exclude", ManifestValueKind::Path)}, {}, false, {},

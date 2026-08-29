@@ -19,6 +19,7 @@ Selection:
   --project <file.nginproj>   --workspace <file.ngin>
   --configuration <name>     --target <name>     --toolchain <name>
   --run <name>               --profile <name>    --option <Name=Value>
+  --configure-preset <name>  --build-preset <name>  --test-preset <name>
 
 Authoring:
   new <executable|library> <Name>
@@ -45,6 +46,10 @@ Resolution:
 
 Execution commands are driven by typed plans: configure, build, stage, run,
 test, benchmark, publish, analyze, format, restore, and package lock.
+
+CMake workspace projects use configure --configure-preset, build
+--build-preset or --configure-preset [--target], and test --test-preset or
+--configure-preset [--test-name].
 
 Tooling integration:
   analyze --file <source> [--file <source>...] [--format json]

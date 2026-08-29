@@ -17,6 +17,29 @@ children of `Package`; there is no Exports wrapper.
 </Package>
 ```
 
+## Development project navigation
+
+A source-workspace package wrapper may point to its explicitly discovered
+development project:
+
+```xml
+<Package Name="NGIN.Base" Version="0.1.0">
+  <Development Project="../../Dependencies/NGIN/NGIN.Base" />
+  <Library Name="NGIN.Base" />
+</Package>
+```
+
+`Development` is non-semantic navigation metadata. It does not change package
+coordinates, resolution, fingerprints, lockfiles, exports, or Composition
+identity. The referenced checkout may be absent when an installed or cached
+package is consumed. Editor commands are enabled only when the path resolves
+to a project explicitly discovered by the owning workspace.
+
+The workspace editor snapshot also reports direct consuming project IDs and
+the package's authored semantic export names. Editors use those facts for Open
+Development Project, Show Consuming Projects, and Show Exported Targets without
+guessing from CMake target names.
+
 ## Typed exports
 
 Direct exports are Library, Tool, Plugin, Generator, Analyzer, Formatter,

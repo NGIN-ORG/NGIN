@@ -71,6 +71,7 @@ include(Catch)
 
 add_executable(NGINCliTests
   CMakeAdapterTests.cpp
+  CMakeProjectSystemTests.cpp
   DependencyLockTests.cpp
   DeploymentPlanTests.cpp
   ManifestCliTests.cpp

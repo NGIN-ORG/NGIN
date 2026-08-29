@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.ECS" Version="0.4.0">
+  <Development Project="../../Dependencies/NGIN/NGIN.ECS" />
   <Uses>
     <Package Name="NGIN.Base" Version="0.1" Public="true" />
   </Uses>

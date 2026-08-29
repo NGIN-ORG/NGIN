@@ -18,6 +18,9 @@ namespace NGIN::CLI
         std::optional<std::string> againstPath{};
         std::optional<std::string> format{};
         std::optional<std::string> configuration{};
+        std::optional<std::string> configurePreset{};
+        std::optional<std::string> buildPreset{};
+        std::optional<std::string> testPreset{};
         std::optional<std::string> target{};
         std::optional<std::string> toolchain{};
         std::optional<std::string> run{};
@@ -35,6 +38,7 @@ namespace NGIN::CLI
         std::optional<std::string> toPath{};
         std::optional<std::string> precondition{};
         std::vector<std::string> files{};
+        std::vector<std::string> tests{};
         std::vector<std::string> editorItems{};
         std::vector<std::string> exportSelections{};
         std::vector<std::string> optionAssignments{};

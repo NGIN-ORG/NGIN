@@ -51,7 +51,9 @@ namespace NGIN::CLI::Tests
         INFO(DiagnosticsText(result.diagnostics));
         REQUIRE(result.Succeeded());
         REQUIRE(result.value->projects.size() == 1);
-        CHECK(result.value->projects.front().project.name == "Hello");
+        REQUIRE(result.value->projects.front().project.has_value());
+        CHECK(result.value->projects.front().project->name == "Hello");
+        CHECK(result.value->projects.front().system == ProjectSystem::Ngin);
         CHECK(result.value->centralVersions.contains("fmt"));
         CHECK(result.value->localPackages.at("fmt").coordinate.exactVersion == "11.0.2");
         CHECK(result.value->selection.defaults.target == "desktop");
@@ -75,7 +77,8 @@ namespace NGIN::CLI::Tests
         INFO(DiagnosticsText(result.diagnostics));
         REQUIRE(result.Succeeded());
         REQUIRE(result.value->projects.size() == 1);
-        CHECK(result.value->projects.front().project.name == "Hello");
+        REQUIRE(result.value->projects.front().project.has_value());
+        CHECK(result.value->projects.front().project->name == "Hello");
     }
 
     TEST_CASE("Workspace model deduplicates overlapping discovery", "[workspace-model]")
@@ -110,5 +113,86 @@ namespace NGIN::CLI::Tests
         const auto result = ParseWorkspaceFile(workspacePath);
         CHECK(result.Succeeded());
         CHECK(DiagnosticsText(result.diagnostics).find("central Version 'fmt' is unused") != std::string::npos);
+    }
+
+    TEST_CASE("Workspace model discovers explicit CMake projects", "[workspace-model]")
+    {
+        TempDir temp{};
+        WriteFile(temp.path() / "libraries/Math/CMakeLists.txt",
+                  "cmake_minimum_required(VERSION 3.20)\nproject(Math)\nadd_library(Math STATIC math.cpp)\n");
+        WriteFile(temp.path() / "libraries/Math/math.cpp", "int math_value() { return 42; }\n");
+        const auto workspacePath = temp.path() / "NGIN.ngin";
+        WriteFile(workspacePath, R"xml(<Workspace Name="Mixed">
+  <Discover><Projects Include="libraries/Math" System="CMake" /></Discover>
+</Workspace>)xml");
+
+        const auto result = ParseWorkspaceFile(workspacePath);
+        INFO(DiagnosticsText(result.diagnostics));
+        REQUIRE(result.Succeeded());
+        REQUIRE(result.value->projects.size() == 1);
+        const auto &project = result.value->projects.front();
+        CHECK(project.name == "Math");
+        CHECK(project.system == ProjectSystem::CMake);
+        CHECK(project.root == fs::weakly_canonical(temp.path() / "libraries/Math"));
+        CHECK_FALSE(project.project.has_value());
+        CHECK(project.capabilities.contains("Configure"));
+        CHECK(project.capabilities.contains("BuildTarget"));
+        CHECK_FALSE(project.capabilities.contains("Run"));
+    }
+
+    TEST_CASE("Workspace model infers CMake projects and rejects recursive CMake globs", "[workspace-model]")
+    {
+        TempDir temp{};
+        WriteFile(temp.path() / "Library/CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(Library)\n");
+        WriteFile(temp.path() / "NGIN.ngin", R"xml(<Workspace Name="Mixed">
+  <Discover><Projects Include="Library" /></Discover>
+</Workspace>)xml");
+        const auto inferred = ParseWorkspaceFile(temp.path() / "NGIN.ngin");
+        INFO(DiagnosticsText(inferred.diagnostics));
+        REQUIRE(inferred.Succeeded());
+        CHECK(inferred.value->projects.front().system == ProjectSystem::CMake);
+
+        WriteFile(temp.path() / "NGIN.ngin", R"xml(<Workspace Name="Mixed">
+  <Discover><Projects Include="**" System="CMake" /></Discover>
+</Workspace>)xml");
+        const auto globbed = ParseWorkspaceFile(temp.path() / "NGIN.ngin");
+        CHECK_FALSE(globbed.Succeeded());
+        CHECK(DiagnosticsText(globbed.diagnostics).find("exact directory path") != std::string::npos);
+    }
+
+    TEST_CASE("Workspace project identities are scoped to the authored workspace", "[workspace-model]")
+    {
+        TempDir temp{};
+        WriteFile(temp.path() / "Library/CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(Library)\n");
+        WriteFile(temp.path() / "One.ngin", R"xml(<Workspace Name="One">
+  <Discover><Projects Include="Library" System="CMake" /></Discover>
+</Workspace>)xml");
+        WriteFile(temp.path() / "Two.ngin", R"xml(<Workspace Name="Two">
+  <Discover><Projects Include="Library" System="CMake" /></Discover>
+</Workspace>)xml");
+        const auto one = ParseWorkspaceFile(temp.path() / "One.ngin");
+        const auto two = ParseWorkspaceFile(temp.path() / "Two.ngin");
+        REQUIRE(one.Succeeded());
+        REQUIRE(two.Succeeded());
+        CHECK(one.value->projects.front().name == two.value->projects.front().name);
+        CHECK(one.value->projects.front().id != two.value->projects.front().id);
+    }
+
+    TEST_CASE("Workspace package development metadata is non-semantic navigation state", "[workspace-model]")
+    {
+        TempDir temp{};
+        WriteFile(temp.path() / "packages/Math/Math.nginpkg", R"xml(<Package Name="Math" Version="1.0.0">
+  <Development Project="../../libraries/Math" />
+  <Library Name="Math" />
+</Package>)xml");
+        WriteFile(temp.path() / "NGIN.ngin", R"xml(<Workspace Name="Mixed">
+  <Discover><Packages Include="packages/**/*.nginpkg" /></Discover>
+</Workspace>)xml");
+
+        const auto result = ParseWorkspaceFile(temp.path() / "NGIN.ngin");
+        INFO(DiagnosticsText(result.diagnostics));
+        REQUIRE(result.Succeeded());
+        REQUIRE(result.value->localPackages.at("Math").developmentProject.has_value());
+        CHECK(result.value->localPackages.at("Math").developmentProject->value == "../../libraries/Math");
     }
 }

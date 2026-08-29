@@ -1,5 +1,6 @@
 #include "WorkspaceModel.hpp"
 
+#include "Canonical.hpp"
 #include "PackageModel.hpp"
 #include "SemanticAuthoring.hpp"
 
@@ -61,6 +62,48 @@ namespace NGIN::CLI
             return value.find_first_of("*?[") != std::string_view::npos;
         }
 
+        [[nodiscard]] auto InferredProjectSystem(const std::filesystem::path &path,
+                                                 const std::string_view authored,
+                                                 const ManifestSourceRange &source,
+                                                 std::vector<ManifestDiagnostic> &diagnostics)
+            -> std::optional<ProjectSystem>
+        {
+            if (authored == "Ngin") return ProjectSystem::Ngin;
+            if (authored == "CMake") return ProjectSystem::CMake;
+            std::error_code error{};
+            if (std::filesystem::is_regular_file(path, error) && path.extension() == ".nginproj")
+                return ProjectSystem::Ngin;
+            if (std::filesystem::is_directory(path, error) &&
+                (std::filesystem::is_regular_file(path / "CMakeLists.txt", error) ||
+                 std::filesystem::is_regular_file(path / "CMakePresets.json", error) ||
+                 std::filesystem::is_regular_file(path / "CMakeUserPresets.json", error)))
+                return ProjectSystem::CMake;
+            AddError(diagnostics, "cannot infer a Project System for '" + path.generic_string() + "'", source);
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto ProjectCapabilities(const ProjectSystem system, const SemanticProject *project = nullptr)
+            -> std::set<std::string, std::less<>>
+        {
+            if (system == ProjectSystem::CMake)
+                return {"Inspect", "Configure", "Build", "BuildTarget", "Test", "SourceOwnership",
+                        "OpenDeclaration", "Artifacts"};
+            std::set<std::string, std::less<>> result{
+                "Inspect", "Build", "SourceOwnership", "OpenDeclaration", "CompositionGraph", "AuthoringPlan"};
+            if (project != nullptr)
+            {
+                if (!project->stage.empty()) result.insert("Stage");
+                if (!project->runs.empty())
+                {
+                    result.insert("Run");
+                    result.insert("Debug");
+                }
+                if (!project->tests.empty()) result.insert("Test");
+                if (!project->benchmarks.empty()) result.insert("Benchmark");
+            }
+            return result;
+        }
+
         [[nodiscard]] auto ResolveWorkspacePath(const std::filesystem::path &root, const std::string &authored,
                                                 const ManifestSourceRange &source,
                                                 std::vector<ManifestDiagnostic> &diagnostics)
@@ -81,7 +124,8 @@ namespace NGIN::CLI
             return resolved;
         }
 
-        auto AddProject(const std::filesystem::path &path, const ManifestSourceRange &discoveredBy,
+        auto AddProject(const std::filesystem::path &path, const std::string_view authoredSystem,
+                        const ManifestSourceRange &discoveredBy,
                         SemanticWorkspace &model, std::map<std::string, ManifestSourceRange, std::less<>> &discovered,
                         std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
@@ -99,9 +143,37 @@ namespace NGIN::CLI
                 return;
             }
             discovered.emplace(identity, discoveredBy);
-            if (!std::filesystem::is_regular_file(path, error))
+            const auto system = InferredProjectSystem(canonical, authoredSystem, discoveredBy, diagnostics);
+            if (!system.has_value()) return;
+            if (*system == ProjectSystem::CMake)
             {
-                AddError(diagnostics, "discovered project does not exist: '" + path.generic_string() + "'",
+                if (!std::filesystem::is_directory(canonical, error))
+                {
+                    AddError(diagnostics, "CMake project must be a directory: '" + path.generic_string() + "'",
+                             discoveredBy);
+                    return;
+                }
+                if (!std::filesystem::is_regular_file(canonical / "CMakeLists.txt", error))
+                {
+                    AddError(diagnostics, "CMake project has no root CMakeLists.txt: '" + path.generic_string() + "'",
+                             discoveredBy);
+                    return;
+                }
+                const auto name = canonical.filename().string();
+                model.projects.push_back(WorkspaceProject{
+                    .id = Sha256Fingerprint(model.manifest.canonicalPath + "|CMake|" + identity),
+                    .name = name,
+                    .system = ProjectSystem::CMake,
+                    .path = canonical,
+                    .root = canonical,
+                    .project = std::nullopt,
+                    .capabilities = ProjectCapabilities(ProjectSystem::CMake),
+                    .discoveredBy = discoveredBy});
+                return;
+            }
+            if (!std::filesystem::is_regular_file(canonical, error) || canonical.extension() != ".nginproj")
+            {
+                AddError(diagnostics, "NGIN project must be a .nginproj file: '" + path.generic_string() + "'",
                          discoveredBy);
                 return;
             }
@@ -111,8 +183,18 @@ namespace NGIN::CLI
             auto semantic = ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
             diagnostics.insert(diagnostics.end(), semantic.diagnostics.begin(), semantic.diagnostics.end());
             if (semantic.value.has_value())
+            {
+                const auto capabilities = ProjectCapabilities(ProjectSystem::Ngin, &*semantic.value);
                 model.projects.push_back(WorkspaceProject{
-                    .path = canonical, .project = std::move(*semantic.value), .discoveredBy = discoveredBy});
+                    .id = Sha256Fingerprint(model.manifest.canonicalPath + "|Ngin|" + identity),
+                    .name = semantic.value->name,
+                    .system = ProjectSystem::Ngin,
+                    .path = canonical,
+                    .root = canonical.parent_path(),
+                    .project = std::move(*semantic.value),
+                    .capabilities = capabilities,
+                    .discoveredBy = discoveredBy});
+            }
         }
 
         auto ParseProjects(const AuthoredWorkspaceManifest &workspace, SemanticWorkspace &model,
@@ -125,10 +207,17 @@ namespace NGIN::CLI
             {
                 const auto include = AttributeValue(*declaration, "Include");
                 const auto exclude = AttributeValue(*declaration, "Exclude");
+                const auto system = AttributeValue(*declaration, "System");
                 if (!HasMagic(include))
                 {
                     if (const auto resolved = ResolveWorkspacePath(model.root, include, declaration->source, diagnostics))
-                        AddProject(*resolved, declaration->source, model, discovered, diagnostics);
+                        AddProject(*resolved, system, declaration->source, model, discovered, diagnostics);
+                    continue;
+                }
+                if (system == "CMake")
+                {
+                    AddError(diagnostics, "CMake project discovery requires an exact directory path in version 1",
+                             declaration->source);
                     continue;
                 }
                 const auto matches =
@@ -139,8 +228,8 @@ namespace NGIN::CLI
                 {
                     if (!match.value.ends_with(".nginproj")) continue;
                     if (!exclude.empty() && GlobMatchesPortable(exclude, match.value)) continue;
-                    AddProject(model.root / std::filesystem::path(match.value), declaration->source, model, discovered,
-                               diagnostics);
+                    AddProject(model.root / std::filesystem::path(match.value), system, declaration->source, model,
+                               discovered, diagnostics);
                 }
             }
             std::ranges::sort(model.projects, {},
@@ -185,6 +274,15 @@ namespace NGIN::CLI
                             .coordinate = PackageCoordinate{.name = authored->name,
                                                             .exactVersion = authored->version},
                             .source = node->source};
+                        if (const auto *development = Child(authored->root, "package.development"))
+                        {
+                            const auto projectPath = NormalizePortablePath(AttributeValue(*development, "Project"),
+                                                                           PortablePathBase::Manifest,
+                                                                           development->source);
+                            diagnostics.insert(diagnostics.end(), projectPath.diagnostics.begin(),
+                                               projectPath.diagnostics.end());
+                            if (projectPath.Succeeded()) local.developmentProject = *projectPath.value;
+                        }
                         if (const auto [existing, inserted] =
                                 model.localPackages.emplace(authored->name, std::move(local));
                             !inserted)
@@ -262,7 +360,9 @@ namespace NGIN::CLI
         {
             std::set<std::string, std::less<>> dependencies{};
             for (const auto &project : model.projects)
-                for (const auto &dependency : project.project.dependencies)
+            {
+                if (!project.project.has_value()) continue;
+                for (const auto &dependency : project.project->dependencies)
                     if (const auto *package = std::get_if<PackageDependencyRequest>(&dependency))
                         dependencies.insert(package->name);
                     else if (const auto *capability = std::get_if<ProjectCapabilityRequest>(&dependency))
@@ -271,6 +371,7 @@ namespace NGIN::CLI
                         for (const auto &preference : model.capabilityPreferences)
                             if (preference.name == capability->name) dependencies.insert(preference.provider);
                     }
+            }
             for (const auto &[name, constraint] : model.centralVersions)
                 if (!dependencies.contains(name))
                     diagnostics.push_back(ManifestDiagnostic{
@@ -307,6 +408,16 @@ namespace NGIN::CLI
         return value.has_value() && std::ranges::none_of(diagnostics, [](const ManifestDiagnostic &diagnostic) {
                    return diagnostic.severity == ManifestDiagnosticSeverity::Error;
                });
+    }
+
+    auto ProjectSystemName(const ProjectSystem system) -> std::string_view
+    {
+        switch (system)
+        {
+        case ProjectSystem::Ngin: return "Ngin";
+        case ProjectSystem::CMake: return "CMake";
+        }
+        return "Ngin";
     }
 
     auto ParseSemanticWorkspace(const AuthoredWorkspaceManifest &workspace) -> SemanticWorkspaceResult

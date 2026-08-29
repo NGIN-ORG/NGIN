@@ -4,6 +4,10 @@
   <Discover>
     <Projects Include="Tools/NGIN.CLI/NGIN.CLI.nginproj" />
     <Projects Include="Examples/**/*.nginproj" />
+    <Projects Include="Dependencies/NGIN/NGIN.Base" System="CMake" />
+    <Projects Include="Dependencies/NGIN/NGIN.ECS" System="CMake" />
+    <Projects Include="Dependencies/NGIN/NGIN.Log" System="CMake" />
+    <Projects Include="Dependencies/NGIN/NGIN.Reflection" System="CMake" />
     <Packages Include="Packages/**/*.nginpkg" />
   </Discover>
   <Versions>

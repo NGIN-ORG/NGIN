@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <Package xmlns:cmake="urn:ngin:adapter:cmake" Name="NGIN.Base" Version="0.1.0">
+  <Development Project="../../Dependencies/NGIN/NGIN.Base" />
   <Library Name="Base" Default="true" />
   <Library Name="Foundation" />
   <Library Name="Execution" />

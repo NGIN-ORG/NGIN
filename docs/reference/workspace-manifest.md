@@ -7,6 +7,7 @@ repeat project behavior.
 <Workspace Name="Example">
   <Discover>
     <Projects Include="Examples/**/*.nginproj" />
+    <Projects Include="Dependencies/NGIN/NGIN.Base" System="CMake" />
     <Packages Include="Packages/**/*.nginpkg" />
   </Discover>
   <Profiles Default="dev">
@@ -23,6 +24,22 @@ optional `Exclude`. An exact path is simply an Include without glob characters.
 Normalized duplicate results are deduplicated with a diagnostic; results are
 contained, sorted, and deterministic. A local package root is inferred from
 its manifest directory.
+
+`Projects` discovers developable **Workspace Projects**. A `.nginproj` file is
+a native `Ngin` project. An explicitly named directory with a root
+`CMakeLists.txt` is a `CMake` project. `System="Ngin|CMake"` is optional when
+the exact candidate has only one valid interpretation. CMake discovery is
+intentionally exact in version 1: globbing directories or recursively scanning
+nested `CMakeLists.txt` files is rejected. A CMake project must use an authored
+configure preset; NGIN never writes one on its behalf.
+
+The built-in driver supports CMake 3.20 or newer and requests File API
+codemodel v2, cmakeFiles v1, and toolchains v1. A project's
+`cmakeMinimumRequired` may require a newer executable.
+
+The CLI assigns each project a stable identity from the workspace manifest,
+project system, and canonical project root. The same checkout may therefore
+participate in two workspaces without sharing editor selection state.
 
 ## Built-ins and explicit selection
 

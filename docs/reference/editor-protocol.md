@@ -1,12 +1,13 @@
 # Editor protocol
 
-The native `ngin` CLI owns the semantic contract used by editors. Version 1
-exposes workspace and resolved product snapshots and plans authoring changes
-without applying them:
+The native `ngin` CLI owns the semantic contract used by editors. Native
+product snapshots and authoring plans remain version 1. The mixed-project
+workspace and CMake project snapshots use version 2:
 
 ```text
 ngin editor workspace --workspace NGIN.ngin
 ngin editor snapshot --project App.nginproj --configuration Debug
+ngin editor snapshot --project Dependencies/NGIN/NGIN.Base --configure-preset tests --configuration Debug
 ngin editor plan --project App.nginproj --configuration Debug \
   --intent CreateItems --item 'Source||src/Renderer.cpp'
 ```
@@ -31,10 +32,28 @@ provenance still derive from authored semantics and the resolved graph.
 
 ## Workspace snapshot
 
-`NGIN.EditorWorkspaceSnapshot` version 1 contains authored workspaces, their
-stable identities and boundaries, discovered products, standalone products,
-and diagnostics. Editors use it for discovery and keep physical navigation
-available when an individual product graph is degraded.
+`NGIN.EditorWorkspaceSnapshot` version 2 contains authored workspaces, their
+stable identities and boundaries, mixed Workspace Projects, package
+development relationships, direct consumers, authored package exports,
+standalone native projects, and diagnostics. Each
+project supplies `projectSystem` (`Ngin` or `CMake`) and an explicit capability
+list. Editors use it for discovery and keep physical navigation available when
+an individual project model is degraded.
+
+## CMake project snapshot
+
+`NGIN.EditorCMakeProjectSnapshot` version 2 is a tagged CMake File API/CTest
+model. It contains safe preset descriptions, configured and stale state,
+configurations, source/build directories, compiler identity/path metadata,
+stable target IDs, compile groups, source ownership, dependencies, artifacts,
+declaration backtraces, and discovered CTest names. It is not a Composition
+Graph. Cache values, preset environment values, and arbitrary environment
+state are excluded.
+
+Omitting `--configure-preset` never configures and returns safe authored preset
+metadata plus a degraded physical-navigation state. Configure, Build, and Test
+are separate explicit commands. Editors must require workspace trust before
+invoking them.
 
 ## Authoring plan
 

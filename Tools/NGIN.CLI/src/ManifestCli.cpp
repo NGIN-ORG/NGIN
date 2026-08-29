@@ -7,6 +7,7 @@
 #include "DependencyLock.hpp"
 #include "DeploymentPlans.hpp"
 #include "EditorProtocol.hpp"
+#include "CMakeProjectSystem.hpp"
 #include "ManifestArtifacts.hpp"
 #include "ManifestFormatter.hpp"
 #include "PackageModel.hpp"
@@ -445,7 +446,7 @@ namespace NGIN::CLI
                     {
                         workspaceRoot = workspace.value->root;
                         for (const auto &entry : workspace.value->projects)
-                            workspaceProjects.emplace(entry.project.name, entry.path);
+                            if (entry.project.has_value()) workspaceProjects.emplace(entry.project->name, entry.path);
                         loaded.actionTrustPolicy = workspace.value->actionTrustPolicy;
                         loaded.stageCollision = workspace.value->stageCollision;
                         loaded.allowSymlinks = workspace.value->pathPolicy.allowSymlinks;
@@ -1516,6 +1517,12 @@ namespace NGIN::CLI
                 result.format = value(index, argument);
             else if (argument == "--configuration")
                 result.configuration = value(index, argument);
+            else if (argument == "--configure-preset")
+                result.configurePreset = value(index, argument);
+            else if (argument == "--build-preset")
+                result.buildPreset = value(index, argument);
+            else if (argument == "--test-preset")
+                result.testPreset = value(index, argument);
             else if (argument == "--target")
                 result.target = value(index, argument);
             else if (argument == "--toolchain")
@@ -1556,6 +1563,8 @@ namespace NGIN::CLI
                 result.packageName = value(index, argument);
             else if (argument == "--file")
                 result.files.push_back(value(index, argument));
+            else if (argument == "--test-name")
+                result.tests.push_back(value(index, argument));
             else if (argument == "--quiet" || argument == "-q")
                 result.quiet = true;
             else if (argument == "--check")
@@ -1767,8 +1776,11 @@ namespace NGIN::CLI
 
     auto PrintEditorWorkspaceSnapshot(const fs::path &root, const CliArguments &arguments) -> int
     {
-        const auto productValue = [](const fs::path &path, const SemanticProject &project) {
-            const auto canonical = fs::weakly_canonical(path).generic_string();
+        const auto nativeProjectValue = [](const fs::path &path, const SemanticProject &project,
+                                           const std::string &id = {},
+                                           const std::set<std::string, std::less<>> *resolvedCapabilities = nullptr) {
+            const auto canonicalPath = fs::weakly_canonical(path);
+            const auto canonical = canonicalPath.generic_string();
             auto artifactKind = std::string{"Executable"};
             auto libraryKind = std::string{"None"};
             if (project.artifactKind == ProductArtifactKind::Library)
@@ -1783,13 +1795,31 @@ namespace NGIN::CLI
                 case LibraryKind::None: break;
                 }
             }
-            return CanonicalValue{CanonicalValue::Object{
+            CanonicalValue::Array capabilities{};
+            if (resolvedCapabilities != nullptr)
+                for (const auto &capability : *resolvedCapabilities) capabilities.emplace_back(capability);
+            else
+            {
+                for (const auto &capability : std::vector<std::string>{"Inspect", "Build", "SourceOwnership",
+                                                                       "OpenDeclaration", "CompositionGraph",
+                                                                       "AuthoringPlan"})
+                    capabilities.emplace_back(capability);
+                if (!project.tests.empty()) capabilities.emplace_back("Test");
+                if (!project.benchmarks.empty()) capabilities.emplace_back("Benchmark");
+                if (project.artifactKind == ProductArtifactKind::Executable && !project.runs.empty())
+                    capabilities.emplace_back("Run");
+            }
+            CanonicalValue::Object value{
                 {"artifactKind", artifactKind},
-                {"boundary", fs::weakly_canonical(path).parent_path().generic_string()},
-                {"id", Sha256Fingerprint(canonical)},
+                {"boundary", canonicalPath.parent_path().generic_string()},
+                {"capabilities", std::move(capabilities)},
+                {"id", id.empty() ? Sha256Fingerprint("Ngin|" + canonical) : id},
                 {"libraryKind", libraryKind},
                 {"manifest", canonical},
-                {"name", project.name}}};
+                {"name", project.name},
+                {"projectSystem", "Ngin"},
+                {"root", canonicalPath.parent_path().generic_string()}};
+            return CanonicalValue{std::move(value)};
         };
 
         CanonicalValue::Array workspaces{};
@@ -1808,16 +1838,76 @@ namespace NGIN::CLI
                 PrintDiagnostics(semantic.diagnostics, *workspacePath);
                 return 1;
             }
-            CanonicalValue::Array products{};
+            CanonicalValue::Array projects{};
             for (const auto &entry : semantic.value->projects)
-                products.emplace_back(productValue(entry.path, entry.project));
+            {
+                if (entry.system == ProjectSystem::Ngin && entry.project.has_value())
+                    projects.emplace_back(nativeProjectValue(entry.path, *entry.project, entry.id, &entry.capabilities));
+                else
+                {
+                    CanonicalValue::Array capabilities{};
+                    for (const auto &capability : entry.capabilities) capabilities.emplace_back(capability);
+                    projects.emplace_back(CanonicalValue::Object{{"capabilities", std::move(capabilities)},
+                                                                 {"id", entry.id},
+                                                                 {"name", entry.name},
+                                                                 {"projectSystem", "CMake"},
+                                                                 {"root", entry.root.generic_string()}});
+                }
+            }
+            CanonicalValue::Array packages{};
+            for (const auto &[name, package] : semantic.value->localPackages)
+            {
+                std::string developmentProjectId{};
+                CanonicalValue::Array consumingProjectIds{};
+                CanonicalValue::Array exportedTargets{};
+                if (package.developmentProject.has_value())
+                {
+                    const auto packageDirectory = semantic.value->root / package.manifest.value;
+                    std::error_code error{};
+                    const auto development = fs::weakly_canonical(
+                        packageDirectory.parent_path() / package.developmentProject->value, error);
+                    if (!error)
+                        for (const auto &project : semantic.value->projects)
+                            if (project.root == development) developmentProjectId = project.id;
+                }
+                for (const auto &project : semantic.value->projects)
+                {
+                    if (!project.project.has_value()) continue;
+                    const auto consumes = std::ranges::any_of(
+                        project.project->dependencies, [&](const ProjectDependency &dependency) {
+                            const auto request = std::get_if<PackageDependencyRequest>(&dependency);
+                            return request != nullptr && request->name == name;
+                        });
+                    if (consumes) consumingProjectIds.emplace_back(project.id);
+                }
+                const auto packagePath = semantic.value->root / package.manifest.value;
+                const auto authoredPackage = ParseAuthoredManifest(packagePath);
+                if (authoredPackage.Succeeded() &&
+                    std::holds_alternative<AuthoredPackageManifest>(*authoredPackage.value))
+                {
+                    const auto resolvedPackage =
+                        ParseSemanticPackage(std::get<AuthoredPackageManifest>(*authoredPackage.value));
+                    if (resolvedPackage.value.has_value())
+                        for (const auto &[exportName, _] : resolvedPackage.value->exports)
+                            exportedTargets.emplace_back(exportName);
+                }
+                CanonicalValue::Object packageValue{{"consumingProjectIds", std::move(consumingProjectIds)},
+                                                    {"exportedTargets", std::move(exportedTargets)},
+                                                    {"manifest", (semantic.value->root /
+                                                                  package.manifest.value).generic_string()},
+                                                    {"name", name}};
+                if (!developmentProjectId.empty())
+                    packageValue.emplace("developmentProjectId", developmentProjectId);
+                packages.emplace_back(std::move(packageValue));
+            }
             const auto canonical = fs::weakly_canonical(*workspacePath).generic_string();
             workspaces.emplace_back(CanonicalValue::Object{
                 {"boundary", semantic.value->root.generic_string()},
                 {"id", Sha256Fingerprint(canonical)},
                 {"manifest", canonical},
                 {"name", semantic.value->name},
-                {"products", std::move(products)}});
+                {"packages", std::move(packages)},
+                {"projects", std::move(projects)}});
         }
         else
         {
@@ -1829,14 +1919,14 @@ namespace NGIN::CLI
                 PrintDiagnostics(semantic.diagnostics, projectPath);
                 return 1;
             }
-            standalone.emplace_back(productValue(projectPath, *semantic.value));
+            standalone.emplace_back(nativeProjectValue(projectPath, *semantic.value));
         }
         std::cout << SerializeCanonical(CanonicalValue::Object{
                          {"diagnostics", CanonicalValue::Array{}},
                          {"kind", "NGIN.EditorWorkspaceSnapshot"},
-                         {"standaloneProducts", std::move(standalone)},
+                         {"standaloneProjects", std::move(standalone)},
                          {"state", "ready"},
-                         {"version", std::int64_t{1}},
+                         {"version", std::int64_t{2}},
                          {"workspaces", std::move(workspaces)}})
                   << '\n';
         return 0;
@@ -1845,6 +1935,16 @@ namespace NGIN::CLI
     auto PrintEditorProductSnapshot(const fs::path &root, const CliArguments &arguments) -> int
     {
         const auto projectPath = FindProject(root, arguments);
+        if (IsCMakeProject(projectPath))
+        {
+            const auto snapshot = InspectCMakeProject(CMakeOperationRequest{
+                .projectRoot = projectPath,
+                .workspaceManifest = arguments.workspacePath,
+                .configurePreset = arguments.configurePreset,
+                .configuration = arguments.configuration});
+            std::cout << SerializeCMakeProjectSnapshot(snapshot) << '\n';
+            return 0;
+        }
         auto resolved = Resolve(projectPath, arguments, "editor snapshot");
         if (PrintDiagnostics(resolved.diagnostics, projectPath) != 0 || !resolved.graph) return 1;
         const auto &selection = resolved.graph->Data().selection;
@@ -1941,6 +2041,16 @@ namespace NGIN::CLI
     auto InspectComposition(const fs::path &root, const CliArguments &arguments) -> int
     {
         const auto project = FindProject(root, arguments);
+        if (IsCMakeProject(project))
+        {
+            const auto snapshot = InspectCMakeProject(CMakeOperationRequest{
+                .projectRoot = project,
+                .workspaceManifest = arguments.workspacePath,
+                .configurePreset = arguments.configurePreset,
+                .configuration = arguments.configuration});
+            std::cout << SerializeCMakeProjectSnapshot(snapshot) << '\n';
+            return 0;
+        }
         if (arguments.effective)
         {
             const auto authored = ParseAuthoredManifest(project);
@@ -2230,6 +2340,12 @@ namespace NGIN::CLI
 
     auto ConfigureProject(const fs::path &root, const CliArguments &arguments) -> int
     {
+        if (arguments.projectPath.has_value() && IsCMakeProject(*arguments.projectPath))
+            return ConfigureCMakeProject(CMakeOperationRequest{
+                .projectRoot = *arguments.projectPath,
+                .workspaceManifest = arguments.workspacePath,
+                .configurePreset = arguments.configurePreset,
+                .configuration = arguments.configuration});
         auto prepared = PrepareBuild(root, arguments, "configure");
         ConfigureTree(prepared, true);
         std::cout << "Configured " << prepared.build.targetName << " in " << prepared.binary << '\n';
@@ -2238,6 +2354,13 @@ namespace NGIN::CLI
 
     auto BuildProject(const fs::path &root, const CliArguments &arguments) -> int
     {
+        if (arguments.projectPath.has_value() && IsCMakeProject(*arguments.projectPath))
+            return BuildCMakeProject(CMakeOperationRequest{.projectRoot = *arguments.projectPath,
+                                                           .workspaceManifest = arguments.workspacePath,
+                                                           .configurePreset = arguments.configurePreset,
+                                                           .operationPreset = arguments.buildPreset,
+                                                           .configuration = arguments.configuration,
+                                                           .target = arguments.target});
         auto prepared = PrepareBuild(root, arguments, "build");
         Build(prepared);
         std::cout << "Built " << prepared.build.targetName << '\n';
@@ -2273,6 +2396,14 @@ namespace NGIN::CLI
 
     auto TestProject(const fs::path &root, const CliArguments &arguments) -> int
     {
+        if (arguments.projectPath.has_value() && IsCMakeProject(*arguments.projectPath))
+            return TestCMakeProject(CMakeOperationRequest{.projectRoot = *arguments.projectPath,
+                                                          .workspaceManifest = arguments.workspacePath,
+                                                          .configurePreset = arguments.configurePreset,
+                                                          .operationPreset = arguments.testPreset,
+                                                          .configuration = arguments.configuration,
+                                                          .tests = arguments.tests.empty() ? arguments.positional
+                                                                                           : arguments.tests});
         auto staged = Stage(PrepareBuild(root, arguments, "test"));
         std::vector<std::string> registrations{};
         if (!arguments.positional.empty())

@@ -183,7 +183,9 @@ TEST_CASE("editor protocol snapshots roles and plans context-aware minimal membe
     ScopedStreamCapture workspaceOutput{std::cout};
     REQUIRE(PrintEditorWorkspaceSnapshot(temp.path(), arguments) == 0);
     CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("kind":"NGIN.EditorWorkspaceSnapshot")"));
-    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("standaloneProducts":[{"artifactKind":"Executable")"));
+    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("standaloneProjects":[{"artifactKind":"Executable")"));
+    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("projectSystem":"Ngin")"));
+    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("version":2)"));
 
     const auto plan = [&](std::string intent, std::vector<std::string> items = {},
                           std::optional<std::string> from = std::nullopt,
@@ -248,6 +250,43 @@ TEST_CASE("editor protocol snapshots roles and plans context-aware minimal membe
     CHECK_THAT(emptyOutput.Text(), ContainsSubstring(R"(<Build>\n    <Source Include=\"main.cpp\" />)"));
 }
 
+TEST_CASE("editor workspace protocol reports mixed projects and package development links")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "App/App.nginproj", R"xml(<Executable Name="App">
+  <Uses><Package Name="Math" Version="1" /></Uses>
+  <Run Name="Default" />
+</Executable>)xml");
+    WriteFile(temp.path() / "Libraries/Math/CMakeLists.txt",
+              "cmake_minimum_required(VERSION 3.20)\nproject(Math)\nadd_library(Math INTERFACE)\n");
+    WriteFile(temp.path() / "Packages/Math/Math.nginpkg", R"xml(<Package Name="Math" Version="1.0.0">
+  <Development Project="../../Libraries/Math" />
+  <Library Name="Math" />
+</Package>)xml");
+    const auto workspace = temp.path() / "Demo.ngin";
+    WriteFile(workspace, R"xml(<Workspace Name="Demo">
+  <Discover>
+    <Projects Include="App/App.nginproj" />
+    <Projects Include="Libraries/Math" System="CMake" />
+    <Packages Include="Packages/**/*.nginpkg" />
+  </Discover>
+</Workspace>)xml");
+
+    CliArguments arguments{};
+    arguments.workspacePath = workspace.string();
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(PrintEditorWorkspaceSnapshot(temp.path(), arguments) == 0);
+    const auto json = output.Text();
+    CHECK_THAT(json, ContainsSubstring(R"("version":2)"));
+    CHECK_THAT(json, ContainsSubstring(R"("projectSystem":"Ngin")"));
+    CHECK_THAT(json, ContainsSubstring(R"("projectSystem":"CMake")"));
+    CHECK_THAT(json, ContainsSubstring(R"("BuildTarget")"));
+    CHECK_THAT(json, ContainsSubstring(R"("name":"Math")"));
+    CHECK_THAT(json, !ContainsSubstring(R"("developmentProjectId":"")"));
+    CHECK_THAT(json, !ContainsSubstring(R"("consumingProjectIds":[])"));
+    CHECK_THAT(json, ContainsSubstring(R"("exportedTargets":["Math"])"));
+}
+
 TEST_CASE("portable path and glob authoring is rooted deterministic and "
           "traversal-safe")
 {
@@ -290,6 +329,20 @@ TEST_CASE("CLI accepts an explicit Run selection for run workflows")
     const auto parsed = ParseCliArguments(static_cast<int>(arguments.size()), arguments.data(), 2);
     REQUIRE(parsed.projectPath == "App.nginproj");
     REQUIRE(parsed.run == "diagnostics");
+}
+
+TEST_CASE("CLI accepts explicit CMake lifecycle selections")
+{
+    std::vector<std::string> storage{"ngin", "test", "--project", "Library", "--configure-preset", "tests",
+                                     "--configuration", "Debug", "--test-preset", "focused",
+                                     "--test-name", "Math.addition", "--test-name", "Math.subtract"};
+    std::vector<char *> arguments{};
+    for (auto &value : storage) arguments.push_back(value.data());
+    const auto parsed = ParseCliArguments(static_cast<int>(arguments.size()), arguments.data(), 2);
+    CHECK(parsed.configurePreset == "tests");
+    CHECK(parsed.configuration == "Debug");
+    CHECK(parsed.testPreset == "focused");
+    CHECK(parsed.tests == std::vector<std::string>{"Math.addition", "Math.subtract"});
 }
 
 TEST_CASE("superseded CLI authoring and selection options are rejected")

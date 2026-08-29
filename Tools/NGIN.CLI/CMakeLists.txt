@@ -32,6 +32,7 @@ _ngin_cli_apply_defaults(ngin_manifest_schema_generator)
 add_library(ngin_cli_semantics STATIC
   src/ActionModel.cpp
     src/Canonical.cpp
+    src/CMakeProjectSystem.cpp
     src/CMakeIntegration.cpp
     src/CMakeAdapter.cpp
     src/CompositionGraph.cpp
