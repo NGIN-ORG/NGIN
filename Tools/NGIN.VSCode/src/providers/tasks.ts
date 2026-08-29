@@ -15,9 +15,11 @@ export class NginTaskProvider implements vscode.TaskProvider {
   constructor(private readonly controller: NginController, private readonly cli: NginCli) {}
 
   async provideTasks(): Promise<vscode.Task[]> {
-    const context = this.controller.snapshot.context;
+    const context = this.controller.launchProduct
+      ? this.controller.contextForProject(this.controller.launchProduct)
+      : this.controller.snapshot.context;
     if (!context) return [];
-    return Promise.all(commands.map(command => this.createTask({ type: 'ngin', command })));
+    return Promise.all(commands.map(command => this.createTask({ type: 'ngin', command }, context)));
   }
 
   async resolveTask(task: vscode.Task): Promise<vscode.Task | undefined> {
@@ -26,8 +28,8 @@ export class NginTaskProvider implements vscode.TaskProvider {
     return this.createTask(definition);
   }
 
-  private async createTask(definition: NginTaskDefinition): Promise<vscode.Task> {
-    const context = this.controller.requireContext();
+  private async createTask(definition: NginTaskDefinition, selectedContext = this.controller.requireContext()): Promise<vscode.Task> {
+    const context = selectedContext;
     const executable = await this.cli.resolveExecutable(context.workspaceFolder);
     const args = lifecycleArguments(definition.command, context);
     const execution = new vscode.ProcessExecution(executable, args, { cwd: path.dirname(context.projectManifest) });

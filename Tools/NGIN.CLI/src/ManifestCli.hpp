@@ -30,7 +30,12 @@ namespace NGIN::CLI
         std::optional<std::string> atMostVersion{};
         std::optional<std::string> beforeVersion{};
         std::optional<std::string> actionKind{};
+        std::optional<std::string> editorIntent{};
+        std::optional<std::string> fromPath{};
+        std::optional<std::string> toPath{};
+        std::optional<std::string> precondition{};
         std::vector<std::string> files{};
+        std::vector<std::string> editorItems{};
         std::vector<std::string> exportSelections{};
         std::vector<std::string> optionAssignments{};
         std::vector<std::string> positional{};
@@ -52,6 +57,9 @@ namespace NGIN::CLI
     auto RemovePackage(const fs::path &root, const CliArguments &arguments) -> int;
     auto AddProjectReference(const fs::path &root, const CliArguments &arguments) -> int;
     auto AddAction(const fs::path &root, const CliArguments &arguments) -> int;
+    auto PrintEditorWorkspaceSnapshot(const fs::path &root, const CliArguments &arguments) -> int;
+    auto PrintEditorProductSnapshot(const fs::path &root, const CliArguments &arguments) -> int;
+    auto PlanEditorAuthoring(const fs::path &root, const CliArguments &arguments) -> int;
     auto InspectComposition(const fs::path &root, const CliArguments &arguments) -> int;
     auto DiffComposition(const fs::path &root, const CliArguments &arguments) -> int;
     auto ExplainComposition(const fs::path &root, const CliArguments &arguments) -> int;

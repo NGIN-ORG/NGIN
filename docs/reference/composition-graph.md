@@ -66,7 +66,9 @@ same `sha256:` Composition Identity.
 
 Dependency locks and derived plan fingerprints are intentionally separate.
 See [dependency-lock.md](dependency-lock.md) and
-[deployment-plans.md](deployment-plans.md).
+[deployment-plans.md](deployment-plans.md). Editors consume the graph through
+the versioned [editor protocol](editor-protocol.md), which adds authored-file
+preconditions and distinguishable path roles without becoming a second resolver.
 
 ## Node inventory
 

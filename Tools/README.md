@@ -58,12 +58,12 @@ available on `PATH`; publishing additionally requires CPack.
 
 ## VS Code
 
-[`NGIN.VSCode`](NGIN.VSCode) provides one compact semantic Projects view,
-source-file ownership, automatic structured analyzer diagnostics and fixes,
-native Explorer commands, lifecycle tasks, Testing integration, staged native
-debugging, compile-database-backed C++ IntelliSense, onboarding, project
-creation, direct C++ source/header creation, one project-context status item,
-a searchable Project Actions hub, and direct XML authoring support. Active-file
-ownership drives normal commands; an explicit default project is only the
-fallback. The CLI and Composition Graph remain the semantic authority; the
-extension does not contain a second resolver.
+[`NGIN.VSCode`](NGIN.VSCode) provides one lazy, product-scoped Workspace view,
+ordinary physical-file navigation with semantic overlays, Active Product and
+Launch Product selection, structured analyzer diagnostics and fixes, native
+lifecycle tasks, Testing, staged debugging, and compile-database-backed C++
+IntelliSense. Generic file/folder creation is physical-only; C++ creation,
+membership, rename, move, and delete consume the CLI's versioned editor plan
+and apply it through VS Code workspace edits. The CLI and Composition Graph
+remain the semantic authority; the extension does not contain a second
+resolver.

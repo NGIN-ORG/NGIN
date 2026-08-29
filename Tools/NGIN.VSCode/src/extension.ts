@@ -5,7 +5,6 @@ import { dependencyLockPath, selectionArguments } from './core/commandArguments'
 import { NginController } from './core/controller';
 import { displayOptionValue } from './core/graph';
 import {
-  insertBuildItem,
   kindForPath,
   updateProjectAttributes,
   type OffsetEdit
@@ -13,11 +12,11 @@ import {
 import { relativeManifestPath } from './core/manifestText';
 import { isWithin } from './core/paths';
 import { attributeChoices, childElementNames, documentRoots, loadManifestMetadata } from './core/manifestMetadata';
-import { createProjectTemplate } from './core/projectTemplates';
+import { createProjectTemplate, type CustomProjectLayout, type ProjectLayout, type ProjectProductKind } from './core/projectTemplates';
 import { projectCanRun } from './core/projectCapabilities';
 import { graphOwnsFile } from './core/projectOwnership';
 import type { ProjectFileEntry } from './core/projectFiles';
-import type { GraphBuildItem, GraphNamedNode, ProjectCandidate } from './model';
+import type { GraphBuildItem, GraphNamedNode, GraphPackage, ProjectCandidate } from './model';
 import { NginDebugProvider } from './providers/debug';
 import { NginCppConfigurationProvider } from './providers/cppTools';
 import { SourceAnalysisProvider } from './providers/sourceAnalysis';
@@ -30,6 +29,8 @@ import { ProjectsTreeProvider } from './ui/tree';
 import { StatusBarController } from './ui/statusBar';
 import { openProjectActions } from './ui/projectActions';
 import { back, inputStep, pickStep } from './ui/inputFlow';
+import { OperationCoordinator } from './core/operationCoordinator';
+import { AuthoringService } from './features/authoring';
 
 async function openJson(title: string, value: unknown): Promise<void> {
   const document = await vscode.workspace.openTextDocument({
@@ -70,6 +71,10 @@ function projectArgument(value: unknown): ProjectCandidate | undefined {
   return direct?.manifest && direct?.name ? direct : undefined;
 }
 
+function packageArgument(value: unknown): GraphPackage | undefined {
+  return (value as { package?: GraphPackage } | undefined)?.package;
+}
+
 function resourceArgument(value: unknown): vscode.Uri | undefined {
   if (value instanceof vscode.Uri) return value;
   const entry = projectFileArgument(value);
@@ -103,6 +108,8 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   const compilerDiagnostics = vscode.languages.createDiagnosticCollection('ngin-compiler');
   const sourceDiagnostics = vscode.languages.createDiagnosticCollection('ngin-analysis');
   const cli = new NginCli();
+  const operations = new OperationCoordinator();
+  const authoring = new AuthoringService(cli, operations);
   const controller = new NginController(extensionContext, cli, diagnostics, compilerDiagnostics);
   const sourceAnalysis = new SourceAnalysisProvider(extensionContext, controller, cli, sourceDiagnostics);
   const projectsTree = new ProjectsTreeProvider(controller, sourceAnalysis);
@@ -129,7 +136,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const requested = projectArgument(argument);
     if (requested) return requested;
     const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-    return activeFile ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.activeProject : controller.activeProject;
+    return activeFile ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.launchProduct : controller.launchProduct;
   };
   let cliVerified = false;
   const updateContextKeys = async (): Promise<void> => {
@@ -213,6 +220,16 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const uri = resourceArgument(argument);
     if (uri) await vscode.commands.executeCommand('revealInExplorer', uri);
   });
+  register(extensionContext, 'ngin.openFile', async (argument?: unknown) => {
+    const uri = resourceArgument(argument);
+    if (uri) await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+  });
+  register(extensionContext, 'ngin.copyFilePath', async (argument?: unknown) => {
+    const uri = resourceArgument(argument);
+    if (!uri) return;
+    await vscode.env.clipboard.writeText(uri.fsPath);
+    void vscode.window.setStatusBarMessage(`Copied ${uri.fsPath}`, 2500);
+  });
   register(extensionContext, 'ngin.cancel', () => cli.cancel());
   register(extensionContext, 'ngin.projectActions', (argument?: unknown) =>
     openProjectActions(controller, sourceAnalysis, projectArgument(argument)));
@@ -284,17 +301,21 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       placeHolder: 'Choose the workspace folder for the new project'
     });
     if (!folder) return;
-    const productTypes = documentRoots(metadata, 'Project').filter(
-      (candidate): candidate is 'Executable' | 'Library' => candidate === 'Executable' || candidate === 'Library'
-    );
+    const productTypes: ProjectProductKind[] = documentRoots(metadata, 'Project').includes('Executable')
+      ? ['Executable', ...attributeChoices(metadata, 'project.library-root', 'Kind')
+        .filter((value): value is Exclude<ProjectProductKind, 'Executable'> =>
+          value === 'Static' || value === 'Shared' || value === 'Interface' || value === 'Plugin')]
+      : [];
     let name = '';
-    let type: 'Executable' | 'Library' = 'Executable';
+    let type: ProjectProductKind = 'Executable';
+    let layout: ProjectLayout = 'split';
+    let customLayout: CustomProjectLayout | undefined;
     let relativeDirectory = '';
     let step = 1;
-    while (step <= 4) {
+    while (step <= 5) {
       if (step === 1) {
         const value = await inputStep({
-          title: 'Create NGIN project', step, totalSteps: 4, value: name,
+          title: 'Create NGIN project', step, totalSteps: 5, value: name,
           prompt: 'Project name', placeholder: 'MyApp',
           validate: candidate => /^[A-Za-z_][A-Za-z0-9_.-]*$/u.test(candidate.trim())
             ? undefined : 'Use a name beginning with a letter or underscore.'
@@ -307,11 +328,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         continue;
       }
       if (step === 2) {
-        const value = await pickStep({ title: 'Create NGIN project', step, totalSteps: 4 },
+        const value = await pickStep({ title: 'Create NGIN project', step, totalSteps: 5 },
           productTypes.map(candidate => ({
             label: candidate,
-            description: candidate === 'Executable' ? 'Executable source product'
-              : 'Static library source product',
+            description: candidate === 'Executable' ? 'Executable source product' : `${candidate} Library product`,
             value: candidate
           })));
         if (value === undefined) return;
@@ -321,8 +341,32 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         continue;
       }
       if (step === 3) {
+        const value = await pickStep({ title: 'Create NGIN project', step, totalSteps: 5 }, [
+          { label: 'Include/source split', description: 'Separate public headers and compiled sources', value: 'split' as const },
+          { label: 'Co-located', description: 'Keep headers and sources together', value: 'colocated' as const },
+          { label: 'Public/private split', description: 'Use explicit Public and Private trees', value: 'public-private' as const },
+          { label: 'Custom', description: 'Choose header and source roots', value: 'custom' as const }
+        ]);
+        if (value === undefined) return;
+        if (value === back) { step--; continue; }
+        layout = value;
+        if (layout === 'custom') {
+          const headerRoot = await vscode.window.showInputBox({
+            title: 'Custom project layout', prompt: 'Header root relative to the product', value: 'Include'
+          });
+          if (!headerRoot?.trim()) continue;
+          const sourceRoot = type === 'Interface' ? 'Source' : await vscode.window.showInputBox({
+            title: 'Custom project layout', prompt: 'Source root relative to the product', value: 'Source'
+          });
+          if (!sourceRoot?.trim()) continue;
+          customLayout = { headerRoot: headerRoot.trim(), sourceRoot: sourceRoot.trim() };
+        }
+        step++;
+        continue;
+      }
+      if (step === 4) {
         const value = await inputStep({
-          title: 'Create NGIN project', step, totalSteps: 4, value: relativeDirectory,
+          title: 'Create NGIN project', step, totalSteps: 5, value: relativeDirectory,
           prompt: 'Folder relative to the workspace', placeholder: name,
           validate: candidate => {
             if (!candidate.trim()) return 'Enter a project folder or . for the workspace root.';
@@ -336,9 +380,9 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         step++;
         continue;
       }
-      const confirmation = await pickStep({ title: 'Create NGIN project', step, totalSteps: 4 }, [{
+      const confirmation = await pickStep({ title: 'Create NGIN project', step, totalSteps: 5 }, [{
         label: 'Create project',
-        description: `${type} · ${relativeDirectory}/${name}.nginproj`,
+        description: `${type} · ${layout} · ${relativeDirectory}/${name}.nginproj`,
         value: true
       }]);
       if (confirmation === undefined) return;
@@ -349,7 +393,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const directory = path.resolve(folder.uri.fsPath, relativeDirectory);
     const manifest = vscode.Uri.file(path.join(directory, `${name}.nginproj`));
     if (await exists(manifest)) throw new Error(`A project manifest already exists at ${manifest.fsPath}.`);
-    const template = createProjectTemplate(name, type);
+    const template = createProjectTemplate(name, type, layout, customLayout);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(directory));
     await vscode.workspace.fs.writeFile(manifest, new TextEncoder().encode(template.manifest));
     for (const [relative, contents] of Object.entries(template.files)) {
@@ -363,11 +407,11 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest), { preview: false });
   });
 
-  const setDefaultProject = async (argument?: unknown): Promise<void> => {
+  const setLaunchProduct = async (argument?: unknown): Promise<void> => {
     const candidate = projectArgument(argument);
-    const current = controller.activeProject;
+    const current = controller.launchProduct;
     const recent = extensionContext.workspaceState.get<string[]>('ngin.recentProjects', []);
-    const projects = [...controller.projects].sort((left, right) =>
+    const projects = controller.projects.sort((left, right) =>
       Number(right.manifest === current?.manifest) - Number(left.manifest === current?.manifest)
       || (recent.indexOf(left.manifest) < 0 ? Number.MAX_SAFE_INTEGER : recent.indexOf(left.manifest))
         - (recent.indexOf(right.manifest) < 0 ? Number.MAX_SAFE_INTEGER : recent.indexOf(right.manifest))
@@ -379,18 +423,20 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         detail: path.relative(vscode.workspace.getWorkspaceFolder(vscode.Uri.file(value.manifest))?.uri.fsPath ?? value.directory, value.manifest),
         value
       })),
-      { title: 'Select NGIN Project', placeHolder: current?.name, matchOnDescription: true, matchOnDetail: true }
+      { title: 'Select Active Project', placeHolder: current?.name, matchOnDescription: true, matchOnDetail: true }
     ).then(item => item?.value);
     if (project) {
-      await controller.selectProject(project);
+      await controller.setLaunchProduct(project);
       await extensionContext.workspaceState.update('ngin.recentProjects', [project.manifest, ...recent.filter(value => value !== project.manifest)].slice(0, 20));
     }
   };
-  register(extensionContext, 'ngin.selectProject', setDefaultProject);
-  register(extensionContext, 'ngin.setDefaultProject', setDefaultProject);
+  register(extensionContext, 'ngin.setLaunchProduct', setLaunchProduct);
+  // Compatibility aliases retained for one deprecation cycle.
+  register(extensionContext, 'ngin.selectProject', setLaunchProduct);
+  register(extensionContext, 'ngin.setDefaultProject', setLaunchProduct);
 
   register(extensionContext, 'ngin.selectConfiguration', async (argument?: unknown) => {
-    const project = projectArgument(argument) ?? controller.activeProject;
+    const project = projectArgument(argument) ?? await effectiveProject();
     if (!project) throw new Error('No NGIN project is available.');
     const context = sourceAnalysis.contextForProject(project);
     const selected = typeof argument === 'string'
@@ -399,7 +445,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (selected) await controller.updateProjectSelection(project, { configuration: selected, profile: undefined });
   });
   register(extensionContext, 'ngin.selectTarget', async (argument?: unknown) => {
-    const project = projectArgument(argument) ?? controller.activeProject;
+    const project = projectArgument(argument) ?? await effectiveProject();
     if (!project) throw new Error('No NGIN project is available.');
     const context = sourceAnalysis.contextForProject(project);
     const selected = typeof argument === 'string'
@@ -408,7 +454,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (selected) await controller.updateProjectSelection(project, { target: selected, profile: undefined });
   });
   register(extensionContext, 'ngin.selectToolchain', async (argument?: unknown) => {
-    const project = projectArgument(argument) ?? controller.activeProject;
+    const project = projectArgument(argument) ?? await effectiveProject();
     if (!project) throw new Error('No NGIN project is available.');
     const context = sourceAnalysis.contextForProject(project);
     const selected = typeof argument === 'string'
@@ -552,7 +598,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.debug', async (argument?: unknown) => {
     const project = projectArgument(argument);
     const owner = project ?? await sourceAnalysis.projectForFile(vscode.window.activeTextEditor?.document.uri.fsPath ?? '', false);
-    const selected = owner ?? controller.activeProject;
+    const selected = owner ?? controller.launchProduct;
     if (!selected) throw new Error('No NGIN project is available to debug.');
     if (!canRun(selected)) return explainNotRunable(selected);
     return vscode.debug.startDebugging(undefined, {
@@ -657,12 +703,14 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     await vscode.window.showTextDocument(document);
   });
   register(extensionContext, 'ngin.openGraphSource', async (item?: GraphBuildItem | GraphNamedNode, argument?: unknown) => {
-    const project = await effectiveProject(argument);
+    const wrapped = item as (GraphBuildItem | GraphNamedNode) & { package?: GraphPackage; project?: ProjectCandidate };
+    const graphItem = wrapped?.package ?? item;
+    const project = await effectiveProject(argument ?? wrapped);
     if (!project) throw new Error('No NGIN project is available.');
     const current = sourceAnalysis.contextForProject(project);
     const projectDirectory = path.dirname(current.projectManifest);
-    const provenance = item?.provenance;
-    const itemPath = item && 'path' in item && typeof item.path === 'string' ? item.path : undefined;
+    const provenance = graphItem?.provenance;
+    const itemPath = graphItem && 'path' in graphItem && typeof graphItem.path === 'string' ? graphItem.path : undefined;
     const source = provenance?.document
       ? path.resolve(current.workspaceFolder, provenance.document)
       : itemPath ? path.resolve(projectDirectory, itemPath) : current.projectManifest;
@@ -695,7 +743,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     try {
       const openManifest = vscode.workspace.textDocuments.find(document => document.uri.fsPath === current.projectManifest);
-      if (openManifest?.isDirty && !await openManifest.save()) throw new Error('Save the active project manifest before running an authoring command.');
+      if (openManifest?.isDirty) throw new Error('Save or revert the project manifest before running this authoring command.');
       await cli.run([...args, ...selectionArguments(current)], current.workspaceFolder, {
         cwd: path.dirname(current.projectManifest), requireTrust: true, revealOutput: true, exclusive: true
       });
@@ -705,6 +753,20 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       cli.showOutput();
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
+  };
+  const applyPackagePlan = async (
+    project: ProjectCandidate,
+    request: { intent: 'AddPackage' | 'ChangePackageRequirement' | 'RemovePackage'; package: string; version?: string; exact?: boolean }
+  ): Promise<void> => {
+    const current = sourceAnalysis.contextForProject(project);
+    const plan = await authoring.plan(current, request);
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The package authoring plan was rejected.');
+    }
+    await authoring.apply(current, plan);
+    controller.invalidateConfiguration();
+    await controller.refreshDiscovery();
+    projectsTree.refresh();
   };
   register(extensionContext, 'ngin.addPackage', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
@@ -748,9 +810,35 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       version = value.trim();
       step++;
     }
-    const args = ['add', 'package', name];
-    if (constraint !== 'default') args.push(constraint === 'exact' ? '--exact' : '--version', version);
-    await author(args, project);
+    await applyPackagePlan(project, {
+      intent: 'AddPackage', package: name,
+      version: constraint === 'default' ? undefined : version,
+      exact: constraint === 'exact'
+    });
+  });
+  register(extensionContext, 'ngin.changePackageRequirement', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    const dependency = packageArgument(argument);
+    if (!project || !dependency?.name) return;
+    const value = await vscode.window.showInputBox({
+      title: `Change ${dependency.name} Requirement`, prompt: 'Compatible semantic version',
+      value: dependency.version ?? '', validateInput: candidate => candidate.trim() ? undefined : 'Enter a version.'
+    });
+    if (!value?.trim()) return;
+    await applyPackagePlan(project, {
+      intent: 'ChangePackageRequirement', package: dependency.name, version: value.trim()
+    });
+  });
+  register(extensionContext, 'ngin.removePackage', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    const dependency = packageArgument(argument);
+    if (!project || !dependency?.name) return;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove direct package ${dependency.name} from ${project.name}?`, { modal: true }, 'Remove'
+    );
+    if (confirmation === 'Remove') {
+      await applyPackagePlan(project, { intent: 'RemovePackage', package: dependency.name });
+    }
   });
   register(extensionContext, 'ngin.addProjectReference', async () => {
     const selected = await vscode.window.showOpenDialog({
@@ -844,18 +932,24 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const project = projectArgument(argument) ?? await sourceAnalysis.projectForFile(target);
     if (!project) return void vscode.window.showWarningMessage(`${path.basename(target)} is not owned by an NGIN project.`);
     const current = sourceAnalysis.contextForProject(project);
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
     const relative = relativeManifestPath(path.dirname(current.projectManifest), target);
     const kind = (entry?.kind && ['Source', 'Header', 'CxxModule', 'Resource'].includes(entry.kind)
       ? entry.kind : kindForPath(relative)) as 'Source' | 'Header' | 'CxxModule' | 'Resource';
-    const change = insertBuildItem(document.getText(), kind, include ? 'Include' : 'Remove', relative);
-    if (!change) {
-      void vscode.window.showInformationMessage(`${relative} already has an exact ${include ? 'include' : 'remove'} rule.`);
+    const plan = await authoring.plan(current, {
+      intent: include ? 'IncludeItems' : 'ExcludeItems',
+      items: [{ path: relative, kind }]
+    });
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The membership change is not safe in this Build Context.');
+    }
+    if (!plan.textEdits.length) {
+      void vscode.window.showInformationMessage(`${relative} is already ${include ? 'included in' : 'excluded from'} this Build Context.`);
       return;
     }
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    addOffsetEdits(workspaceEdit, document, [change]);
-    await vscode.workspace.applyEdit(workspaceEdit);
+    await authoring.apply(current, plan);
+    controller.invalidateConfiguration();
+    projectsTree.refresh();
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
     await vscode.window.showTextDocument(document, { preview: false, preserveFocus: true });
     void vscode.window.setStatusBarMessage(`NGIN: ${include ? 'included' : 'excluded'} ${relative}; save to validate`, 5000);
   };
@@ -876,12 +970,16 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     argument?: unknown,
     profile?: { kind: 'Source' | 'Header'; path: string; title: string; extension: string; contents?: string }
   ): Promise<void> => {
-    const project = projectArgument(argument);
+    const project = projectArgument(argument) ?? await effectiveProject();
     const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     const entry = projectFileArgument(argument);
     const projectDirectory = path.dirname(current.projectManifest);
-    const base = profile ? projectDirectory : entry?.directory ? entry.path : entry ? path.dirname(entry.path) : projectDirectory;
-    const value = profile?.path ?? '';
+    if (profile?.kind === 'Source' && project?.libraryKind === 'Interface') {
+      throw new Error(`${project.name} is an Interface Library and cannot contain compiled Source items.`);
+    }
+    const selectedBase = entry?.directory ? entry.path : entry ? path.dirname(entry.path) : undefined;
+    const base = selectedBase ?? projectDirectory;
+    const value = selectedBase && profile ? path.basename(profile.path) : profile?.path ?? '';
     const extension = profile?.extension ?? '';
     const stemEnd = value ? value.length - path.extname(value).length : 0;
     const name = await vscode.window.showInputBox({
@@ -897,26 +995,25 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (!isWithin(projectDirectory, target)) throw new Error('The new file must remain inside its project.');
     const uri = vscode.Uri.file(target);
     if (await exists(uri)) throw new Error(`A file already exists at ${target}.`);
+    const relative = relativeManifestPath(projectDirectory, target);
+    const kind = profile?.kind ?? kindForPath(relative);
+    const plan = await authoring.plan(current, { intent: 'CreateItems', items: [{ path: relative, kind }] });
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The item creation plan was rejected.');
+    }
     const confirmation = await vscode.window.showQuickPick([{
       label: `Create ${path.basename(target)}`,
-      description: relativeManifestPath(projectDirectory, target),
-      detail: `Create the file and add it to ${path.basename(current.projectManifest)}`
+      description: relative,
+      detail: plan.textEdits.length ? `Create the file and update ${path.basename(current.projectManifest)}`
+        : 'Create the file; an existing Build rule already covers it.'
     }], {
       title: profile?.title ?? 'New Project File',
       placeHolder: 'Confirm the authored file and manifest change'
     });
     if (!confirmation) return;
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target)));
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    workspaceEdit.createFile(uri, {
-      ignoreIfExists: false,
-      contents: profile?.contents ? new TextEncoder().encode(profile.contents) : undefined
-    });
-    const manifest = await vscode.workspace.openTextDocument(vscode.Uri.file(current.projectManifest));
-    const relative = relativeManifestPath(projectDirectory, target);
-    const membership = insertBuildItem(manifest.getText(), profile?.kind ?? kindForPath(relative), 'Include', relative);
-    if (membership) addOffsetEdits(workspaceEdit, manifest, [membership]);
-    if (!await vscode.workspace.applyEdit(workspaceEdit)) throw new Error('VS Code could not create the project file.');
+    await authoring.apply(current, plan, new Map([[relative,
+      profile?.contents ? new TextEncoder().encode(profile.contents) : new Uint8Array()]]));
     controller.refreshPresentation();
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
   };
@@ -926,6 +1023,265 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.newHeaderFile', (argument?: unknown) => createProjectFile(argument, {
     kind: 'Header', path: 'include/NewHeader.hpp', title: 'New C++ Header File', extension: '.hpp', contents: '#pragma once\n'
   }));
+  const physicalDestination = (argument: unknown, project: ProjectCandidate): string => {
+    const entry = projectFileArgument(argument);
+    return entry?.directory ? entry.path : entry ? path.dirname(entry.path) : project.directory;
+  };
+  register(extensionContext, 'ngin.newFile', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN product is available.');
+    const base = physicalDestination(argument, project);
+    const value = await vscode.window.showInputBox({
+      title: 'New File', prompt: 'File name or path relative to the selected folder',
+      validateInput: candidate => candidate.trim() ? undefined : 'Enter a file name.'
+    });
+    if (!value?.trim()) return;
+    const target = path.resolve(base, value.trim());
+    if (!isWithin(project.directory, target)) throw new Error('The new file must remain inside its product.');
+    const uri = vscode.Uri.file(target);
+    if (await exists(uri)) throw new Error(`A file already exists at ${target}.`);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target)));
+    const edit = new vscode.WorkspaceEdit();
+    edit.createFile(uri, { ignoreIfExists: false });
+    if (!await vscode.workspace.applyEdit(edit)) throw new Error('VS Code could not create the file.');
+    projectsTree.refresh();
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+  });
+  register(extensionContext, 'ngin.newFolder', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN product is available.');
+    const base = physicalDestination(argument, project);
+    const value = await vscode.window.showInputBox({
+      title: 'New Folder', prompt: 'Folder name or path relative to the selected folder',
+      validateInput: candidate => candidate.trim() ? undefined : 'Enter a folder name.'
+    });
+    if (!value?.trim()) return;
+    const target = path.resolve(base, value.trim());
+    if (!isWithin(project.directory, target)) throw new Error('The new folder must remain inside its product.');
+    if (await exists(vscode.Uri.file(target))) throw new Error(`A file or folder already exists at ${target}.`);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(target));
+    projectsTree.refresh();
+  });
+
+  const createSemanticItems = async (
+    project: ProjectCandidate,
+    items: Array<{ path: string; kind: 'Source' | 'Header' | 'CxxModule'; contents: string }>,
+    title: string
+  ): Promise<void> => {
+    if (project.libraryKind === 'Interface' && items.some(item => item.kind === 'Source')) {
+      throw new Error(`${project.name} is an Interface Library and cannot contain compiled Source items.`);
+    }
+    const context = sourceAnalysis.contextForProject(project);
+    for (const item of items) {
+      const target = path.resolve(project.directory, ...item.path.split('/'));
+      if (!isWithin(project.directory, target)) throw new Error('New items must remain inside their product.');
+      if (await exists(vscode.Uri.file(target))) throw new Error(`A file already exists at ${target}.`);
+    }
+    const plan = await authoring.plan(context, {
+      intent: 'CreateItems',
+      items: items.map(item => ({ path: item.path, kind: item.kind }))
+    });
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The item creation plan was rejected.');
+    }
+    const preview = await vscode.window.showQuickPick([{
+      label: `Create ${items.length} ${items.length === 1 ? 'item' : 'items'}`,
+      description: items.map(item => item.path).join(', '),
+      detail: plan.textEdits.length === 0 ? 'Existing Build rules already cover the requested items.'
+        : `Update ${path.basename(project.manifest)} with ${plan.textEdits.length} minimal text edit${plan.textEdits.length === 1 ? '' : 's'}.`
+    }], { title, placeHolder: 'Review and apply the authoring plan' });
+    if (!preview) return;
+    for (const item of items) {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(path.resolve(project.directory, item.path))));
+    }
+    await authoring.apply(context, plan,
+      new Map(items.map(item => [item.path, new TextEncoder().encode(item.contents)])));
+    controller.invalidateConfiguration();
+    projectsTree.refresh();
+    const first = vscode.Uri.file(path.resolve(project.directory, items[0].path));
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(first));
+  };
+  register(extensionContext, 'ngin.newClass', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN product is available.');
+    if (project.libraryKind === 'Interface') {
+      throw new Error(`${project.name} is an Interface Library; create a Header or C++ Module instead.`);
+    }
+    const name = await vscode.window.showInputBox({
+      title: 'New C++ Class', prompt: 'Class name', value: 'NewClass',
+      validateInput: value => /^[A-Za-z_]\w*$/u.test(value.trim()) ? undefined : 'Enter a valid C++ identifier.'
+    });
+    if (!name?.trim()) return;
+    const selected = projectFileArgument(argument);
+    const selectedRelative = selected?.directory ? selected.relativePath : selected ? path.posix.dirname(selected.relativePath) : undefined;
+    const header = selectedRelative && selectedRelative !== '.' ? `${selectedRelative}/${name}.hpp` : `include/${name}.hpp`;
+    const source = selectedRelative && selectedRelative !== '.' ? `${selectedRelative}/${name}.cpp` : `src/${name}.cpp`;
+    await createSemanticItems(project, [
+      { path: header, kind: 'Header', contents: `#pragma once\n\nclass ${name}\n{\npublic:\n    ${name}() = default;\n};\n` },
+      { path: source, kind: 'Source', contents: `#include "${path.posix.basename(header)}"\n` }
+    ], 'New C++ Class');
+  });
+  register(extensionContext, 'ngin.newModule', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN product is available.');
+    const name = await vscode.window.showInputBox({
+      title: 'New C++ Module', prompt: 'Module name', value: project.name,
+      validateInput: value => /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/u.test(value.trim()) ? undefined : 'Enter a valid C++ module name.'
+    });
+    if (!name?.trim()) return;
+    const selected = projectFileArgument(argument);
+    const directory = selected?.directory ? selected.relativePath : selected ? path.posix.dirname(selected.relativePath) : 'modules';
+    const modulePath = `${directory && directory !== '.' ? `${directory}/` : ''}${name.replaceAll('.', '-')}.cppm`;
+    await createSemanticItems(project, [{
+      path: modulePath, kind: 'CxxModule', contents: `export module ${name};\n`
+    }], 'New C++ Module');
+  });
+  register(extensionContext, 'ngin.newCppItem', async (argument?: unknown) => {
+    const item = await vscode.window.showQuickPick([
+      { label: 'C++ Source File', command: 'ngin.newSourceFile' },
+      { label: 'C++ Header File', command: 'ngin.newHeaderFile' },
+      { label: 'C++ Class', command: 'ngin.newClass' },
+      { label: 'C++ Module', command: 'ngin.newModule' }
+    ], { title: 'New C++ Item' });
+    if (item) await vscode.commands.executeCommand(item.command, argument);
+  });
+  const managedFile = async (argument: unknown): Promise<{
+    project: ProjectCandidate;
+    context: ReturnType<SourceAnalysisProvider['contextForProject']>;
+    entry: ProjectFileEntry;
+    kind: 'Source' | 'Header' | 'CxxModule' | 'Resource';
+  } | undefined> => {
+    const entry = projectFileArgument(argument);
+    if (!entry || entry.directory) return undefined;
+    const project = projectArgument(argument) ?? await sourceAnalysis.projectForFile(entry.path);
+    if (!project) return undefined;
+    const kind = (entry.kind && ['Source', 'Header', 'CxxModule', 'Resource'].includes(entry.kind)
+      ? entry.kind : kindForPath(entry.relativePath)) as 'Source' | 'Header' | 'CxxModule' | 'Resource';
+    return { project, context: sourceAnalysis.contextForProject(project), entry, kind };
+  };
+  const relocateItem = async (argument: unknown, move: boolean): Promise<void> => {
+    const target = await managedFile(argument);
+    if (!target) return;
+    let destination: string | undefined;
+    if (move) {
+      const selected = await vscode.window.showOpenDialog({
+        title: `Move ${target.entry.name}`, defaultUri: vscode.Uri.file(target.project.directory),
+        canSelectFiles: false, canSelectFolders: true, canSelectMany: false
+      });
+      if (!selected?.[0]) return;
+      if (!isWithin(target.project.directory, selected[0].fsPath)) {
+        throw new Error('The destination must remain inside the current product boundary.');
+      }
+      destination = relativeManifestPath(target.project.directory, path.join(selected[0].fsPath, target.entry.name));
+    } else {
+      const name = await vscode.window.showInputBox({
+        title: `Rename ${target.entry.name}`, value: target.entry.name,
+        valueSelection: [0, target.entry.name.length - path.extname(target.entry.name).length],
+        validateInput: value => value.trim() && !value.includes('/') && !value.includes('\\')
+          ? undefined : 'Enter a file name without path separators.'
+      });
+      if (!name?.trim() || name.trim() === target.entry.name) return;
+      destination = path.posix.join(path.posix.dirname(target.entry.relativePath), name.trim());
+    }
+    const intent = move ? 'MoveItems' : 'RenameItems';
+    const plan = await authoring.plan(target.context, {
+      intent, from: target.entry.relativePath, to: destination,
+      items: [{ path: target.entry.relativePath, kind: target.kind }]
+    });
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || `The ${move ? 'move' : 'rename'} is not safe.`);
+    }
+    const confirmation = await vscode.window.showQuickPick([{
+      label: `${move ? 'Move' : 'Rename'} ${target.entry.name}`,
+      description: `${target.entry.relativePath} → ${destination}`,
+      detail: `${plan.textEdits.length} manifest reference edit${plan.textEdits.length === 1 ? '' : 's'}`
+    }], { title: `${move ? 'Move' : 'Rename'} Product File`, placeHolder: 'Review and apply the authoring plan' });
+    if (!confirmation) return;
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(path.resolve(target.project.directory, destination))));
+    await authoring.apply(target.context, plan);
+    controller.invalidateConfiguration();
+    projectsTree.refresh();
+  };
+  register(extensionContext, 'ngin.renameItem', (argument: unknown) => relocateItem(argument, false));
+  register(extensionContext, 'ngin.moveItem', (argument: unknown) => relocateItem(argument, true));
+  register(extensionContext, 'ngin.deleteItem', async (argument: unknown) => {
+    const target = await managedFile(argument);
+    if (!target) return;
+    const plan = await authoring.plan(target.context, {
+      intent: 'DeleteItems', items: [{ path: target.entry.relativePath, kind: target.kind }]
+    });
+    if (plan.state !== 'ready') {
+      throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The delete is not safe.');
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Delete ${target.entry.relativePath}? The file and ${plan.textEdits.length} manifest edit${plan.textEdits.length === 1 ? '' : 's'} can be restored with Undo.`,
+      { modal: true }, 'Delete'
+    );
+    if (confirmation !== 'Delete') return;
+    await authoring.apply(target.context, plan);
+    controller.invalidateConfiguration();
+    projectsTree.refresh();
+  });
+  register(extensionContext, 'ngin.duplicateItem', async (argument: unknown) => {
+    const target = await managedFile(argument);
+    if (!target) return;
+    const extension = path.extname(target.entry.name);
+    const stem = path.basename(target.entry.name, extension);
+    const name = await vscode.window.showInputBox({
+      title: `Duplicate ${target.entry.name}`,
+      prompt: target.entry.state === 'selected'
+        ? 'The duplicate will preserve build membership through an NGIN authoring plan.'
+        : 'Ordinary files are duplicated without changing the product manifest.',
+      value: `${stem} copy${extension}`,
+      valueSelection: [0, stem.length + 5],
+      validateInput: value => value.trim() && !value.includes('/') && !value.includes('\\')
+        ? undefined : 'Enter a file name without path separators.'
+    });
+    if (!name?.trim()) return;
+    const destination = path.posix.join(path.posix.dirname(target.entry.relativePath), name.trim());
+    const destinationUri = vscode.Uri.file(path.resolve(target.project.directory, destination));
+    if (await exists(destinationUri)) throw new Error(`A file already exists at ${destination}.`);
+    const contents = await vscode.workspace.fs.readFile(vscode.Uri.file(target.entry.path));
+    if (target.entry.state === 'selected') {
+      const plan = await authoring.plan(target.context, {
+        intent: 'CreateItems', items: [{ path: destination, kind: target.kind }]
+      });
+      if (plan.state !== 'ready') {
+        throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The duplicate plan was rejected.');
+      }
+      await authoring.apply(target.context, plan, new Map([[destination, contents]]));
+      controller.invalidateConfiguration();
+    } else {
+      const edit = new vscode.WorkspaceEdit();
+      edit.createFile(destinationUri, { contents });
+      if (!await vscode.workspace.applyEdit(edit)) throw new Error('VS Code could not duplicate the file.');
+    }
+    projectsTree.refresh();
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(destinationUri));
+  });
+  register(extensionContext, 'ngin.importItems', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject(argument);
+    if (!project) throw new Error('No NGIN product is available.');
+    const selected = await vscode.window.showOpenDialog({
+      title: 'Import C++ Items', canSelectMany: true, canSelectFiles: true, canSelectFolders: false,
+      filters: { 'C++ items': ['c', 'cc', 'cpp', 'cxx', 'h', 'hh', 'hpp', 'hxx', 'ixx', 'cppm'] }
+    });
+    if (!selected?.length) return;
+    const base = physicalDestination(argument, project);
+    const items: Array<{ path: string; kind: 'Source' | 'Header' | 'CxxModule'; contents: string }> = [];
+    const names = new Set<string>();
+    for (const source of selected) {
+      if (names.has(source.path.split('/').at(-1)!)) throw new Error('Imported item names must be unique.');
+      names.add(source.path.split('/').at(-1)!);
+      const target = path.join(base, path.basename(source.fsPath));
+      if (!isWithin(project.directory, target)) throw new Error('Imported items must remain inside the product.');
+      const relative = relativeManifestPath(project.directory, target);
+      const inferred = kindForPath(relative);
+      if (inferred === 'Resource') throw new Error(`${path.basename(source.fsPath)} is not a recognized C++ item.`);
+      items.push({ path: relative, kind: inferred, contents: new TextDecoder().decode(await vscode.workspace.fs.readFile(source)) });
+    }
+    await createSemanticItems(project, items, 'Import C++ Items');
+  });
   register(extensionContext, 'ngin.revealOwningProject', async (argument?: unknown) => {
     const uri = resourceArgument(argument);
     if (!uri) return;
@@ -935,6 +1291,25 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     await projectsTree.getChildren();
     const node = projectsTree.projectNode(project.manifest);
     if (node) await projectsView.reveal(node, { focus: true, select: true });
+  });
+  register(extensionContext, 'ngin.locateActiveFile', async () => {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    if (!uri) return void vscode.window.showInformationMessage('Open a product file to locate it in the NGIN Workspace.');
+    const project = await sourceAnalysis.projectForFile(uri.fsPath, false);
+    if (!project) return void vscode.window.showInformationMessage(`${path.basename(uri.fsPath)} is not inside an NGIN product.`);
+    await vscode.commands.executeCommand('ngin.projects.focus');
+    await projectsTree.getChildren();
+    const root = projectsTree.projectNode(project.manifest);
+    if (!root) return;
+    await projectsView.reveal(root, { expand: true });
+    const node = await projectsTree.revealFile(project, uri.fsPath);
+    if (node) await projectsView.reveal(node, { focus: true, select: true, expand: false });
+  });
+  register(extensionContext, 'ngin.toggleIgnoredFiles', async () => {
+    const configuration = vscode.workspace.getConfiguration('ngin');
+    const current = configuration.get<boolean>('workspace.showIgnoredFiles', false);
+    await configuration.update('workspace.showIgnoredFiles', !current, vscode.ConfigurationTarget.Workspace);
+    projectsTree.refresh();
   });
 
   extensionContext.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {

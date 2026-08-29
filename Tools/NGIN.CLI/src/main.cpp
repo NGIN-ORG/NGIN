@@ -29,6 +29,12 @@ Authoring:
   package add|update|remove <Name> [version and activation options]
   format [--check]
   schema --format json
+  editor workspace
+  editor snapshot
+  editor plan --intent <CreateItems|IncludeItems|ExcludeItems|RenameItems|MoveItems|DeleteItems|
+                        AddPackage|ChangePackageRequirement|RemovePackage>
+              [--item <Kind|Visibility|relative-path>] [--from path] [--to path]
+              [--package name] [--version V|--exact V] [--precondition sha256:...]
 
 Resolution:
   validate
@@ -63,6 +69,16 @@ auto main(const int argc, char **argv) -> int
         }
         if (command == "validate") return NGIN::CLI::ValidateManifest(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "schema") return NGIN::CLI::PrintSchema(NGIN::CLI::ParseCliArguments(argc, argv, 2));
+        if (command == "editor")
+        {
+            if (argc < 3) throw std::runtime_error("editor requires workspace, snapshot, or plan");
+            const std::string operation = argv[2];
+            const auto arguments = NGIN::CLI::ParseCliArguments(argc, argv, 3);
+            if (operation == "workspace") return NGIN::CLI::PrintEditorWorkspaceSnapshot(root, arguments);
+            if (operation == "snapshot") return NGIN::CLI::PrintEditorProductSnapshot(root, arguments);
+            if (operation == "plan") return NGIN::CLI::PlanEditorAuthoring(root, arguments);
+            throw std::runtime_error("unknown editor operation '" + operation + "'");
+        }
         if (command == "inspect" || command == "graph")
             return NGIN::CLI::InspectComposition(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "diff")

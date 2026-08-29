@@ -35,12 +35,21 @@ ngin add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custo
 ngin package add|update|remove <Name> [version and activation options]
 ngin format [--check] [--project <manifest>]
 ngin schema --format json
+ngin editor workspace
+ngin editor snapshot
+ngin editor plan --intent <CreateItems|IncludeItems|ExcludeItems|RenameItems|MoveItems|DeleteItems|AddPackage|ChangePackageRequirement|RemovePackage>
+                 --item <Kind|Visibility|relative-path>
 ```
 
 `--version` is a compatibility request. Readable interval flags are
 `--at-least`, `--after`, `--at-most`, and `--before`; they author a structured
 `Version` child. `ngin format` performs stable canonical manifest formatting,
 while `ngin format --check` reports files that would change without writing.
+
+`editor workspace`, `editor snapshot`, and `editor plan` expose the versioned, non-mutating editor
+contract. Plans contain precondition hashes and minimal manifest text edits;
+the caller applies them through its own workspace transaction. See the
+[editor protocol](editor-protocol.md).
 
 ## Validation, effective inspection, and explanation
 

@@ -6,6 +6,7 @@
 #include "Canonical.hpp"
 #include "DependencyLock.hpp"
 #include "DeploymentPlans.hpp"
+#include "EditorProtocol.hpp"
 #include "ManifestArtifacts.hpp"
 #include "ManifestFormatter.hpp"
 #include "PackageModel.hpp"
@@ -1541,6 +1542,18 @@ namespace NGIN::CLI
                 result.optionAssignments.push_back(value(index, argument));
             else if (argument == "--kind")
                 result.actionKind = value(index, argument);
+            else if (argument == "--intent")
+                result.editorIntent = value(index, argument);
+            else if (argument == "--item")
+                result.editorItems.push_back(value(index, argument));
+            else if (argument == "--from")
+                result.fromPath = value(index, argument);
+            else if (argument == "--to")
+                result.toPath = value(index, argument);
+            else if (argument == "--precondition")
+                result.precondition = value(index, argument);
+            else if (argument == "--package")
+                result.packageName = value(index, argument);
             else if (argument == "--file")
                 result.files.push_back(value(index, argument));
             else if (argument == "--quiet" || argument == "-q")
@@ -1749,6 +1762,179 @@ namespace NGIN::CLI
             text.insert(close, "  <Tooling><" + kind + " Using=\"" + EscapeXml(qualified) + "\" /></Tooling>\n");
         }
         WriteText(path, FormatManifestXml(text));
+        return 0;
+    }
+
+    auto PrintEditorWorkspaceSnapshot(const fs::path &root, const CliArguments &arguments) -> int
+    {
+        const auto productValue = [](const fs::path &path, const SemanticProject &project) {
+            const auto canonical = fs::weakly_canonical(path).generic_string();
+            auto artifactKind = std::string{"Executable"};
+            auto libraryKind = std::string{"None"};
+            if (project.artifactKind == ProductArtifactKind::Library)
+            {
+                artifactKind = "Library";
+                switch (project.libraryKind)
+                {
+                case LibraryKind::Static: libraryKind = "Static"; break;
+                case LibraryKind::Shared: libraryKind = "Shared"; break;
+                case LibraryKind::Interface: libraryKind = "Interface"; break;
+                case LibraryKind::Plugin: libraryKind = "Plugin"; break;
+                case LibraryKind::None: break;
+                }
+            }
+            return CanonicalValue{CanonicalValue::Object{
+                {"artifactKind", artifactKind},
+                {"boundary", fs::weakly_canonical(path).parent_path().generic_string()},
+                {"id", Sha256Fingerprint(canonical)},
+                {"libraryKind", libraryKind},
+                {"manifest", canonical},
+                {"name", project.name}}};
+        };
+
+        CanonicalValue::Array workspaces{};
+        CanonicalValue::Array standalone{};
+        if (const auto workspacePath = FindWorkspace(root, arguments))
+        {
+            const auto authored = ParseAuthoredManifest(*workspacePath);
+            if (!authored.Succeeded() || !std::holds_alternative<AuthoredWorkspaceManifest>(*authored.value))
+            {
+                PrintDiagnostics(authored.diagnostics, *workspacePath);
+                return 1;
+            }
+            auto semantic = ParseSemanticWorkspace(std::get<AuthoredWorkspaceManifest>(*authored.value));
+            if (!semantic.Succeeded())
+            {
+                PrintDiagnostics(semantic.diagnostics, *workspacePath);
+                return 1;
+            }
+            CanonicalValue::Array products{};
+            for (const auto &entry : semantic.value->projects)
+                products.emplace_back(productValue(entry.path, entry.project));
+            const auto canonical = fs::weakly_canonical(*workspacePath).generic_string();
+            workspaces.emplace_back(CanonicalValue::Object{
+                {"boundary", semantic.value->root.generic_string()},
+                {"id", Sha256Fingerprint(canonical)},
+                {"manifest", canonical},
+                {"name", semantic.value->name},
+                {"products", std::move(products)}});
+        }
+        else
+        {
+            const auto projectPath = FindProject(root, arguments);
+            const auto authored = LoadProject(projectPath);
+            auto semantic = ParseSemanticProject(authored);
+            if (!semantic.Succeeded())
+            {
+                PrintDiagnostics(semantic.diagnostics, projectPath);
+                return 1;
+            }
+            standalone.emplace_back(productValue(projectPath, *semantic.value));
+        }
+        std::cout << SerializeCanonical(CanonicalValue::Object{
+                         {"diagnostics", CanonicalValue::Array{}},
+                         {"kind", "NGIN.EditorWorkspaceSnapshot"},
+                         {"standaloneProducts", std::move(standalone)},
+                         {"state", "ready"},
+                         {"version", std::int64_t{1}},
+                         {"workspaces", std::move(workspaces)}})
+                  << '\n';
+        return 0;
+    }
+
+    auto PrintEditorProductSnapshot(const fs::path &root, const CliArguments &arguments) -> int
+    {
+        const auto projectPath = FindProject(root, arguments);
+        auto resolved = Resolve(projectPath, arguments, "editor snapshot");
+        if (PrintDiagnostics(resolved.diagnostics, projectPath) != 0 || !resolved.graph) return 1;
+        const auto &selection = resolved.graph->Data().selection;
+        std::cout << SerializeEditorProductSnapshot(
+                         projectPath, *resolved.graph, selection.configuration,
+                         arguments.target.value_or("host"), arguments.toolchain.value_or("auto"), ReadText(projectPath))
+                  << '\n';
+        return 0;
+    }
+
+    auto PlanEditorAuthoring(const fs::path &root, const CliArguments &arguments) -> int
+    {
+        if (!arguments.editorIntent.has_value()) throw std::runtime_error("editor plan requires --intent");
+        const auto projectPath = FindProject(root, arguments);
+        const auto authored = LoadProject(projectPath);
+        auto semantic = ParseSemanticProject(authored);
+        if (!semantic.Succeeded())
+        {
+            PrintDiagnostics(semantic.diagnostics, projectPath);
+            return 1;
+        }
+        auto resolved = Resolve(projectPath, arguments, "editor plan");
+        if (PrintDiagnostics(resolved.diagnostics, projectPath) != 0 || !resolved.graph) return 1;
+
+        const auto &graph = resolved.graph->Data();
+        SelectionFacts selection{
+            .configuration = Configuration{.name = graph.selection.configuration,
+                                           .optimization = graph.selection.optimization,
+                                           .debugSymbols = graph.selection.debugSymbols,
+                                           .linkTimeOptimization = graph.selection.linkTimeOptimization},
+            .target = Target{.name = arguments.target.value_or("host"),
+                             .operatingSystem = graph.selection.targetOperatingSystem,
+                             .architecture = graph.selection.targetArchitecture},
+            .toolchain = Toolchain{.name = arguments.toolchain.value_or("auto"),
+                                   .compiler = graph.selection.compiler,
+                                   .compilerVersion = graph.selection.compilerVersion,
+                                   .runtimeLibrary = graph.selection.runtimeLibrary},
+        };
+        for (const auto &[name, definition] : semantic.value->options)
+            selection.options.emplace(name, definition.defaultValue);
+        for (const auto &option : graph.options)
+        {
+            const auto definition = semantic.value->options.find(option.name);
+            if (definition == semantic.value->options.end()) continue;
+            const auto parsed = ParseOptionValue(definition->second, option.value);
+            if (parsed.Succeeded()) selection.options[option.name] = *parsed.value;
+        }
+        auto effective = ApplyProjectRefinements(*semantic.value, selection);
+        if (!effective.Succeeded())
+        {
+            PrintDiagnostics(effective.diagnostics, projectPath);
+            return 1;
+        }
+
+        const auto parseKind = [](const std::string_view value) {
+            if (value == "Source") return BuildItemKind::Source;
+            if (value == "Header") return BuildItemKind::Header;
+            if (value == "CxxModule") return BuildItemKind::CxxModule;
+            if (value == "Resource") return BuildItemKind::Resource;
+            throw std::runtime_error("unknown editor item kind '" + std::string{value} + "'");
+        };
+        const auto parseVisibility = [](const std::string_view value) -> std::optional<BuildVisibility> {
+            if (value.empty()) return std::nullopt;
+            if (value == "Private") return BuildVisibility::Private;
+            if (value == "Public") return BuildVisibility::Public;
+            if (value == "Interface") return BuildVisibility::Interface;
+            throw std::runtime_error("unknown editor item visibility '" + std::string{value} + "'");
+        };
+        EditorPlanRequest request{.intent = *arguments.editorIntent,
+                                  .from = arguments.fromPath,
+                                  .to = arguments.toPath,
+                                  .precondition = arguments.precondition,
+                                  .packageName = arguments.packageName,
+                                  .version = arguments.exactVersion.has_value() ? arguments.exactVersion
+                                                                                : arguments.version,
+                                  .exactVersion = arguments.exactVersion.has_value()};
+        for (const auto &encoded : arguments.editorItems)
+        {
+            const auto first = encoded.find('|');
+            const auto second = first == std::string::npos ? std::string::npos : encoded.find('|', first + 1);
+            if (first == std::string::npos || second == std::string::npos)
+                throw std::runtime_error("--item expects Kind|Visibility|relative-path");
+            request.items.push_back(EditorItemRequest{.path = encoded.substr(second + 1),
+                                                       .kind = parseKind(encoded.substr(0, first)),
+                                                       .visibility = parseVisibility(encoded.substr(first + 1,
+                                                                                                  second - first - 1))});
+        }
+        std::cout << SerializeCanonical(CreateEditorAuthoringPlan(
+                         projectPath, authored, *effective.value, *resolved.graph, request, ReadText(projectPath)))
+                  << '\n';
         return 0;
     }
 

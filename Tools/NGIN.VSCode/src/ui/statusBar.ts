@@ -37,7 +37,7 @@ export class StatusBarController implements vscode.Disposable {
     const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
     const owner = !busyProject && activeFile ? await this.analysis.projectForFile(activeFile, false) : undefined;
     if (generation !== this.generation) return;
-    const project = busyProject ?? owner ?? this.controller.activeProject;
+    const project = busyProject ?? owner ?? this.controller.launchProduct;
     if (!project) {
       this.item.hide();
       return;
@@ -49,7 +49,7 @@ export class StatusBarController implements vscode.Disposable {
     const presentation = statusPresentation({
       context,
       project,
-      reason: busyProject ? 'operation' : owner ? 'activeFile' : 'default',
+      reason: busyProject ? 'operation' : owner ? 'activeFile' : 'launch',
       operation: busyProject ? snapshot.busy : undefined,
       graphError: snapshot.context?.projectManifest === project.manifest ? snapshot.graphError : undefined,
       analysisState: summary.state,

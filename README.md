@@ -51,7 +51,7 @@ The project tooling and application libraries are separate.
 | `NGIN.UI.Backend.SDL3` | SDL3 windowing and rendering backend |
 | `NGIN.UI.Hosting` | Integration between `NGIN.UI` and `NGIN.Core` |
 | `NGIN.Tooling.*` | Package-provided tools such as Clang-Tidy and Clang-Format |
-| `NGIN.VSCode` | VS Code integration backed by the `ngin` CLI |
+| `NGIN.VSCode` | Lazy product workspace and authoring integration backed by the `ngin` CLI editor protocol |
 
 A normal C++ executable can use `ngin` without linking an NGIN runtime library.
 

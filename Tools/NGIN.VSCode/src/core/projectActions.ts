@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { NginContext, ProjectCandidate } from '../model';
 
-export type ProjectActionGroup = 'Lifecycle' | 'Build context' | 'Project' | 'Diagnostics' | 'Advanced';
+export type ProjectActionGroup = 'Lifecycle' | 'Build context' | 'Launch' | 'Project' | 'Diagnostics' | 'Advanced';
 
 export interface ProjectActionDescriptor {
   group: ProjectActionGroup;
@@ -32,7 +32,7 @@ export interface ProjectActionState {
   lastOperation?: { command: string; state: 'succeeded' | 'failed' };
 }
 
-export const projectActionGroupOrder: ProjectActionGroup[] = ['Lifecycle', 'Build context', 'Project', 'Diagnostics', 'Advanced'];
+export const projectActionGroupOrder: ProjectActionGroup[] = ['Lifecycle', 'Build context', 'Launch', 'Project', 'Diagnostics', 'Advanced'];
 
 export function projectActionDescriptors(state: ProjectActionState): ProjectActionDescriptor[] {
   const project = state.project;
@@ -78,7 +78,7 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
   result.push(
     { group: 'Project', label: 'Open Manifest', description: path.basename(project.manifest), icon: 'file-code', command: 'ngin.openManifest', argument: project },
     { group: 'Project', label: 'Open Output Folder', description: 'Current build context', detail: state.context.outputDirectory, icon: 'folder-opened', command: 'ngin.openOutputDirectory', argument: project },
-    { group: 'Project', label: 'Select Project', description: 'Used when the active file has no owner', icon: 'check', command: 'ngin.selectProject', argument: project },
+    { group: 'Project', label: 'Select Active Project', description: 'Default for build, F5, and Ctrl+F5', icon: 'pass-filled', command: 'ngin.setLaunchProduct', argument: project },
     { group: 'Project', label: 'Add Package', description: 'Add a semantic package dependency', icon: 'package', command: 'ngin.addPackage', argument: project },
     { group: 'Project', label: 'New C++ Source File', description: 'Create and include a source file', icon: 'new-file', command: 'ngin.newSourceFile', argument: project },
     { group: 'Project', label: 'New C++ Header File', description: 'Create and include a header', icon: 'new-file', command: 'ngin.newHeaderFile', argument: project }

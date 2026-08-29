@@ -86,7 +86,7 @@
       "ngin": [
         {
           "id": "ngin.projects",
-          "name": "Projects",
+          "name": "Workspace",
           "icon": "media/ngin-activity.svg"
         }
       ]
@@ -120,7 +120,7 @@
             "id": "openProject",
             "title": "Open or create a project",
             "description": "Open a workspace with a `.nginproj`, or [create an NGIN project](command:ngin.createProject).",
-            "media": { "image": "media/walkthrough/project.svg", "altText": "Compact NGIN Projects tree with an active-file application and its product-oriented groups." },
+            "media": { "image": "media/walkthrough/project.svg", "altText": "NGIN Workspace tree with a selected project, physical folders, semantic overlays, Composition, Generated, and Issues." },
             "completionEvents": ["onCommand:ngin.createProject", "onContext:ngin.hasProject"]
           },
           {
@@ -133,7 +133,7 @@
           {
             "id": "enableTooling",
             "title": "Enable analyzers and formatters",
-            "description": "Projects can provide verified tooling through NGIN Actions. [Enable project tooling](command:ngin.enableProjectTooling) when your project declares it.",
+            "description": "Products can provide verified tooling through NGIN Actions. [Enable product tooling](command:ngin.enableProjectTooling) when your product declares it.",
             "media": { "image": "media/walkthrough/tooling.svg", "altText": "Analyzer warning shown in source and the native Problems view with Quick Fix support." },
             "completionEvents": ["onContext:ngin.toolingDecided"]
           }
@@ -162,17 +162,10 @@
         "icon": "$(menu)"
       },
       {
-        "command": "ngin.setDefaultProject",
-        "title": "Set Default Project",
+        "command": "ngin.setLaunchProduct",
+        "title": "Select Active Project",
         "category": "NGIN",
-        "enablement": "ngin.hasProjects"
-      },
-      {
-        "command": "ngin.selectProject",
-        "title": "Select Project",
-        "category": "NGIN",
-        "enablement": "ngin.hasProjects && !ngin.busy",
-        "icon": "$(check)"
+        "enablement": "ngin.hasProjects && !ngin.busy"
       },
       {
         "command": "ngin.selectConfiguration",
@@ -436,6 +429,18 @@
         "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
+        "command": "ngin.changePackageRequirement",
+        "title": "Change Package Requirement…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.removePackage",
+        "title": "Remove Direct Package…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
         "command": "ngin.addProjectReference",
         "title": "Add Project Reference",
         "category": "NGIN",
@@ -468,6 +473,51 @@
         "icon": "$(new-file)"
       },
       {
+        "command": "ngin.newFile",
+        "title": "New File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "ngin.newFolder",
+        "title": "New Folder",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "ngin.newClass",
+        "title": "New C++ Class",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.newModule",
+        "title": "New C++ Module",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.newCppItem",
+        "title": "New C++ Item…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.locateActiveFile",
+        "title": "Locate Active File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProjects",
+        "icon": "$(target)"
+      },
+      {
+        "command": "ngin.toggleIgnoredFiles",
+        "title": "Show Ignored Files",
+        "category": "NGIN",
+        "enablement": "ngin.hasProjects"
+      },
+      {
         "command": "ngin.includeFile",
         "title": "Include in Product",
         "category": "NGIN",
@@ -496,6 +546,48 @@
         "title": "Reveal in Explorer",
         "category": "NGIN",
         "enablement": "ngin.hasProject"
+      },
+      {
+        "command": "ngin.openFile",
+        "title": "Open File",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject"
+      },
+      {
+        "command": "ngin.copyFilePath",
+        "title": "Copy File Path",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject"
+      },
+      {
+        "command": "ngin.renameItem",
+        "title": "Rename…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.moveItem",
+        "title": "Move…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.deleteItem",
+        "title": "Delete…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.duplicateItem",
+        "title": "Duplicate…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
+      },
+      {
+        "command": "ngin.importItems",
+        "title": "Import C++ Items…",
+        "category": "NGIN",
+        "enablement": "ngin.hasProject && !ngin.busy"
       }
     ],
     "submenus": [
@@ -512,86 +604,166 @@
           "group": "navigation@1"
         },
         {
+          "command": "ngin.locateActiveFile",
+          "when": "view == ngin.projects && ngin.hasProjects",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ngin.toggleIgnoredFiles",
+          "when": "view == ngin.projects && ngin.hasProjects",
+          "group": "navigation@3"
+        },
+        {
           "command": "ngin.refresh",
           "when": "view == ngin.projects",
-          "group": "navigation@2"
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
         {
+          "command": "ngin.addPackage",
+          "when": "view == ngin.projects && viewItem == nginPackagesGroup",
+          "group": "1_packages@1"
+        },
+        {
+          "command": "ngin.restore",
+          "when": "view == ngin.projects && viewItem == nginPackagesGroup",
+          "group": "1_packages@2"
+        },
+        {
+          "command": "ngin.lock",
+          "when": "view == ngin.projects && viewItem == nginPackagesGroup",
+          "group": "1_packages@3"
+        },
+        {
+          "command": "ngin.showGraph",
+          "when": "view == ngin.projects && viewItem == nginPackagesGroup",
+          "group": "2_packages@1"
+        },
+        {
+          "command": "ngin.changePackageRequirement",
+          "when": "view == ngin.projects && viewItem == nginDirectPackage",
+          "group": "1_package@1"
+        },
+        {
+          "command": "ngin.removePackage",
+          "when": "view == ngin.projects && viewItem == nginDirectPackage",
+          "group": "1_package@2"
+        },
+        {
+          "command": "ngin.openGraphSource",
+          "when": "view == ngin.projects && (viewItem == nginDirectPackage || viewItem == nginTransitivePackage)",
+          "group": "2_package@1"
+        },
+        {
+          "command": "ngin.showGraph",
+          "when": "view == ngin.projects && viewItem == nginExternalGroup",
+          "group": "1_external@1"
+        },
+        {
+          "command": "ngin.inspect",
+          "when": "view == ngin.projects && viewItem == nginExternalGroup",
+          "group": "1_external@2"
+        },
+        {
+          "command": "ngin.openFile",
+          "when": "view == ngin.projects && viewItem == nginProjectFile.external",
+          "group": "1_externalFile@1"
+        },
+        {
+          "command": "ngin.copyFilePath",
+          "when": "view == ngin.projects && viewItem == nginProjectFile.external",
+          "group": "1_externalFile@2"
+        },
+        {
           "command": "ngin.build",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "inline@1"
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot.*\\.run(\\.|$)/",
           "group": "inline@2"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot.*\\.run(\\.|$)/",
           "group": "inline@3"
         },
         {
-          "command": "ngin.selectProject",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "command": "ngin.setLaunchProduct",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "1_project@1"
         },
         {
           "command": "ngin.configure",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "2_lifecycle@1"
         },
         {
           "command": "ngin.build",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "2_lifecycle@2"
         },
         {
           "command": "ngin.run",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot.*\\.run(\\.|$)/",
           "group": "2_lifecycle@3"
         },
         {
           "command": "ngin.debug",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot.*\\.run(\\.|$)/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot.*\\.run(\\.|$)/",
           "group": "2_lifecycle@4"
         },
         {
           "command": "ngin.rebuild",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "2_lifecycle@5"
         },
         {
           "command": "ngin.clean",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "2_lifecycle@6"
         },
         {
           "command": "ngin.projectActions",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "3_project@1"
         },
         {
           "command": "ngin.openManifest",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "3_project@2"
         },
         {
           "command": "ngin.openOutputDirectory",
-          "when": "view == ngin.projects && viewItem =~ /^nginProjectRoot/",
+          "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/",
           "group": "3_project@3"
         },
         {
-          "command": "ngin.newSourceFile",
-          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProductFilesGroup)",
+          "command": "ngin.newFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProductRoot/ || viewItem =~ /^nginProjectDirectory/)",
           "group": "3_project@4"
         },
         {
-          "command": "ngin.newHeaderFile",
-          "when": "view == ngin.projects && (viewItem =~ /^nginProjectRoot/ || viewItem == nginProductFilesGroup)",
+          "command": "ngin.newFolder",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProductRoot/ || viewItem =~ /^nginProjectDirectory/)",
           "group": "3_project@5"
+        },
+        {
+          "command": "ngin.newSourceFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProductRoot/ || viewItem =~ /^nginProjectDirectory/)",
+          "group": "3_project@6"
+        },
+        {
+          "command": "ngin.newHeaderFile",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProductRoot/ || viewItem =~ /^nginProjectDirectory/)",
+          "group": "3_project@7"
+        },
+        {
+          "command": "ngin.importItems",
+          "when": "view == ngin.projects && (viewItem =~ /^nginProductRoot/ || viewItem =~ /^nginProjectDirectory/)",
+          "group": "3_project@8"
         },
         {
           "command": "ngin.changeMembership",
@@ -612,6 +784,26 @@
           "command": "ngin.revealProjectFile",
           "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/",
           "group": "4_file@4"
+        },
+        {
+          "command": "ngin.renameItem",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile\\.(ordinary|candidate|selected|input)$/",
+          "group": "5_manage@1"
+        },
+        {
+          "command": "ngin.moveItem",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile\\.(ordinary|candidate|selected|input)$/",
+          "group": "5_manage@2"
+        },
+        {
+          "command": "ngin.deleteItem",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile\\.(ordinary|candidate|selected|input)$/",
+          "group": "5_manage@3"
+        },
+        {
+          "command": "ngin.duplicateItem",
+          "when": "view == ngin.projects && viewItem =~ /^nginProjectFile\\.(ordinary|candidate|selected|input)$/",
+          "group": "5_manage@4"
         }
       ],
       "editor/title": [
@@ -742,6 +934,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show one compact NGIN project-context item in the status bar."
+        },
+        "ngin.workspace.showIgnoredFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reveal normally hidden output, dependency, and excluded paths in the NGIN Workspace tree."
         },
         "ngin.decorations.mode": {
           "type": "string",

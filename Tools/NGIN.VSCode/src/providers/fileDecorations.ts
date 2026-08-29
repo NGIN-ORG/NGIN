@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
+import { plausibleBuildKind } from '../core/projectFiles';
 
 function key(value: string): string {
   const resolved = path.resolve(value);
@@ -44,7 +45,7 @@ export class NginFileDecorationProvider implements vscode.FileDecorationProvider
       if (mode !== 'detailed') return undefined;
       return { badge: '✓', tooltip: `${item.kind} included in ${graph.product.name}`, color: new vscode.ThemeColor('testing.iconPassed'), propagate: false };
     }
-    if (mode !== 'detailed') return undefined;
+    if (mode !== 'detailed' || !plausibleBuildKind(uri.fsPath)) return undefined;
     return { badge: '–', tooltip: `Not selected by ${graph.product.name}`, color: new vscode.ThemeColor('disabledForeground'), propagate: false };
   }
 

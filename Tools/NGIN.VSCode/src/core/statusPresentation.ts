@@ -3,7 +3,7 @@ import type { NginContext, ProjectCandidate } from '../model';
 export interface StatusPresentationInput {
   context: NginContext;
   project: ProjectCandidate;
-  reason: 'activeFile' | 'default' | 'operation';
+  reason: 'activeFile' | 'launch' | 'operation';
   operation?: string;
   graphError?: string;
   analysisState?: 'idle' | 'analyzing' | 'ready' | 'failed' | 'disabled';
@@ -28,7 +28,7 @@ export function statusPresentation(input: StatusPresentationInput): StatusPresen
     ? 'Effective because this project owns the active file.'
     : input.reason === 'operation'
       ? 'Project with the active NGIN operation.'
-      : 'Default because the active file has no project owner.';
+      : 'Selected Active Project because the current file has no project owner.';
   const last = input.lastOperation
     ? `Last operation: ${input.lastOperation.command} ${input.lastOperation.state} in ${(input.lastOperation.durationMs / 1000).toFixed(1)}s`
     : undefined;
@@ -48,7 +48,7 @@ export function statusPresentation(input: StatusPresentationInput): StatusPresen
     ].filter(Boolean).join('\n'),
     accessibilityLabel: [
       'NGIN', input.project.name, input.context.configuration,
-      input.reason === 'activeFile' ? 'active file project' : input.reason === 'default' ? 'default project' : undefined,
+      input.reason === 'activeFile' ? 'current file project' : input.reason === 'launch' ? 'active project' : undefined,
       input.operation ? `${input.operation} in progress` : undefined,
       issue ? 'issue' : undefined
     ].filter(Boolean).join(', ')

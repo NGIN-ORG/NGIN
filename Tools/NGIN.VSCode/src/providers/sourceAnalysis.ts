@@ -349,7 +349,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   async analyzeProject(project?: ProjectCandidate): Promise<void> {
-    const selected = project ?? this.controller.activeProject;
+    const selected = project ?? this.controller.launchProduct;
     if (!selected) throw new Error('No NGIN project is selected.');
     const context = this.contextForProject(selected);
     const graph = await this.graph(context);
@@ -361,7 +361,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   async enableProjectTooling(project?: ProjectCandidate): Promise<void> {
-    const selected = project ?? this.controller.activeProject;
+    const selected = project ?? this.controller.launchProduct;
     if (!selected) throw new Error('No NGIN project is selected.');
     const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
     await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [selected.manifest]: true });

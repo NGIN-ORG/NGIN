@@ -14,10 +14,10 @@ export async function run(): Promise<void> {
   assert.equal(extension.isActive, true);
 
   const commands = await vscode.commands.getCommands(true);
-  for (const command of ['ngin.selectProject', 'ngin.setDefaultProject', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.configure', 'ngin.build', 'ngin.rebuild', 'ngin.clean', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.revealProjectFile', 'ngin.showGraph', 'ngin.openDashboard', 'ngin.openOutputDirectory']) {
+  for (const command of ['ngin.selectProject', 'ngin.setDefaultProject', 'ngin.setLaunchProduct', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newFile', 'ngin.newFolder', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.newClass', 'ngin.newModule', 'ngin.newCppItem', 'ngin.renameItem', 'ngin.moveItem', 'ngin.deleteItem', 'ngin.duplicateItem', 'ngin.importItems', 'ngin.locateActiveFile', 'ngin.toggleIgnoredFiles', 'ngin.configure', 'ngin.build', 'ngin.rebuild', 'ngin.clean', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.revealProjectFile', 'ngin.openFile', 'ngin.copyFilePath', 'ngin.showGraph', 'ngin.openDashboard', 'ngin.openOutputDirectory']) {
     assert.ok(commands.includes(command), `${command} is registered`);
   }
-  for (const command of ['ngin.newFile', 'ngin.newFolder', 'ngin.renameFile', 'ngin.duplicateFile', 'ngin.deleteFile', 'ngin.revealFile']) {
+  for (const command of ['ngin.renameFile', 'ngin.duplicateFile', 'ngin.deleteFile', 'ngin.revealFile']) {
     assert.equal(commands.includes(command), false, `${command} is retired in favor of the native Explorer`);
   }
 
@@ -28,7 +28,7 @@ export async function run(): Promise<void> {
   const manifest = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Native', 'Hello.Native.nginproj'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest));
   await vscode.commands.executeCommand('ngin.refresh');
-  await vscode.commands.executeCommand('ngin.setDefaultProject', {
+  await vscode.commands.executeCommand('ngin.setLaunchProduct', {
     manifest: manifest.fsPath,
     directory: path.dirname(manifest.fsPath),
     name: 'Hello.Native',
@@ -93,7 +93,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('ngin.revealOwningProject', hostedSource);
   const tasksAfterReveal = await vscode.tasks.fetchTasks({ type: 'ngin' });
   assert.ok(tasksAfterReveal.some(task => task.name.includes('Hello.Native')),
-    'selecting a project tree row does not change the default project');
+    'revealing a project does not change the selected Active Project');
 
   const emptyManifest = await vscode.workspace.openTextDocument({ language: 'ngin', content: '<' });
   const rootCompletion = await vscode.commands.executeCommand<vscode.CompletionList>(

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
-import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import {
@@ -28,7 +27,7 @@ import {
   projectOutputDirectory,
   safePathComponent
 } from '../../core/paths';
-import { enumerateProjectFiles } from '../../core/projectFiles';
+import { classifyPhysicalEntry, productFileId, semanticFileIndex } from '../../core/projectFiles';
 import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
@@ -39,6 +38,10 @@ import { resolveWorkspaceChoice } from '../../core/selectionChoices';
 import { statusPresentation } from '../../core/statusPresentation';
 import { isTransientAnalysisFailure } from '../../core/analysisPolicy';
 import { outputPolicy } from '../../core/outputPolicy';
+import {
+  encodeEditorItem, parseEditorAuthoringPlan, parseEditorProductSnapshot, parseEditorWorkspaceSnapshot
+} from '../../core/editorProtocol';
+import { OperationCoordinator } from '../../core/operationCoordinator';
 import {
   formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter, parseNinjaProgress
 } from '../../core/outputPresentation';
@@ -88,7 +91,7 @@ test('project actions prioritize valid lifecycle work and progressively disclose
     'Build Project', 'Run Project', 'Debug Project', 'Test Project', 'Benchmark Project'
   ]);
   assert.equal(actions.find(action => action.label === 'Select Configuration')?.description, 'Debug');
-  assert.equal(actions.find(action => action.command === 'ngin.selectProject')?.label, 'Select Project');
+  assert.equal(actions.find(action => action.command === 'ngin.setLaunchProduct')?.label, 'Select Active Project');
   assert.ok(actions.some(action => action.group === 'Advanced' && action.command === 'ngin.showGraph'));
   assert.ok(actions.some(action => action.command === 'ngin.rebuild'));
   assert.ok(actions.some(action => action.command === 'ngin.clean'));
@@ -106,12 +109,21 @@ test('project actions prioritize valid lifecycle work and progressively disclose
 
 test('project row context menu exposes selection and lifecycle commands directly', async () => {
   const manifest = JSON.parse(await fs.readFile(path.resolve('package.json'), 'utf8')) as {
-    contributes: { menus: { 'view/item/context': Array<{ command: string; group: string }> } };
+    contributes: { menus: { 'view/item/context': Array<{ command: string; group: string; when?: string }> } };
   };
   const menu = manifest.contributes.menus['view/item/context'];
-  assert.equal(menu.find(item => item.group === '1_project@1')?.command, 'ngin.selectProject');
+  assert.equal(menu.find(item => item.group === '1_project@1')?.command, 'ngin.setLaunchProduct');
   assert.deepEqual(menu.filter(item => item.group.startsWith('2_lifecycle@')).map(item => item.command), [
     'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.debug', 'ngin.rebuild', 'ngin.clean'
+  ]);
+  assert.deepEqual(menu.filter(item => item.when?.includes('nginPackagesGroup')).map(item => item.command), [
+    'ngin.addPackage', 'ngin.restore', 'ngin.lock', 'ngin.showGraph'
+  ]);
+  assert.deepEqual(menu.filter(item => item.when?.includes('nginExternalGroup')).map(item => item.command), [
+    'ngin.showGraph', 'ngin.inspect'
+  ]);
+  assert.deepEqual(menu.filter(item => item.when?.includes('nginProjectFile.external')).map(item => item.command), [
+    'ngin.openFile', 'ngin.copyFilePath'
   ]);
 });
 
@@ -125,7 +137,7 @@ test('stale persisted workspace selections fall back to valid defaults', () => {
 test('project tree keeps context and readiness compact', () => {
   assert.deepEqual(projectTreePresentation({
     configuration: 'Debug', activeFile: true, fallback: false, graphReady: true, configured: true
-  }), { description: 'Debug · active file · configured', status: 'configured' });
+  }), { description: 'Debug · file owner · configured', status: 'configured' });
   assert.equal(projectTreePresentation({
     configuration: 'Release', activeFile: false, fallback: true, graphReady: true, configured: false
   }).description, 'Release · selected · needs build');
@@ -150,20 +162,20 @@ test('status presentation explains active-file, fallback, busy, and issue states
   const active = statusPresentation({ context, project, reason: 'activeFile' });
   assert.equal(active.text, '$(project) App · Debug');
   assert.match(active.tooltip, /owns the active file/u);
-  assert.match(active.accessibilityLabel, /active file project/u);
+  assert.match(active.accessibilityLabel, /current file project/u);
 
   const fallback = statusPresentation({
-    context, project, reason: 'default',
+    context, project, reason: 'launch',
     lastOperation: { command: 'build', state: 'succeeded', completedAt: 1, durationMs: 1250 }
   });
-  assert.match(fallback.tooltip, /Default because/u);
+  assert.match(fallback.tooltip, /Selected Active Project/u);
   assert.match(fallback.tooltip, /in 1\.3s/u);
 
   const busy = statusPresentation({ context, project, reason: 'operation', operation: 'build' });
   assert.equal(busy.text, '$(loading~spin) App · build');
   assert.match(busy.accessibilityLabel, /build in progress/u);
 
-  const issue = statusPresentation({ context, project, reason: 'default', graphError: 'invalid manifest' });
+  const issue = statusPresentation({ context, project, reason: 'launch', graphError: 'invalid manifest' });
   assert.equal(issue.text, '$(warning) App · Debug');
   assert.match(issue.accessibilityLabel, /issue/u);
 });
@@ -518,62 +530,69 @@ test('native test debugging uses TestPlan arguments without a Run definition', (
   assert.equal(configuration.cwd, path.join(root, 'build', 'stage'));
 });
 
-test('project files distinguish graph membership and physical boundaries', async () => {
-  const root = await fs.mkdtemp(path.join(tmpdir(), 'ngin-vscode-'));
-  try {
-    await fs.mkdir(path.join(root, 'src'), { recursive: true });
-    await fs.mkdir(path.join(root, 'Nested'), { recursive: true });
-    await fs.writeFile(path.join(root, 'App.nginproj'), '<Executable Name="App" />');
-    await fs.writeFile(path.join(root, 'src', 'main.cpp'), 'int main() {}');
-    await fs.writeFile(path.join(root, 'src', 'Player.hpp'), '#pragma once');
-    await fs.writeFile(path.join(root, 'src', 'unused.cpp'), '');
-    await fs.writeFile(path.join(root, '.env'), 'MODE=development');
-    await fs.writeFile(path.join(root, 'Nested', 'Nested.nginproj'), '<Library Name="Nested" Kind="Static" />');
-    await fs.writeFile(path.join(root, 'Nested', 'README.md'), '# Nested');
-    const generatedDirectory = path.join(root, 'build', 'actions');
-    await fs.mkdir(generatedDirectory, { recursive: true });
-    await fs.writeFile(path.join(generatedDirectory, 'generated.hpp'), '// generated');
-    await fs.mkdir(path.join(generatedDirectory, 'generated'), { recursive: true });
-    await fs.writeFile(path.join(generatedDirectory, 'generated', 'action.cpp'), '// generated action');
-    const value = graph();
-    value.actions = [{
-      identity: 'Example.Generator::Generate', kind: 'Generate',
-      inputs: ['src/Player.hpp'], outputs: ['generated/action.cpp']
-    }];
-    value.buildItems.push(
-      { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
-      { identity: 'Header:generated.hpp', kind: 'Header', path: 'generated.hpp', generated: true },
-      { identity: 'Header:stale.generated.hpp', kind: 'Header', path: 'stale.generated.hpp', generated: true },
-      { identity: 'Header:missing.hpp', kind: 'Header', path: 'missing.hpp' }
-    );
-    const files = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'), value, 5000, true, generatedDirectory);
-    const flatten = (items: typeof files): typeof files => items.flatMap(item => [item, ...flatten(item.children ?? [])]);
-    const all = flatten(files);
-    assert.equal(all.find(item => item.name === 'App.nginproj')?.state, 'authored');
-    assert.equal(all.find(item => item.name === 'main.cpp')?.state, 'selected');
-    assert.equal(all.find(item => item.name === 'Player.hpp')?.state, 'input');
-    assert.equal(all.find(item => item.name === 'unused.cpp')?.state, 'unselected');
-    assert.equal(all.find(item => item.name === 'generated.hpp')?.state, 'generated');
-    assert.equal(all.find(item => item.name === 'generated.hpp')?.path, path.join(generatedDirectory, 'generated.hpp'));
-    assert.equal(all.find(item => item.name === 'action.cpp')?.state, 'generated');
-    assert.equal(all.find(item => item.name === 'stale.generated.hpp')?.state, 'missing');
-    assert.equal(all.find(item => item.name === 'missing.hpp')?.state, 'missing');
-    assert.equal(all.find(item => item.name === 'Nested')?.state, 'boundary');
+test('editor protocol rejects incompatible envelopes and preserves plan preconditions', () => {
+  const snapshot = parseEditorProductSnapshot(JSON.stringify({
+    kind: 'NGIN.EditorProductSnapshot', version: 1, state: 'ready', manifestHash: 'sha256:one',
+    product: { id: 'app', name: 'App', manifest: '/App.nginproj', boundary: '/', artifactKind: 'Executable', libraryKind: 'None' },
+    context: { configuration: 'Debug', target: 'host', toolchain: 'auto' },
+    fileRoles: [], capabilities: { authoringPlan: true, fileRoles: true }
+  }));
+  assert.equal(snapshot.manifestHash, 'sha256:one');
+  assert.throws(() => parseEditorProductSnapshot(JSON.stringify({ ...snapshot, version: 2 })), /version 2/u);
+  const workspace = parseEditorWorkspaceSnapshot(JSON.stringify({
+    kind: 'NGIN.EditorWorkspaceSnapshot', version: 1, state: 'ready', diagnostics: [],
+    workspaces: [], standaloneProducts: [snapshot.product]
+  }));
+  assert.equal(workspace.standaloneProducts[0].name, 'App');
+  const plan = parseEditorAuthoringPlan(JSON.stringify({
+    kind: 'NGIN.EditorAuthoringPlan', version: 1, state: 'ready', intent: 'CreateItems',
+    filesystem: [], textEdits: [], preconditions: [{ path: '/App.nginproj', sha256: 'sha256:one' }],
+    diagnostics: [], affectedProducts: ['App'], refresh: [], items: []
+  }));
+  assert.equal(plan.preconditions[0].sha256, snapshot.manifestHash);
+  assert.equal(encodeEditorItem({ path: 'src/main.cpp', kind: 'Source' }), 'Source||src/main.cpp');
+});
 
-    const physicalOnly = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'));
-    const physicalAll = flatten(physicalOnly);
-    assert.equal(physicalAll.find(item => item.name === 'App.nginproj')?.state, 'authored');
-    assert.equal(physicalAll.find(item => item.name === 'main.cpp')?.state, 'unselected');
-    assert.equal(physicalAll.find(item => item.name === '.env')?.state, 'unselected');
-    assert.equal(physicalAll.some(item => item.name === 'missing.hpp'), false);
+test('operation coordinator coalesces reads and serializes writes per product', async () => {
+  const coordinator = new OperationCoordinator();
+  let reads = 0;
+  const first = coordinator.read('snapshot', async () => { reads++; await Promise.resolve(); return 42; });
+  const second = coordinator.read('snapshot', async () => { reads++; return 0; });
+  assert.equal(await first, 42);
+  assert.equal(await second, 42);
+  assert.equal(reads, 1);
+  const order: number[] = [];
+  await Promise.all([
+    coordinator.write('App', async () => { order.push(1); await Promise.resolve(); order.push(2); }),
+    coordinator.write('App', async () => { order.push(3); })
+  ]);
+  assert.deepEqual(order, [1, 2, 3]);
+});
 
-    const filesView = await enumerateProjectFiles(root, path.join(root, 'App.nginproj'), undefined, 5000, false);
-    const filesViewAll = flatten(filesView);
-    assert.equal(filesViewAll.find(item => item.name === 'README.md')?.relativePath, 'Nested/README.md');
-    assert.equal(filesViewAll.find(item => item.name === 'Nested')?.state, 'unselected');
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
+test('product file projection separates physical existence from semantic classification', () => {
+  const root = path.resolve('workspace/App');
+  const generatedDirectory = path.join(root, 'build', 'actions');
+  const value = graph();
+  value.actions = [{
+    identity: 'Example.Generator::Generate', kind: 'Generate',
+    inputs: ['src/Player.hpp'], outputs: ['generated/action.cpp']
+  }];
+  value.buildItems.push(
+    { identity: 'Source:src/main.cpp', kind: 'Source', path: 'src/main.cpp' },
+    { identity: 'Header:generated.hpp', kind: 'Header', path: 'generated.hpp', generated: true },
+    { identity: 'Header:missing.hpp', kind: 'Header', path: 'missing.hpp' }
+  );
+  const semantics = semanticFileIndex(root, value, generatedDirectory);
+  assert.equal(classifyPhysicalEntry(root, path.join(root, 'src/main.cpp'), false, semantics).state, 'selected');
+  assert.equal(classifyPhysicalEntry(root, path.join(root, 'src/Player.hpp'), false, semantics).state, 'input');
+  assert.equal(classifyPhysicalEntry(root, path.join(root, 'src/unused.cpp'), false, semantics).state, 'candidate');
+  assert.equal(classifyPhysicalEntry(root, path.join(root, '.env'), false, semantics).state, 'ordinary');
+  assert.equal(classifyPhysicalEntry(root, path.join(root, 'README.md'), false, semantics).state, 'ordinary');
+  assert.equal(classifyPhysicalEntry(root, path.join(root, 'Nested'), true, semantics, true).state, 'boundary');
+  assert.equal(semantics.generated.find(item => item.name === 'generated.hpp')?.path,
+    path.join(generatedDirectory, 'generated.hpp'));
+  assert.equal(semantics.generated.find(item => item.name === 'action.cpp')?.state, 'generated');
+  assert.match(productFileId(root, 'src/main.cpp'), /src\/main\.cpp/u);
 });
 
 test('project templates use the direct product model', () => {
@@ -584,6 +603,20 @@ test('project templates use the direct product model', () => {
   const library = createProjectTemplate('Math', 'Library');
   assert.match(library.manifest, /Kind="Static"/);
   assert.ok(library.files['include/Math/Math.hpp']);
+  const colocated = createProjectTemplate('Math', 'Shared', 'colocated');
+  assert.ok(colocated.files['Math.hpp']);
+  assert.ok(colocated.files['Math.cpp']);
+  assert.match(colocated.manifest, /Kind="Shared"/u);
+  const publicPrivate = createProjectTemplate('Math', 'Plugin', 'public-private');
+  assert.ok(publicPrivate.files['Source/Math/Public/Math.hpp']);
+  assert.ok(publicPrivate.files['Source/Math/Private/Math.cpp']);
+  const interfaceLibrary = createProjectTemplate('Math', 'Interface', 'split');
+  assert.deepEqual(Object.keys(interfaceLibrary.files), ['include/Math/Math.hpp']);
+  assert.doesNotMatch(interfaceLibrary.manifest, /<Source/u);
+  assert.match(interfaceLibrary.manifest, /Visibility="Interface"/u);
+  const custom = createProjectTemplate('Math', 'Static', 'custom', { headerRoot: 'API', sourceRoot: 'Implementation' });
+  assert.ok(custom.files['API/Math.hpp']);
+  assert.ok(custom.files['Implementation/Math.cpp']);
 });
 
 test('manifest metadata choices are consumed without editor-side fallbacks', () => {

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Replaced the grouped Projects sidebar with one product-scoped Workspace tree
+  that lazily enumerates ordinary files and overlays Build, input, generated,
+  external, nested-boundary, ignored, and missing states.
+- Added the versioned CLI editor snapshot/authoring-plan protocol with manifest
+  preconditions, glob-aware membership, minimal text edits, and distinct
+  Build, Stage, and Action path roles.
+- Added an explicitly selected Active Project, separate current-file ownership,
+  a clear selected-project icon, and Locate Active File,
+  Show Ignored Files, generic New File/New Folder, C++ Class/Module creation,
+  layout-aware project templates, and planner-backed Include/Exclude/Rename/
+  Move/Delete/Duplicate/Import commands.
+- Distinguished direct and transitive packages in Composition and added direct
+  preconditioned requirement changes/removal.
+- Added object-specific context menus for Packages and External branches,
+  package provenance navigation, and external-file open/copy-path actions.
 - Invalid selections persisted by older extension builds now fall back to the
   current workspace choices instead of being passed to the CLI.
 - Added direct project-row selection, Configure/Build/Run/Debug/Rebuild/Clean

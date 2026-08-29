@@ -155,6 +155,99 @@ TEST_CASE("editor metadata carries authoritative enumeration choices")
     CHECK_THAT(metadata, !ContainsSubstring(R"("HeaderOnly")"));
 }
 
+TEST_CASE("editor protocol snapshots roles and plans context-aware minimal membership edits")
+{
+    TempDir temp{};
+    const auto project = temp.path() / "App.nginproj";
+    WriteFile(project, R"xml(<Executable Name="App">
+  <Build>
+    <Source Include="src/**/*.cpp" />
+    <Header Include="include/App.hpp" />
+  </Build>
+  <Stage><File From="config/app.json" To="config/app.json" /></Stage>
+</Executable>)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "include/App.hpp", "#pragma once\n");
+    WriteFile(temp.path() / "config/app.json", "{}\n");
+
+    CliArguments arguments{};
+    arguments.projectPath = project.string();
+    ScopedStreamCapture snapshotOutput{std::cout};
+    REQUIRE(PrintEditorProductSnapshot(temp.path(), arguments) == 0);
+    const auto snapshot = snapshotOutput.Text();
+    CHECK_THAT(snapshot, ContainsSubstring(R"("kind":"NGIN.EditorProductSnapshot")"));
+    CHECK_THAT(snapshot, ContainsSubstring(R"("version":1)"));
+    CHECK_THAT(snapshot, ContainsSubstring(R"("role":"Build")"));
+    CHECK_THAT(snapshot, ContainsSubstring(R"("role":"StageInput")"));
+
+    ScopedStreamCapture workspaceOutput{std::cout};
+    REQUIRE(PrintEditorWorkspaceSnapshot(temp.path(), arguments) == 0);
+    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("kind":"NGIN.EditorWorkspaceSnapshot")"));
+    CHECK_THAT(workspaceOutput.Text(), ContainsSubstring(R"("standaloneProducts":[{"artifactKind":"Executable")"));
+
+    const auto plan = [&](std::string intent, std::vector<std::string> items = {},
+                          std::optional<std::string> from = std::nullopt,
+                          std::optional<std::string> to = std::nullopt,
+                          std::optional<std::string> precondition = std::nullopt) {
+        CliArguments request{};
+        request.projectPath = project.string();
+        request.editorIntent = std::move(intent);
+        request.editorItems = std::move(items);
+        request.fromPath = std::move(from);
+        request.toPath = std::move(to);
+        request.precondition = std::move(precondition);
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(PlanEditorAuthoring(temp.path(), request) == 0);
+        return output.Text();
+    };
+
+    const auto covered = plan("CreateItems", {"Source||src/Renderer.cpp"});
+    CHECK_THAT(covered, ContainsSubstring(R"("selected":true)"));
+    CHECK_THAT(covered, ContainsSubstring(R"("textEdits":[])"));
+
+    const auto exact = plan("IncludeItems", {"Header|Public|public/Renderer.hpp"});
+    CHECK_THAT(exact, ContainsSubstring(R"(<Header Include=\"public/Renderer.hpp\" Visibility=\"Public\" />)"));
+    CHECK_THAT(exact, ContainsSubstring(R"("state":"ready")"));
+
+    const auto stale = plan("IncludeItems", {"Header||include/Stale.hpp"}, std::nullopt, std::nullopt,
+                            "sha256:stale");
+    CHECK_THAT(stale, ContainsSubstring(R"("code":"NGIN9001")"));
+    CHECK_THAT(stale, ContainsSubstring(R"("state":"rejected")"));
+
+    const auto rename = plan("RenameItems", {"Header||include/App.hpp"}, "include/App.hpp",
+                             "include/Application.hpp");
+    CHECK_THAT(rename, ContainsSubstring(R"("operation":"rename")"));
+    CHECK_THAT(rename, ContainsSubstring(R"("text":"include/Application.hpp")"));
+    CHECK_THAT(rename, ContainsSubstring(R"("state":"ready")"));
+
+    const auto unsafeDelete = plan("DeleteItems", {"Resource||config/app.json"});
+    CHECK_THAT(unsafeDelete, ContainsSubstring(R"("code":"NGIN9005")"));
+    CHECK_THAT(unsafeDelete, ContainsSubstring("Stage input"));
+    CHECK_THAT(unsafeDelete, ContainsSubstring(R"("state":"rejected")"));
+
+    CliArguments packageRequest{};
+    packageRequest.projectPath = project.string();
+    packageRequest.editorIntent = "AddPackage";
+    packageRequest.packageName = "Example.Package";
+    packageRequest.version = "1.2.3";
+    ScopedStreamCapture packageOutput{std::cout};
+    REQUIRE(PlanEditorAuthoring(temp.path(), packageRequest) == 0);
+    CHECK_THAT(packageOutput.Text(), ContainsSubstring(R"("intent":"AddPackage")"));
+    CHECK_THAT(packageOutput.Text(),
+               ContainsSubstring(R"(<Package Name=\"Example.Package\" Version=\"1.2.3\" />)"));
+    CHECK_THAT(packageOutput.Text(), ContainsSubstring(R"("state":"ready")"));
+
+    const auto emptyProject = temp.path() / "Empty.nginproj";
+    WriteFile(emptyProject, R"xml(<Executable Name="Empty" />)xml");
+    CliArguments emptyRequest{};
+    emptyRequest.projectPath = emptyProject.string();
+    emptyRequest.editorIntent = "CreateItems";
+    emptyRequest.editorItems = {"Source||main.cpp"};
+    ScopedStreamCapture emptyOutput{std::cout};
+    REQUIRE(PlanEditorAuthoring(temp.path(), emptyRequest) == 0);
+    CHECK_THAT(emptyOutput.Text(), ContainsSubstring(R"(<Build>\n    <Source Include=\"main.cpp\" />)"));
+}
+
 TEST_CASE("portable path and glob authoring is rooted deterministic and "
           "traversal-safe")
 {

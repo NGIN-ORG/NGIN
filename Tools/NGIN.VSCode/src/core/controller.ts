@@ -21,6 +21,7 @@ import { resolveWorkspaceChoice } from './selectionChoices';
 
 interface PersistedSelection {
   projectManifest?: string;
+  launchProductManifest?: string;
   configuration?: string;
   target?: string;
   toolchain?: string;
@@ -57,6 +58,7 @@ export class NginController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private discoveriesValue: DiscoveryResult[] = [];
   private project?: ProjectCandidate;
+  private launchProjectValue?: ProjectCandidate;
   private contextValue?: NginContext;
   private graphValue?: CompositionGraph;
   private graphErrorValue?: string;
@@ -114,10 +116,16 @@ export class NginController implements vscode.Disposable {
     return this.project;
   }
 
+  get launchProduct(): ProjectCandidate | undefined {
+    return this.launchProjectValue;
+  }
+
   async initialize(): Promise<void> {
     await this.refreshDiscovery(false);
     const persisted = this.extensionContext.workspaceState.get<PersistedSelection>(stateKey) ?? {};
     this.projectSelections = persisted.projects ?? {};
+    this.launchProjectValue = this.projects.find(candidate => candidate.manifest === persisted.launchProductManifest)
+      ?? this.projects[0];
     const active = vscode.window.activeTextEditor?.document.uri.fsPath;
     const initial = chooseInitialProject(this.discoveriesValue, persisted.projectManifest, active);
     if (initial) await this.selectProject(initial, this.projectSelections[initial.manifest] ?? persisted, false);
@@ -126,9 +134,12 @@ export class NginController implements vscode.Disposable {
 
   async refreshDiscovery(preserveSelection = true): Promise<void> {
     const previous = this.contextValue;
+    const previousLaunch = this.launchProjectValue?.manifest;
     this.backgroundGraphCache.clear();
     this.backgroundGraphRequests.clear();
     this.discoveriesValue = await discoverAll();
+    this.launchProjectValue = this.projects.find(candidate => candidate.manifest === previousLaunch)
+      ?? this.projects[0];
     const candidate = preserveSelection
       ? chooseInitialProject(this.discoveriesValue, previous?.projectManifest, vscode.window.activeTextEditor?.document.uri.fsPath)
       : undefined;
@@ -194,6 +205,12 @@ export class NginController implements vscode.Disposable {
     await this.refreshGraph(false);
   }
 
+  async setLaunchProduct(project: ProjectCandidate): Promise<void> {
+    this.launchProjectValue = project;
+    await this.persist();
+    this.emit();
+  }
+
   async updateSelection(change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'run' | 'profile' | 'options'>>): Promise<void> {
     if (!this.project || !this.contextValue) return;
     const defined = Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined));
@@ -256,6 +273,7 @@ export class NginController implements vscode.Disposable {
     };
     await this.extensionContext.workspaceState.update(stateKey, {
       projectManifest: context.projectManifest,
+      launchProductManifest: this.launchProjectValue?.manifest,
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
@@ -402,6 +420,11 @@ export class NginController implements vscode.Disposable {
     })();
     this.backgroundGraphRequests.set(key, request);
     return request;
+  }
+
+  cachedGraphForContext(context: NginContext): CompositionGraph | undefined {
+    if (context.projectManifest === this.contextValue?.projectManifest) return this.graphValue;
+    return this.backgroundGraphCache.get(contextKey(context)) ?? undefined;
   }
 
   async validate(announce = true): Promise<boolean> {

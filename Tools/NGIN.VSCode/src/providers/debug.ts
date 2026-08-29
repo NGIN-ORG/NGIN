@@ -36,7 +36,7 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
     return [{ type: 'ngin', request: 'run', name: 'NGIN: Debug Current Project', preStage: true }];
   }
 
-  async selectRun(project = this.controller.activeProject): Promise<string | undefined> {
+  async selectRun(project = this.controller.launchProduct): Promise<string | undefined> {
     if (!project) throw new Error('No NGIN project is available.');
     const context = this.sourceAnalysis.contextForProject(project);
     const graph = await this.controller.graphForContext(context, true);
@@ -68,14 +68,14 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
   ): Promise<vscode.DebugConfiguration | undefined> {
     const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
     const activeOwner = activeFile ? await this.sourceAnalysis.projectForFile(activeFile, true) : undefined;
-    const base = this.controller.snapshot.context ?? (this.controller.activeProject
-      ? this.sourceAnalysis.contextForProject(this.controller.activeProject) : undefined);
+    const base = this.controller.snapshot.context ?? (this.controller.launchProduct
+      ? this.sourceAnalysis.contextForProject(this.controller.launchProduct) : undefined);
     const requested = configuration.project && base
       ? path.resolve(base.workspaceFolder, configuration.project)
       : configuration.project ? path.resolve(configuration.project) : undefined;
     const project = requested
       ? this.controller.projects.find(candidate => path.resolve(candidate.manifest) === requested)
-      : activeOwner ?? this.controller.activeProject;
+      : activeOwner ?? this.controller.launchProduct;
     if (!project) throw new Error(configuration.project
       ? `NGIN debug project is not discovered: ${configuration.project}`
       : 'No NGIN project owns the active source file and no project is selected.');

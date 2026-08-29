@@ -1,130 +1,183 @@
-import { promises as fs, type Dirent } from 'node:fs';
 import * as path from 'node:path';
 import type { CompositionGraph } from '../model';
-import { kindForPath } from './manifestEdits';
 import { normalizeForComparison } from './paths';
 
-export type ProjectFileState = 'authored' | 'selected' | 'input' | 'unselected' | 'generated' | 'external' | 'missing' | 'boundary';
+export type ProductFileState =
+  | 'ordinary'
+  | 'selected'
+  | 'candidate'
+  | 'input'
+  | 'generated'
+  | 'external'
+  | 'missing'
+  | 'boundary'
+  | 'ignored';
 
-export interface ProjectFileEntry {
+export interface ProductFileRole {
+  state: Exclude<ProductFileState, 'ordinary' | 'candidate' | 'boundary' | 'ignored'>;
+  kind?: string;
+  owner?: string;
+  provenance?: string;
+}
+
+export interface ProductFileNode {
+  id: string;
   name: string;
   path: string;
   relativePath: string;
   directory: boolean;
-  state: ProjectFileState;
+  state: ProductFileState;
   kind?: string;
-  children?: ProjectFileEntry[];
+  owner?: string;
+  provenance?: string;
 }
 
-const excludedDirectories = new Set(['.git', '.hg', '.svn', '.ngin', 'build', 'out', 'node_modules']);
+// Compatibility name for command arguments contributed by the pre-overhaul tree.
+export type ProjectFileEntry = ProductFileNode;
+
+export interface ProductSemanticIndex {
+  roles: ReadonlyMap<string, ProductFileRole>;
+  generated: readonly ProductFileNode[];
+  external: readonly ProductFileNode[];
+}
+
+const hiddenRoots = new Set(['.git', '.hg', '.svn', '.ngin', 'build', 'out', 'node_modules']);
+const sourceExtensions = new Map([
+  ['.c', 'Source'], ['.cc', 'Source'], ['.cpp', 'Source'], ['.cxx', 'Source'],
+  ['.h', 'Header'], ['.hh', 'Header'], ['.hpp', 'Header'], ['.hxx', 'Header'], ['.inl', 'Header'],
+  ['.ixx', 'CxxModule'], ['.cppm', 'CxxModule'], ['.mpp', 'CxxModule']
+]);
 const fileKinds = new Set(['Source', 'Header', 'CxxModule', 'Resource']);
 
-async function entries(directory: string): Promise<Dirent[]> {
-  try {
-    return await fs.readdir(directory, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+function portableRelative(base: string, absolute: string): string {
+  return path.relative(base, absolute).split(path.sep).join('/');
 }
 
-export async function enumerateProjectFiles(
-  projectDirectory: string,
-  projectManifest: string,
-  graph?: CompositionGraph,
-  limit = 5000,
-  respectProjectBoundaries = true,
-  generatedDirectory?: string
-): Promise<ProjectFileEntry[]> {
-  const selected = new Map<string, { kind: string; state: 'selected' | 'input' | 'generated'; relative: string; absolute: string }>();
-  const external: ProjectFileEntry[] = [];
-  for (const item of (graph?.buildItems ?? []).filter(item => fileKinds.has(item.kind))) {
-    const generated = Boolean(item.generated);
-    const baseDirectory = generated ? generatedDirectory ?? projectDirectory : projectDirectory;
-    const absolute = path.isAbsolute(item.path) ? path.normalize(item.path) : path.resolve(baseDirectory, item.path);
-    const relative = path.relative(generated ? baseDirectory : projectDirectory, absolute).split(path.sep).join('/');
-    if (!generated && (relative.startsWith('../') || path.isAbsolute(relative))) {
-      external.push({ name: path.basename(absolute), path: absolute, relativePath: item.path, directory: false, state: 'external', kind: item.kind });
-    } else {
-      selected.set(normalizeForComparison(absolute), { kind: item.kind, state: generated ? 'generated' : 'selected', relative, absolute });
-    }
-  }
-  for (const action of graph?.actions ?? []) {
-    const inputs = Array.isArray(action.inputs)
-      ? action.inputs.filter((value): value is string => typeof value === 'string')
-      : [];
-    for (const input of inputs) {
-      const absolute = path.isAbsolute(input) ? path.normalize(input) : path.resolve(projectDirectory, input);
-      const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
-      if (relative.startsWith('../') || path.isAbsolute(relative)) {
-        external.push({
-          name: path.basename(absolute), path: absolute, relativePath: input,
-          directory: false, state: 'external', kind: kindForPath(input)
-        });
-      } else if (!selected.has(normalizeForComparison(absolute))) {
-        selected.set(normalizeForComparison(absolute), {
-          kind: kindForPath(input), state: 'input', relative, absolute
-        });
-      }
-    }
-    const outputs = Array.isArray(action.outputs)
-      ? action.outputs.filter((value): value is string => typeof value === 'string')
-      : [];
-    for (const output of outputs) {
-      const baseDirectory = generatedDirectory ?? projectDirectory;
-      const absolute = path.isAbsolute(output) ? path.normalize(output) : path.resolve(baseDirectory, output);
-      if (!selected.has(normalizeForComparison(absolute))) {
-        selected.set(normalizeForComparison(absolute), {
-          kind: kindForPath(output), state: 'generated',
-          relative: path.relative(baseDirectory, absolute).split(path.sep).join('/'), absolute
-        });
-      }
-    }
-  }
+function isExternal(relative: string): boolean {
+  return relative.startsWith('../') || path.isAbsolute(relative);
+}
 
-  let count = 0;
-  const visit = async (directory: string): Promise<ProjectFileEntry[]> => {
-    if (count >= limit) return [];
-    const directoryEntries = await entries(directory);
-    const result: ProjectFileEntry[] = [];
-    for (const entry of directoryEntries.sort((left, right) => Number(right.isDirectory()) - Number(left.isDirectory()) || left.name.localeCompare(right.name, undefined, { numeric: true }))) {
-      if (count++ >= limit) break;
-      if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
-      const absolute = path.join(directory, entry.name);
-      const relative = path.relative(projectDirectory, absolute).split(path.sep).join('/');
-      if (entry.isDirectory()) {
-        const childEntries = await entries(absolute);
-        const boundary = respectProjectBoundaries
-          && childEntries.some(child => child.isFile() && child.name.endsWith('.nginproj'));
-        const children = boundary ? undefined : await visit(absolute);
-        result.push({ name: entry.name, path: absolute, relativePath: relative, directory: true, state: boundary ? 'boundary' : 'unselected', children });
-      } else {
-        const membership = selected.get(normalizeForComparison(absolute));
-        result.push({
-          name: entry.name,
-          path: absolute,
-          relativePath: relative,
-          directory: false,
-          state: normalizeForComparison(absolute) === normalizeForComparison(projectManifest) ? 'authored'
-            : membership?.state ?? 'unselected',
-          kind: membership?.kind
-        });
-        selected.delete(normalizeForComparison(absolute));
-      }
+function roleNode(
+  projectDirectory: string,
+  absolute: string,
+  relativePath: string,
+  state: ProductFileNode['state'],
+  kind?: string,
+  owner?: string,
+  provenance?: string
+): ProductFileNode {
+  return {
+    id: productFileId(projectDirectory, relativePath, state),
+    name: path.basename(absolute),
+    path: absolute,
+    relativePath,
+    directory: false,
+    state,
+    kind,
+    owner,
+    provenance
+  };
+}
+
+export function productFileId(projectDirectory: string, relativePath: string, suffix = ''): string {
+  const normalized = relativePath.replaceAll('\\', '/').replace(/^\.\//u, '');
+  return `ngin.file:${normalizeForComparison(projectDirectory)}:${normalized}${suffix ? `:${suffix}` : ''}`;
+}
+
+export function plausibleBuildKind(value: string): string | undefined {
+  return sourceExtensions.get(path.extname(value).toLowerCase());
+}
+
+export function isDefaultHiddenName(name: string): boolean {
+  return hiddenRoots.has(name);
+}
+
+export function semanticFileIndex(
+  projectDirectory: string,
+  graph?: CompositionGraph,
+  generatedDirectory?: string
+): ProductSemanticIndex {
+  const roles = new Map<string, ProductFileRole>();
+  const generated: ProductFileNode[] = [];
+  const external: ProductFileNode[] = [];
+
+  const add = (
+    authoredPath: string,
+    state: ProductFileRole['state'],
+    kind?: string,
+    owner?: string,
+    provenance?: string,
+    generatedBase = generatedDirectory ?? projectDirectory
+  ): void => {
+    const base = state === 'generated' ? generatedBase : projectDirectory;
+    const absolute = path.isAbsolute(authoredPath) ? path.normalize(authoredPath) : path.resolve(base, authoredPath);
+    const relative = portableRelative(state === 'generated' ? generatedBase : projectDirectory, absolute);
+    if (state !== 'generated' && isExternal(relative)) {
+      external.push(roleNode(projectDirectory, absolute, authoredPath, 'external', kind, owner, provenance));
+      return;
     }
-    return result;
+    const role = { state, kind, owner, provenance } satisfies ProductFileRole;
+    roles.set(normalizeForComparison(absolute), role);
+    if (state === 'generated') generated.push(roleNode(projectDirectory, absolute, relative, state, kind, owner, provenance));
   };
 
-  const physical = await visit(projectDirectory);
-  for (const membership of selected.values()) {
-    const absolute = membership.absolute;
-    const exists = await fs.stat(absolute).then(() => true, () => false);
-    physical.push({
-      name: path.basename(absolute), path: absolute, relativePath: membership.relative,
-      directory: false, state: exists ? membership.state : 'missing', kind: membership.kind
-    });
+  for (const item of graph?.buildItems ?? []) {
+    if (!fileKinds.has(item.kind)) continue;
+    add(
+      item.path,
+      item.generated ? 'generated' : 'selected',
+      item.kind,
+      item.provenance?.owner,
+      item.provenance?.reason
+    );
   }
-  if (external.length) {
-    physical.push({ name: 'External', path: projectDirectory, relativePath: '', directory: true, state: 'external', children: external });
+  for (const action of graph?.actions ?? []) {
+    const owner = action.name ?? action.identity;
+    for (const input of Array.isArray(action.inputs) ? action.inputs : []) {
+      if (typeof input === 'string' && !roles.has(normalizeForComparison(path.resolve(projectDirectory, input)))) {
+        add(input, 'input', plausibleBuildKind(input), owner, action.provenance?.reason);
+      }
+    }
+    for (const output of Array.isArray(action.outputs) ? action.outputs : []) {
+      if (typeof output === 'string') add(output, 'generated', plausibleBuildKind(output), owner, action.provenance?.reason);
+    }
   }
-  return physical;
+  for (const contribution of graph?.contributions ?? []) {
+    if (typeof contribution.include !== 'string' || !contribution.include) continue;
+    add(
+      contribution.include,
+      'input',
+      contribution.kind,
+      typeof contribution.owner === 'string' ? contribution.owner : undefined,
+      contribution.provenance?.reason
+    );
+  }
+
+  return { roles, generated, external };
+}
+
+export function classifyPhysicalEntry(
+  projectDirectory: string,
+  absolute: string,
+  directory: boolean,
+  semantics: ProductSemanticIndex,
+  boundary = false,
+  ignored = false
+): ProductFileNode {
+  const relativePath = portableRelative(projectDirectory, absolute);
+  const role = semantics.roles.get(normalizeForComparison(absolute));
+  const state: ProductFileState = boundary ? 'boundary'
+    : ignored ? 'ignored'
+      : role?.state ?? (!directory && plausibleBuildKind(relativePath) ? 'candidate' : 'ordinary');
+  return {
+    id: productFileId(projectDirectory, relativePath),
+    name: path.basename(absolute),
+    path: absolute,
+    relativePath,
+    directory,
+    state,
+    kind: role?.kind ?? (!directory ? plausibleBuildKind(relativePath) : undefined),
+    owner: role?.owner,
+    provenance: role?.provenance
+  };
 }

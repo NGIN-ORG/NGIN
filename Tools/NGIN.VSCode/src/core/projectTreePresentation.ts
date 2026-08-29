@@ -47,7 +47,7 @@ export function projectTreePresentation(input: ProjectTreePresentationInput): Pr
   return {
     description: [
       input.configuration,
-      input.activeFile ? 'active file' : input.fallback ? 'selected' : undefined,
+      input.fallback ? 'selected' : input.activeFile ? 'file owner' : undefined,
       status
     ].filter(Boolean).join(' · '),
     status
