@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added right-click Build Project on CMake projects and Tests groups, plus Run
+  All Tests and per-test Run Test actions. CTest `_NOT_BUILT` placeholders now
+  direct users to build the project before running discovered tests.
+
+- Added first-class CMake Workspace Projects: explicit workspace discovery,
+  workspace-scoped Active Project and CMake context, trusted Configure/Build/
+  Build Target/Test operations, File API targets and source ownership, CTest
+  integration, safe compiler configuration, stale diagnostics, and package
+  wrapper navigation through `Development` metadata.
+
 - Replaced the grouped Projects sidebar with one product-scoped Workspace tree
   that lazily enumerates ordinary files and overlays Build, input, generated,
   external, nested-boundary, ignored, and missing states.

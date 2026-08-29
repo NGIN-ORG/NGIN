@@ -4,7 +4,7 @@ import type { ProjectCandidate } from '../model';
 import type { SourceAnalysisProvider } from './sourceAnalysis';
 
 function testId(project: ProjectCandidate): string {
-  return project.manifest;
+  return project.id ?? project.manifest;
 }
 
 function testOutput(value: string): string {
@@ -14,6 +14,7 @@ function testOutput(value: string): string {
 export class NginTestingProvider implements vscode.Disposable {
   private readonly tests = vscode.tests.createTestController('ngin.tests', 'NGIN');
   private readonly projects = new Map<string, ProjectCandidate>();
+  private readonly cmakeTests = new Map<string, { project: ProjectCandidate; name: string }>();
   private readonly disposables: vscode.Disposable[];
 
   constructor(private readonly controller: NginController, private readonly analysis: SourceAnalysisProvider) {
@@ -33,6 +34,7 @@ export class NginTestingProvider implements vscode.Disposable {
       if (!ids.has(item.id)) this.tests.items.delete(item.id);
     });
     this.projects.clear();
+    this.cmakeTests.clear();
     for (const project of discovered) {
       const id = testId(project);
       this.projects.set(id, project);
@@ -43,14 +45,29 @@ export class NginTestingProvider implements vscode.Disposable {
       }
       const context = this.analysis.contextForProject(project);
       item.label = project.name;
-      item.description = `${project.artifactKind ?? 'Executable'} · ${context.configuration}`;
+      item.description = project.projectSystem === 'CMake'
+        ? `CMake · ${context.configurePreset ?? 'select preset'}`
+        : `${project.artifactKind ?? 'Executable'} · ${context.configuration}`;
       item.range = new vscode.Range(0, 0, 0, 0);
+      if (project.projectSystem === 'CMake') {
+        const snapshot = this.controller.cmakeSnapshot(project);
+        const testIds = new Set((snapshot?.tests ?? []).map(test => `${id}::${test.name}`));
+        item.children.forEach(child => { if (!testIds.has(child.id)) item!.children.delete(child.id); });
+        for (const test of snapshot?.tests ?? []) {
+          const childId = `${id}::${test.name}`;
+          this.cmakeTests.set(childId, { project, name: test.name });
+          if (!item.children.get(childId)) {
+            item.children.add(this.tests.createTestItem(childId, test.name, vscode.Uri.file(project.directory)));
+          }
+        }
+      }
     }
   }
 
   private selectedItems(request: vscode.TestRunRequest): vscode.TestItem[] {
     const excluded = new Set(request.exclude?.map(item => item.id) ?? []);
-    if (request.include) return request.include.filter(item => this.projects.has(item.id) && !excluded.has(item.id));
+    if (request.include) return request.include.filter(item =>
+      (this.projects.has(item.id) || this.cmakeTests.has(item.id)) && !excluded.has(item.id));
     const items: vscode.TestItem[] = [];
     this.tests.items.forEach(item => { if (!excluded.has(item.id)) items.push(item); });
     return items;
@@ -66,7 +83,8 @@ export class NginTestingProvider implements vscode.Disposable {
           run.skipped(item);
           continue;
         }
-        const project = this.projects.get(item.id);
+        const cmakeTest = this.cmakeTests.get(item.id);
+        const project = this.projects.get(item.id) ?? cmakeTest?.project;
         if (!project) {
           run.skipped(item);
           continue;
@@ -74,7 +92,7 @@ export class NginTestingProvider implements vscode.Disposable {
         const started = Date.now();
         run.started(item);
         const context = this.analysis.contextForProject(project);
-        const result = await this.controller.execute('test', [], false, context, {
+        const result = await this.controller.execute('test', cmakeTest ? ['--test-name', cmakeTest.name] : [], false, context, {
           progress: false, announceFailure: false, token
         });
         const duration = Date.now() - started;
@@ -102,9 +120,14 @@ export class NginTestingProvider implements vscode.Disposable {
           run.skipped(item);
           continue;
         }
-        const project = this.projects.get(item.id);
+        const cmakeTest = this.cmakeTests.get(item.id);
+        const project = this.projects.get(item.id) ?? cmakeTest?.project;
         if (!project) {
           run.skipped(item);
+          continue;
+        }
+        if (project.projectSystem === 'CMake') {
+          run.errored(item, new vscode.TestMessage('Debugging CMake tests requires an explicit launch contract and is not available yet.'));
           continue;
         }
         run.started(item);

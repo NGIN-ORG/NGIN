@@ -1,19 +1,16 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { DiscoveryResult, ProjectCandidate } from '../model';
+import type { NginCli } from './cli';
+import { parseEditorWorkspaceSnapshot } from './editorProtocol';
 import {
   parseWorkspaceChoices,
-  parseWorkspaceProjectRules,
   rootIdentity
 } from './manifestText';
 import { generatedDirectoryPattern, pathsEqual } from './paths';
 
 async function readText(file: vscode.Uri): Promise<string> {
   return new TextDecoder().decode(await vscode.workspace.fs.readFile(file));
-}
-
-function isGeneratedPath(candidate: string): boolean {
-  return candidate.split(/[\\/]/).some(segment => segment === '.ngin' || segment === 'build' || segment === 'out' || segment === 'node_modules');
 }
 
 async function candidateFromUri(
@@ -26,8 +23,11 @@ async function candidateFromUri(
     const identity = rootIdentity(source);
     if ((identity.root !== 'Executable' && identity.root !== 'Library') || !identity.name) return undefined;
     return {
+      projectSystem: 'Ngin',
+      capabilities: ['Inspect', 'Build', 'SourceOwnership', 'OpenDeclaration', 'CompositionGraph', 'AuthoringPlan'],
       manifest: uri.fsPath,
       directory: path.dirname(uri.fsPath),
+      root: path.dirname(uri.fsPath),
       name: identity.name,
       artifactKind: identity.artifactKind,
       libraryKind: identity.libraryKind as ProjectCandidate['libraryKind'],
@@ -45,40 +45,54 @@ async function candidateFromUri(
 }
 
 
-async function discoverWorkspaceProjects(workspaceUri: vscode.Uri): Promise<DiscoveryResult> {
+async function discoverWorkspaceProjects(cli: NginCli, workspaceUri: vscode.Uri): Promise<DiscoveryResult> {
   const source = await readText(workspaceUri);
   const choices = parseWorkspaceChoices(source);
   const directory = vscode.Uri.file(path.dirname(workspaceUri.fsPath));
-  const projectUris: vscode.Uri[] = [];
-
-  for (const rule of parseWorkspaceProjectRules(source)) {
-    if (!rule.include) continue;
-    const exclude = rule.exclude ? new vscode.RelativePattern(directory, rule.exclude) : generatedDirectoryPattern;
-    const matches = await vscode.workspace.findFiles(new vscode.RelativePattern(directory, rule.include), exclude);
-    projectUris.push(...matches.filter(uri => !isGeneratedPath(path.relative(directory.fsPath, uri.fsPath))));
-  }
-
-  const unique = [...new Map(projectUris.map(uri => [process.platform === 'win32' ? uri.fsPath.toLowerCase() : uri.fsPath, uri])).values()];
-  const projects = (await Promise.all(unique.map(uri => candidateFromUri(uri, workspaceUri.fsPath, choices))))
-    .filter((candidate): candidate is ProjectCandidate => Boolean(candidate))
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
+  const result = await cli.run(
+    ['editor', 'workspace', '--workspace', workspaceUri.fsPath],
+    directory.fsPath,
+    { cwd: directory.fsPath }
+  );
+  const snapshot = parseEditorWorkspaceSnapshot(result.stdout);
+  const workspace = snapshot.workspaces.find(value => path.resolve(value.manifest) === path.resolve(workspaceUri.fsPath));
+  if (!workspace) throw new Error(`NGIN CLI did not return workspace '${workspaceUri.fsPath}'.`);
+  const projects: ProjectCandidate[] = workspace.projects.map(project => ({
+    id: project.id,
+    projectSystem: project.projectSystem,
+    capabilities: project.capabilities,
+    manifest: project.manifest ?? project.root,
+    directory: project.root,
+    root: project.root,
+    name: project.name,
+    artifactKind: project.artifactKind,
+    libraryKind: project.libraryKind === 'None' ? undefined : project.libraryKind,
+    hasTests: project.capabilities.includes('Test'),
+    hasBenchmarks: project.capabilities.includes('Benchmark'),
+    hasRun: project.capabilities.includes('Run'),
+    workspaceManifest: workspaceUri.fsPath,
+    workspaceChoices: choices
+  }));
 
   return {
+    workspaceId: workspace.id,
     workspaceFolder: directory.fsPath,
     workspaceManifest: workspaceUri.fsPath,
     workspaceChoices: choices,
+    packages: workspace.packages,
     projects
   };
 }
 
-export async function discoverFolder(folder: vscode.WorkspaceFolder): Promise<DiscoveryResult[]> {
+export async function discoverFolder(folder: vscode.WorkspaceFolder, cli?: NginCli): Promise<DiscoveryResult[]> {
   const workspaces = (await vscode.workspace.findFiles(
-    new vscode.RelativePattern(folder, '**/*.ngin'),
+    new vscode.RelativePattern(folder, '*.ngin'),
     generatedDirectoryPattern
   )).sort((left, right) => left.fsPath.length - right.fsPath.length || left.fsPath.localeCompare(right.fsPath));
 
   if (workspaces.length > 0) {
-    return Promise.all(workspaces.map(discoverWorkspaceProjects));
+    if (!cli) throw new Error('The NGIN CLI is required for authored workspace discovery.');
+    return Promise.all(workspaces.map(workspace => discoverWorkspaceProjects(cli, workspace)));
   }
 
   const projectUris = await vscode.workspace.findFiles(
@@ -91,9 +105,9 @@ export async function discoverFolder(folder: vscode.WorkspaceFolder): Promise<Di
   return [{ workspaceFolder: folder.uri.fsPath, projects }];
 }
 
-export async function discoverAll(): Promise<DiscoveryResult[]> {
+export async function discoverAll(cli?: NginCli): Promise<DiscoveryResult[]> {
   const folders = vscode.workspace.workspaceFolders ?? [];
-  return (await Promise.all(folders.map(discoverFolder))).flat();
+  return (await Promise.all(folders.map(folder => discoverFolder(folder, cli)))).flat();
 }
 
 export function chooseInitialProject(

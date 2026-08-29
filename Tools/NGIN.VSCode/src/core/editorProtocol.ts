@@ -1,4 +1,7 @@
+import type { CMakeProjectSnapshot } from '../model';
+
 export const editorProtocolVersion = 1;
+export const workspaceProtocolVersion = 2;
 
 export type EditorIntent =
   | 'CreateItems'
@@ -46,7 +49,7 @@ export interface EditorProductSnapshot {
 
 export interface EditorWorkspaceSnapshot {
   kind: 'NGIN.EditorWorkspaceSnapshot';
-  version: 1;
+  version: 2;
   state: 'ready' | 'degraded';
   diagnostics: Array<{ severity: 'error' | 'warning'; code: string; message: string }>;
   workspaces: Array<{
@@ -54,9 +57,27 @@ export interface EditorWorkspaceSnapshot {
     name: string;
     manifest: string;
     boundary: string;
-    products: EditorProductSnapshot['product'][];
+    projects: Array<{
+      id: string;
+      name: string;
+      projectSystem: 'Ngin' | 'CMake';
+      root: string;
+      manifest?: string;
+      artifactKind?: 'Executable' | 'Library';
+      libraryKind?: 'None' | 'Static' | 'Shared' | 'Interface' | 'Plugin';
+      capabilities: string[];
+    }>;
+    packages: Array<{
+      name: string;
+      manifest: string;
+      developmentProjectId?: string;
+      consumingProjectIds: string[];
+      exportedTargets: string[];
+    }>;
   }>;
-  standaloneProducts: EditorProductSnapshot['product'][];
+  standaloneProjects: Array<EditorProductSnapshot['product'] & {
+    projectSystem: 'Ngin'; root: string; capabilities: string[];
+  }>;
 }
 
 export interface EditorAuthoringPlan {
@@ -103,10 +124,22 @@ export function parseEditorProductSnapshot(source: string): EditorProductSnapsho
 }
 
 export function parseEditorWorkspaceSnapshot(source: string): EditorWorkspaceSnapshot {
-  const value = envelope<EditorWorkspaceSnapshot>(source, 'NGIN.EditorWorkspaceSnapshot');
-  if (!Array.isArray(value.workspaces) || !Array.isArray(value.standaloneProducts)
+  const value = object(JSON.parse(source) as unknown, 'NGIN editor response') as unknown as EditorWorkspaceSnapshot;
+  if (value.kind !== 'NGIN.EditorWorkspaceSnapshot' || value.version !== workspaceProtocolVersion) {
+    throw new Error(`Unsupported NGIN workspace protocol ${String(value.version)}; expected ${workspaceProtocolVersion}.`);
+  }
+  if (!Array.isArray(value.workspaces) || !Array.isArray(value.standaloneProjects)
     || !Array.isArray(value.diagnostics)) {
     throw new Error('The NGIN editor workspace snapshot is incomplete.');
+  }
+  return value;
+}
+
+export function parseCMakeProjectSnapshot(source: string): CMakeProjectSnapshot {
+  const value = object(JSON.parse(source) as unknown, 'NGIN CMake editor response') as unknown as CMakeProjectSnapshot;
+  if (value.kind !== 'NGIN.EditorCMakeProjectSnapshot' || value.version !== workspaceProtocolVersion
+    || !value.project || !value.cmake || !Array.isArray(value.targets) || !Array.isArray(value.tests)) {
+    throw new Error('The NGIN CMake project snapshot is incomplete or unsupported.');
   }
   return value;
 }

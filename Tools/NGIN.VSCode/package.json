@@ -174,6 +174,56 @@
         "enablement": "ngin.hasProject && !ngin.busy"
       },
       {
+        "command": "ngin.selectConfigurePreset",
+        "title": "Select CMake Configure Preset",
+        "category": "NGIN",
+        "enablement": "ngin.hasProjects && !ngin.busy"
+      },
+      {
+        "command": "ngin.buildCMakeTarget",
+        "title": "Build CMake Target",
+        "category": "NGIN",
+        "enablement": "isWorkspaceTrusted && !ngin.busy",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "ngin.openCMakeDeclaration",
+        "title": "Open CMake Declaration",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.showCMakeArtifacts",
+        "title": "Show CMake Artifacts",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.openCMakeProject",
+        "title": "Open CMake Project Root",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.refreshCMakeProject",
+        "title": "Refresh CMake Project Model",
+        "category": "NGIN",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ngin.openDevelopmentProject",
+        "title": "Open Development Project",
+        "category": "NGIN",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "ngin.showConsumingProjects",
+        "title": "Show Consuming Projects",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.showExportedTargets",
+        "title": "Show Exported Targets",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.selectTarget",
         "title": "Select Platform Target",
         "category": "NGIN",
@@ -243,7 +293,7 @@
       },
       {
         "command": "ngin.build",
-        "title": "Build",
+        "title": "Build Project",
         "category": "NGIN",
         "enablement": "ngin.hasProject && !ngin.busy",
         "icon": "$(tools)"
@@ -293,6 +343,20 @@
         "title": "Test",
         "category": "NGIN",
         "enablement": "ngin.hasTests && !ngin.busy"
+      },
+      {
+        "command": "ngin.runCMakeTests",
+        "title": "Run All Tests",
+        "category": "NGIN",
+        "enablement": "isWorkspaceTrusted && !ngin.busy",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "ngin.runCMakeTest",
+        "title": "Run Test",
+        "category": "NGIN",
+        "enablement": "isWorkspaceTrusted && !ngin.busy",
+        "icon": "$(run)"
       },
       {
         "command": "ngin.benchmark",
@@ -621,6 +685,96 @@
       ],
       "view/item/context": [
         {
+          "command": "ngin.openDevelopmentProject",
+          "when": "view == ngin.projects && (viewItem == nginWorkspacePackageDevelopment || viewItem == nginDirectPackageDevelopment || viewItem == nginTransitivePackageDevelopment)",
+          "group": "1_navigation@1"
+        },
+        {
+          "command": "ngin.showConsumingProjects",
+          "when": "view == ngin.projects && (viewItem == nginWorkspacePackage || viewItem == nginWorkspacePackageDevelopment)",
+          "group": "1_navigation@2"
+        },
+        {
+          "command": "ngin.showExportedTargets",
+          "when": "view == ngin.projects && (viewItem == nginWorkspacePackage || viewItem == nginWorkspacePackageDevelopment)",
+          "group": "1_navigation@3"
+        },
+        {
+          "command": "ngin.setLaunchProduct",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/",
+          "group": "1_project@1"
+        },
+        {
+          "command": "ngin.selectConfigurePreset",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/",
+          "group": "1_project@2"
+        },
+        {
+          "command": "ngin.configure",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/ && isWorkspaceTrusted",
+          "group": "2_lifecycle@1"
+        },
+        {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/ && isWorkspaceTrusted",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/ && isWorkspaceTrusted",
+          "group": "2_lifecycle@2"
+        },
+        {
+          "command": "ngin.test",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/ && isWorkspaceTrusted",
+          "group": "2_lifecycle@3"
+        },
+        {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem == nginCMakeTestsGroup && isWorkspaceTrusted",
+          "group": "2_tests@1"
+        },
+        {
+          "command": "ngin.runCMakeTests",
+          "when": "view == ngin.projects && viewItem == nginCMakeTestsGroup && isWorkspaceTrusted",
+          "group": "2_tests@2"
+        },
+        {
+          "command": "ngin.runCMakeTest",
+          "when": "view == ngin.projects && viewItem == nginCMakeTest && isWorkspaceTrusted",
+          "group": "2_test@1"
+        },
+        {
+          "command": "ngin.build",
+          "when": "view == ngin.projects && viewItem == nginCMakeTestNotBuilt && isWorkspaceTrusted",
+          "group": "2_test@1"
+        },
+        {
+          "command": "ngin.openCMakeProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/",
+          "group": "3_project@1"
+        },
+        {
+          "command": "ngin.refreshCMakeProject",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeProjectRoot/",
+          "group": "3_project@2"
+        },
+        {
+          "command": "ngin.buildCMakeTarget",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeTarget/ && isWorkspaceTrusted",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.openCMakeDeclaration",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeTarget/",
+          "group": "1_target@1"
+        },
+        {
+          "command": "ngin.showCMakeArtifacts",
+          "when": "view == ngin.projects && viewItem =~ /^nginCMakeTarget/",
+          "group": "1_target@2"
+        },
+        {
           "command": "ngin.addPackage",
           "when": "view == ngin.projects && viewItem == nginPackagesGroup",
           "group": "1_packages@1"
@@ -642,17 +796,17 @@
         },
         {
           "command": "ngin.changePackageRequirement",
-          "when": "view == ngin.projects && viewItem == nginDirectPackage",
+          "when": "view == ngin.projects && (viewItem == nginDirectPackage || viewItem == nginDirectPackageDevelopment)",
           "group": "1_package@1"
         },
         {
           "command": "ngin.removePackage",
-          "when": "view == ngin.projects && viewItem == nginDirectPackage",
+          "when": "view == ngin.projects && (viewItem == nginDirectPackage || viewItem == nginDirectPackageDevelopment)",
           "group": "1_package@2"
         },
         {
           "command": "ngin.openGraphSource",
-          "when": "view == ngin.projects && (viewItem == nginDirectPackage || viewItem == nginTransitivePackage)",
+          "when": "view == ngin.projects && (viewItem == nginDirectPackage || viewItem == nginDirectPackageDevelopment || viewItem == nginTransitivePackage || viewItem == nginTransitivePackageDevelopment)",
           "group": "2_package@1"
         },
         {

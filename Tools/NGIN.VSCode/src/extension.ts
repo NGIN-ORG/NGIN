@@ -136,7 +136,9 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const requested = projectArgument(argument);
     if (requested) return requested;
     const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-    return activeFile ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.launchProduct : controller.launchProduct;
+    return activeFile
+      ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.fallbackProject(activeFile)
+      : controller.launchProduct;
   };
   let cliVerified = false;
   const updateContextKeys = async (): Promise<void> => {
@@ -418,8 +420,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       || left.name.localeCompare(right.name));
     const project = candidate ?? await vscode.window.showQuickPick(
       projects.map(value => ({
-        label: `${value.manifest === current?.manifest ? '$(pin) ' : ''}${value.name}`,
-        description: `${value.libraryKind ?? value.artifactKind ?? 'Project'} · ${sourceAnalysis.contextForProject(value).configuration}`,
+        label: `${(value.id && current?.id ? value.id === current.id : value.manifest === current?.manifest) ? '$(pin) ' : ''}${value.name}`,
+        description: value.projectSystem === 'CMake'
+          ? `CMake · ${sourceAnalysis.contextForProject(value).configurePreset ?? 'select preset'}`
+          : `${value.libraryKind ?? value.artifactKind ?? 'Project'} · ${sourceAnalysis.contextForProject(value).configuration}`,
         detail: path.relative(vscode.workspace.getWorkspaceFolder(vscode.Uri.file(value.manifest))?.uri.fsPath ?? value.directory, value.manifest),
         value
       })),
@@ -439,10 +443,30 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const project = projectArgument(argument) ?? await effectiveProject();
     if (!project) throw new Error('No NGIN project is available.');
     const context = sourceAnalysis.contextForProject(project);
+    const cmakeSnapshot = project.projectSystem === 'CMake' ? controller.cmakeSnapshot(project) : undefined;
+    const cmakeConfigurations = cmakeSnapshot?.cmake.configurations.length
+      ? cmakeSnapshot.cmake.configurations
+      : [context.configuration];
     const selected = typeof argument === 'string'
       ? argument
-      : await choose('Configuration', project.workspaceChoices?.configurations ?? [], context.configuration);
+      : await choose('Configuration', project.projectSystem === 'CMake'
+        ? cmakeConfigurations : project.workspaceChoices?.configurations ?? [], context.configuration);
     if (selected) await controller.updateProjectSelection(project, { configuration: selected, profile: undefined });
+  });
+  register(extensionContext, 'ngin.selectConfigurePreset', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject();
+    if (!project || project.projectSystem !== 'CMake') throw new Error('Select a CMake project first.');
+    const snapshot = controller.cmakeSnapshot(project) ?? await controller.refreshCMakeProject(project, true);
+    const presets = snapshot?.cmake.configurePresets ?? [];
+    const selected = await vscode.window.showQuickPick(presets.map(preset => ({
+      label: preset.displayName || preset.name,
+      description: preset.name,
+      detail: preset.description,
+      value: preset.name
+    })), { title: `Select Configure Preset for ${project.name}`, placeHolder: snapshot?.cmake.configurePreset });
+    if (!selected) return;
+    await controller.updateProjectSelection(project, { configurePreset: selected.value });
+    await controller.refreshCMakeProject(project, false);
   });
   register(extensionContext, 'ngin.selectTarget', async (argument?: unknown) => {
     const project = projectArgument(argument) ?? await effectiveProject();
@@ -508,9 +532,97 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     register(extensionContext, `ngin.${command}`, async (argument?: unknown) => {
       const project = await effectiveProject(argument);
       const context = project ? sourceAnalysis.contextForProject(project) : undefined;
+      if (project?.projectSystem === 'CMake') {
+        if (!['configure', 'build', 'test'].includes(command)) {
+          throw new Error(`${command} is not available for CMake projects.`);
+        }
+        if (!context?.configurePreset) {
+          await vscode.commands.executeCommand('ngin.selectConfigurePreset', project);
+        }
+        const selectedContext = sourceAnalysis.contextForProject(project);
+        if (!selectedContext.configurePreset) return undefined;
+        return controller.execute(command, [], true, selectedContext);
+      }
       return controller.execute(command, [], false, context);
     });
   }
+  register(extensionContext, 'ngin.buildCMakeTarget', async (argument?: unknown) => {
+    const node = argument as { project?: ProjectCandidate; cmakeTarget?: { id: string; name: string } } | undefined;
+    const project = node?.project;
+    if (!project || project.projectSystem !== 'CMake' || !node.cmakeTarget) return;
+    const context = sourceAnalysis.contextForProject(project);
+    if (!context.configurePreset) await vscode.commands.executeCommand('ngin.selectConfigurePreset', project);
+    return controller.execute('build', ['--target', node.cmakeTarget.id], true, sourceAnalysis.contextForProject(project));
+  });
+  register(extensionContext, 'ngin.runCMakeTests', async (argument?: unknown) => {
+    return vscode.commands.executeCommand('ngin.test', argument);
+  });
+  register(extensionContext, 'ngin.runCMakeTest', async (argument?: unknown) => {
+    const node = argument as { project?: ProjectCandidate; cmakeTestName?: string } | undefined;
+    const project = node?.project;
+    if (!project || project.projectSystem !== 'CMake' || !node.cmakeTestName) return;
+    const context = sourceAnalysis.contextForProject(project);
+    if (!context.configurePreset) await vscode.commands.executeCommand('ngin.selectConfigurePreset', project);
+    const selectedContext = sourceAnalysis.contextForProject(project);
+    if (!selectedContext.configurePreset) return;
+    return controller.execute('test', ['--test-name', node.cmakeTestName], true, selectedContext);
+  });
+  register(extensionContext, 'ngin.openCMakeDeclaration', async (argument?: unknown) => {
+    const node = argument as { cmakeTarget?: { declaration?: string; declarationLine?: number } } | undefined;
+    const declaration = node?.cmakeTarget?.declaration;
+    if (!declaration) return;
+    const document = await vscode.workspace.openTextDocument(declaration);
+    const line = Math.max(0, (node?.cmakeTarget?.declarationLine ?? 1) - 1);
+    await vscode.window.showTextDocument(document, { selection: new vscode.Range(line, 0, line, 0), preview: false });
+  });
+  register(extensionContext, 'ngin.showCMakeArtifacts', async (argument?: unknown) => {
+    const target = (argument as { cmakeTarget?: { name: string; artifacts: string[] } } | undefined)?.cmakeTarget;
+    if (!target?.artifacts.length) {
+      void vscode.window.showInformationMessage('This CMake target reports no artifacts for the selected configuration.');
+      return;
+    }
+    const selected = await vscode.window.showQuickPick(target.artifacts.map(artifact => ({
+      label: path.basename(artifact), description: artifact, artifact
+    })), { title: `Artifacts for ${target.name}`, placeHolder: 'Select an artifact to reveal it' });
+    if (selected) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(selected.artifact));
+  });
+  register(extensionContext, 'ngin.openCMakeProject', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject();
+    if (project) await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(project.directory));
+  });
+  register(extensionContext, 'ngin.refreshCMakeProject', async (argument?: unknown) => {
+    const project = projectArgument(argument) ?? await effectiveProject();
+    if (project?.projectSystem === 'CMake') await controller.refreshCMakeProject(project, true);
+  });
+  register(extensionContext, 'ngin.openDevelopmentProject', async (argument?: unknown) => {
+    const development = (argument as { developmentProject?: ProjectCandidate } | undefined)?.developmentProject;
+    if (!development) throw new Error('This package has no development project registered in the current NGIN workspace.');
+    await controller.selectProject(development);
+    await vscode.commands.executeCommand('ngin.openCMakeProject', development);
+  });
+  register(extensionContext, 'ngin.showConsumingProjects', async (argument?: unknown) => {
+    const relationship = (argument as { workspacePackage?: { consumingProjectIds: string[] } } | undefined)?.workspacePackage;
+    const projects = relationship?.consumingProjectIds.map(id => controller.projectById(id)).filter(
+      (value): value is ProjectCandidate => Boolean(value)) ?? [];
+    if (!projects.length) {
+      void vscode.window.showInformationMessage('No discovered NGIN project directly consumes this package.');
+      return;
+    }
+    const selected = await vscode.window.showQuickPick(projects.map(project => ({
+      label: project.name, description: project.projectSystem, project
+    })), { title: 'Consuming Projects' });
+    if (selected) await controller.selectProject(selected.project);
+  });
+  register(extensionContext, 'ngin.showExportedTargets', async (argument?: unknown) => {
+    const relationship = (argument as { workspacePackage?: { name: string; exportedTargets: string[] } } | undefined)?.workspacePackage;
+    if (!relationship?.exportedTargets.length) {
+      void vscode.window.showInformationMessage('This package wrapper declares no semantic exports.');
+      return;
+    }
+    await vscode.window.showQuickPick(relationship.exportedTargets.map(value => ({ label: value })), {
+      title: `Exports from ${relationship.name}`, placeHolder: 'Package exports are semantic names, not guessed CMake targets'
+    });
+  });
   register(extensionContext, 'ngin.lock', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
     return controller.execute('lock', [], false, project ? sourceAnalysis.contextForProject(project) : undefined);
@@ -628,11 +740,18 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   };
   register(extensionContext, 'ngin.clean', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
-    return clean(true, project ? sourceAnalysis.contextForProject(project) : controller.requireContext());
+    const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
+    if (current.projectSystem === 'CMake') {
+      throw new Error('NGIN does not delete CMake preset build directories. Use the CMake clean target explicitly.');
+    }
+    return clean(true, current);
   });
   register(extensionContext, 'ngin.rebuild', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
     const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
+    if (current.projectSystem === 'CMake') {
+      throw new Error('Rebuild is unavailable for CMake projects because NGIN does not own the preset build directory.');
+    }
     if (await clean(true, current)) await controller.execute('build', [], false, current);
   });
 
@@ -647,6 +766,11 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const project = await effectiveProject(argument);
     const current = project ? sourceAnalysis.contextForProject(project) : controller.requireContext();
     try {
+      if (project?.projectSystem === 'CMake') {
+        const snapshot = await controller.refreshCMakeProject(project, true);
+        if (snapshot) await openJson('CMake Project Inspection', snapshot);
+        return;
+      }
       const result = await cli.run(['inspect', ...selectionArguments(current), '--format', 'json'], current.workspaceFolder, {
         cwd: path.dirname(current.projectManifest)
       });

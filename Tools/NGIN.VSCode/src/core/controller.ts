@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type {
   CliResult,
+  CMakeProjectSnapshot,
   CompositionGraph,
   ContextSnapshot,
   DiscoveryResult,
@@ -18,6 +19,7 @@ import { contextKey, projectOutputDirectory } from './paths';
 import { parseCompilerDiagnostics } from './diagnostics';
 import { shouldLoadGraph } from './cliCompatibility';
 import { resolveWorkspaceChoice } from './selectionChoices';
+import { parseCMakeProjectSnapshot } from './editorProtocol';
 
 interface PersistedSelection {
   projectManifest?: string;
@@ -29,6 +31,8 @@ interface PersistedSelection {
   runs?: Record<string, string>;
   profile?: string;
   options?: Record<string, string>;
+  configurePreset?: string;
+  activeProjects?: Record<string, string>;
   projects?: Record<string, Omit<PersistedSelection, 'projects' | 'projectManifest'>>;
 }
 
@@ -61,14 +65,17 @@ export class NginController implements vscode.Disposable {
   private launchProjectValue?: ProjectCandidate;
   private contextValue?: NginContext;
   private graphValue?: CompositionGraph;
+  private readonly cmakeSnapshots = new Map<string, CMakeProjectSnapshot>();
   private graphErrorValue?: string;
   private busyValue?: string;
+  private busyProjectIdValue?: string;
   private busyProjectManifestValue?: string;
   private graphGeneration = 0;
   private configuredValue = false;
   private configurationInvalidatedAt = 0;
   private lastOperationValue?: ContextSnapshot['lastOperation'];
   private projectSelections: Record<string, Omit<PersistedSelection, 'projects' | 'projectManifest'>> = {};
+  private activeProjects: Record<string, string> = {};
   private readonly reportedIncompatibleExecutables = new Set<string>();
   private readonly backgroundGraphCache = new Map<string, CompositionGraph | null>();
   private readonly backgroundGraphRequests = new Map<string, Promise<CompositionGraph | undefined>>();
@@ -99,7 +106,8 @@ export class NginController implements vscode.Disposable {
   get snapshot(): ContextSnapshot {
     return {
       context: this.contextValue, graph: this.graphValue, graphError: this.graphErrorValue,
-      busy: this.busyValue, busyProjectManifest: this.busyProjectManifestValue,
+      busy: this.busyValue, busyProjectId: this.busyProjectIdValue,
+      busyProjectManifest: this.busyProjectManifestValue,
       configured: this.configuredValue, lastOperation: this.lastOperationValue
     };
   }
@@ -117,18 +125,82 @@ export class NginController implements vscode.Disposable {
   }
 
   get launchProduct(): ProjectCandidate | undefined {
-    return this.launchProjectValue;
+    return this.fallbackProject(vscode.window.activeTextEditor?.document.uri.fsPath);
+  }
+
+  fallbackProject(file?: string): ProjectCandidate | undefined {
+    const resolved = file ? path.resolve(file) : undefined;
+    const discovery = this.discoveriesValue
+      .filter(value => !resolved || resolved === path.resolve(value.workspaceFolder)
+        || resolved.startsWith(path.resolve(value.workspaceFolder) + path.sep))
+      .sort((left, right) => right.workspaceFolder.length - left.workspaceFolder.length)[0];
+    if (!discovery) return this.launchProjectValue;
+    const key = discovery.workspaceManifest ?? discovery.workspaceFolder;
+    const selected = this.activeProjects[key];
+    return discovery.projects.find(project => (project.id ?? project.manifest) === selected)
+      ?? (this.launchProjectValue
+        ? discovery.projects.find(project => project.manifest === this.launchProjectValue?.manifest)
+        : undefined)
+      ?? discovery.projects[0];
+  }
+
+  private workspaceKey(project: ProjectCandidate): string {
+    return project.workspaceManifest ?? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(project.directory))?.uri.fsPath
+      ?? project.directory;
+  }
+
+  private projectKey(project: ProjectCandidate): string {
+    return project.id ?? project.manifest;
+  }
+
+  private contextIsProject(context: NginContext | undefined, project: ProjectCandidate): boolean {
+    return Boolean(context) && (context?.projectId && project.id
+      ? context.projectId === project.id
+      : context?.projectManifest === project.manifest);
+  }
+
+  private isCurrentContext(context: NginContext): boolean {
+    return context.projectId && this.contextValue?.projectId
+      ? context.projectId === this.contextValue.projectId
+      : context.projectManifest === this.contextValue?.projectManifest;
+  }
+
+  isActiveProject(project: ProjectCandidate): boolean {
+    const selected = this.activeProjects[this.workspaceKey(project)];
+    if (selected) return selected === this.projectKey(project);
+    const discovery = this.discoveriesValue.find(value => value.workspaceManifest === project.workspaceManifest);
+    return this.projectKey(discovery?.projects[0] ?? project) === this.projectKey(project);
+  }
+
+  cmakeSnapshot(project: ProjectCandidate): CMakeProjectSnapshot | undefined {
+    return this.cmakeSnapshots.get(project.id ?? project.manifest);
+  }
+
+  projectById(id: string | undefined): ProjectCandidate | undefined {
+    return id ? this.projects.find(project => project.id === id) : undefined;
+  }
+
+  developmentProjectForPackage(owner: ProjectCandidate, packageName: string): ProjectCandidate | undefined {
+    const relationship = this.workspacePackageForProject(owner, packageName);
+    return this.projectById(relationship?.developmentProjectId);
+  }
+
+  workspacePackageForProject(owner: ProjectCandidate, packageName: string) {
+    const discovery = this.discoveriesValue.find(value => value.workspaceManifest === owner.workspaceManifest);
+    return discovery?.packages?.find(value => value.name === packageName);
   }
 
   async initialize(): Promise<void> {
     await this.refreshDiscovery(false);
     const persisted = this.extensionContext.workspaceState.get<PersistedSelection>(stateKey) ?? {};
     this.projectSelections = persisted.projects ?? {};
+    this.activeProjects = persisted.activeProjects ?? {};
     this.launchProjectValue = this.projects.find(candidate => candidate.manifest === persisted.launchProductManifest)
       ?? this.projects[0];
     const active = vscode.window.activeTextEditor?.document.uri.fsPath;
     const initial = chooseInitialProject(this.discoveriesValue, persisted.projectManifest, active);
-    if (initial) await this.selectProject(initial, this.projectSelections[initial.manifest] ?? persisted, false);
+    if (initial) await this.selectProject(initial,
+      this.projectSelections[this.projectKey(initial)] ?? this.projectSelections[initial.manifest] ?? persisted, false);
     else this.emit();
   }
 
@@ -137,7 +209,7 @@ export class NginController implements vscode.Disposable {
     const previousLaunch = this.launchProjectValue?.manifest;
     this.backgroundGraphCache.clear();
     this.backgroundGraphRequests.clear();
-    this.discoveriesValue = await discoverAll();
+    this.discoveriesValue = await discoverAll(this.cli);
     this.launchProjectValue = this.projects.find(candidate => candidate.manifest === previousLaunch)
       ?? this.projects[0];
     const candidate = preserveSelection
@@ -148,9 +220,11 @@ export class NginController implements vscode.Disposable {
   }
 
   contextForProject(project: ProjectCandidate, selection: Partial<PersistedSelection | NginContext> = {}): NginContext {
-    const remembered = this.projectSelections[project.manifest] ?? {};
+    const remembered = this.projectSelections[this.projectKey(project)] ?? this.projectSelections[project.manifest] ?? {};
     const choices = project.workspaceChoices;
-    const configuration = resolveWorkspaceChoice(
+    const configuration = project.projectSystem === 'CMake'
+      ? selection.configuration ?? remembered.configuration ?? 'Debug'
+      : resolveWorkspaceChoice(
       selection.configuration ?? remembered.configuration,
       choices?.configurations,
       choices?.defaults.configuration
@@ -172,6 +246,8 @@ export class NginController implements vscode.Disposable {
     const workspaceFolder = folder?.uri.fsPath ?? project.directory;
     const outputRoot = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(project.manifest)).get<string>('build.outputRoot', 'build/ngin');
     return {
+      projectId: project.id,
+      projectSystem: project.projectSystem ?? 'Ngin',
       workspaceFolder,
       workspaceManifest: project.workspaceManifest,
       projectManifest: project.manifest,
@@ -182,7 +258,8 @@ export class NginController implements vscode.Disposable {
       run: selection.run || rememberedRun,
       profile: selection.profile ?? remembered.profile,
       options: { ...(selection.options ?? remembered.options ?? {}) },
-      outputDirectory: projectOutputDirectory(workspaceFolder, project, configuration, target, toolchain, outputRoot)
+      outputDirectory: projectOutputDirectory(workspaceFolder, project, configuration, target, toolchain, outputRoot),
+      configurePreset: selection.configurePreset ?? remembered.configurePreset
     };
   }
 
@@ -202,11 +279,13 @@ export class NginController implements vscode.Disposable {
     this.configuredValue = false;
     if (persist) await this.persist();
     this.emit();
-    await this.refreshGraph(false);
+    if (project.projectSystem === 'CMake') await this.refreshCMakeProject(project, false);
+    else await this.refreshGraph(false);
   }
 
   async setLaunchProduct(project: ProjectCandidate): Promise<void> {
     this.launchProjectValue = project;
+    this.activeProjects[this.workspaceKey(project)] = project.id ?? project.manifest;
     await this.persist();
     this.emit();
   }
@@ -227,9 +306,9 @@ export class NginController implements vscode.Disposable {
 
   async updateProjectSelection(
     project: ProjectCandidate,
-    change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'run' | 'profile' | 'options'>>
+    change: Partial<Pick<NginContext, 'configuration' | 'target' | 'toolchain' | 'run' | 'profile' | 'options' | 'configurePreset'>>
   ): Promise<void> {
-    if (this.project?.manifest === project.manifest) {
+    if (this.project && this.projectKey(this.project) === this.projectKey(project)) {
       await this.updateSelection(change);
       return;
     }
@@ -238,17 +317,19 @@ export class NginController implements vscode.Disposable {
     const selection = { ...current, ...defined };
     if ((change.configuration || change.target || change.toolchain) && change.run === undefined) delete selection.run;
     const next = this.contextForProject(project, selection);
-    const previous = this.projectSelections[project.manifest] ?? {};
+    const key = this.projectKey(project);
+    const previous = this.projectSelections[key] ?? this.projectSelections[project.manifest] ?? {};
     const runs = { ...(previous.runs ?? {}) };
     if (next.run) runs[runSelectionKey(next.configuration, next.target, next.toolchain)] = next.run;
-    this.projectSelections[project.manifest] = {
+    this.projectSelections[key] = {
       configuration: next.configuration,
       target: next.target,
       toolchain: next.toolchain,
       run: next.run,
       runs,
       profile: next.profile,
-      options: { ...next.options }
+      options: { ...next.options },
+      configurePreset: next.configurePreset
     };
     this.backgroundGraphCache.clear();
     this.backgroundGraphRequests.clear();
@@ -259,17 +340,19 @@ export class NginController implements vscode.Disposable {
   private async persist(): Promise<void> {
     const context = this.contextValue;
     if (!context) return;
-    const previous = this.projectSelections[context.projectManifest] ?? {};
+    const key = context.projectId ?? context.projectManifest;
+    const previous = this.projectSelections[key] ?? this.projectSelections[context.projectManifest] ?? {};
     const runs = { ...(previous.runs ?? {}) };
     if (context.run) runs[runSelectionKey(context.configuration, context.target, context.toolchain)] = context.run;
-    this.projectSelections[context.projectManifest] = {
+    this.projectSelections[key] = {
       configuration: context.configuration,
       target: context.target,
       toolchain: context.toolchain,
       run: context.run,
       runs,
       profile: context.profile,
-      options: { ...context.options }
+      options: { ...context.options },
+      configurePreset: context.configurePreset
     };
     await this.extensionContext.workspaceState.update(stateKey, {
       projectManifest: context.projectManifest,
@@ -281,7 +364,8 @@ export class NginController implements vscode.Disposable {
       runs,
       profile: context.profile,
       options: context.options,
-      projects: this.projectSelections
+      projects: this.projectSelections,
+      activeProjects: this.activeProjects
     } satisfies PersistedSelection);
   }
 
@@ -359,6 +443,12 @@ export class NginController implements vscode.Disposable {
   async refreshGraph(announceErrors = false): Promise<CompositionGraph | undefined> {
     const context = this.contextValue;
     if (!context) return undefined;
+    if (context.projectSystem === 'CMake')
+    {
+      const project = this.projects.find(candidate => this.contextIsProject(context, candidate));
+      if (project) await this.refreshCMakeProject(project, announceErrors);
+      return undefined;
+    }
     const generation = ++this.graphGeneration;
     try {
       const result = await this.cli.run(
@@ -388,7 +478,8 @@ export class NginController implements vscode.Disposable {
   }
 
   async graphForContext(context: NginContext, announceErrors = false): Promise<CompositionGraph | undefined> {
-    if (context.projectManifest === this.contextValue?.projectManifest) {
+    if (context.projectSystem === 'CMake') return undefined;
+    if (this.isCurrentContext(context)) {
       return shouldLoadGraph(this.graphValue, this.graphErrorValue)
         ? this.refreshGraph(announceErrors)
         : this.graphValue;
@@ -423,12 +514,18 @@ export class NginController implements vscode.Disposable {
   }
 
   cachedGraphForContext(context: NginContext): CompositionGraph | undefined {
-    if (context.projectManifest === this.contextValue?.projectManifest) return this.graphValue;
+    if (context.projectSystem === 'CMake') return undefined;
+    if (this.isCurrentContext(context)) return this.graphValue;
     return this.backgroundGraphCache.get(contextKey(context)) ?? undefined;
   }
 
   async validate(announce = true): Promise<boolean> {
     const context = this.requireContext();
+    if (context.projectSystem === 'CMake') {
+      return Boolean(await this.refreshCMakeProject(
+        this.projects.find(project => this.contextIsProject(context, project)) ?? this.requireProject(), announce
+      ));
+    }
     return this.validateManifest(context.projectManifest, announce, selectionArguments(context));
   }
 
@@ -485,6 +582,40 @@ export class NginController implements vscode.Disposable {
     return this.contextValue;
   }
 
+  private requireProject(): ProjectCandidate {
+    if (!this.project) throw new Error('No NGIN project is selected.');
+    return this.project;
+  }
+
+  async refreshCMakeProject(project: ProjectCandidate, announceErrors = false): Promise<CMakeProjectSnapshot | undefined> {
+    const context = this.contextForProject(project);
+    const args = ['editor', 'snapshot', '--project', project.directory];
+    if (context.workspaceManifest) args.push('--workspace', context.workspaceManifest);
+    if (vscode.workspace.isTrusted && context.configurePreset) {
+      args.push('--configure-preset', context.configurePreset);
+      if (context.configuration) args.push('--configuration', context.configuration);
+    }
+    try {
+      const result = await this.cli.run(args, context.workspaceFolder, { cwd: project.directory });
+      const snapshot = parseCMakeProjectSnapshot(result.stdout);
+      this.cmakeSnapshots.set(project.id ?? project.manifest, snapshot);
+      if (this.contextIsProject(this.contextValue, project)) {
+        this.configuredValue = snapshot.cmake.configured;
+        this.graphErrorValue = snapshot.diagnostics.join('\n') || undefined;
+      }
+      this.emit();
+      return snapshot;
+    } catch (error) {
+      if (this.contextIsProject(this.contextValue, project)) {
+        this.configuredValue = false;
+        this.graphErrorValue = error instanceof Error ? error.message : String(error);
+        this.emit();
+      }
+      if (announceErrors) void this.showFailure('inspect', project.name);
+      return undefined;
+    }
+  }
+
   async execute(
     command: string,
     extra: string[] = [],
@@ -496,14 +627,18 @@ export class NginController implements vscode.Disposable {
     const operation = async (token: vscode.CancellationToken): Promise<CliResult | undefined> => {
         const startedAt = Date.now();
         this.busyValue = command;
+        this.busyProjectIdValue = context.projectId;
         this.busyProjectManifestValue = context.projectManifest;
         this.emit();
         try {
+          const args = context.projectSystem === 'CMake'
+            ? this.cmakeLifecycleArguments(command, context, extra)
+            : lifecycleArguments(command, context, extra);
           const result = await this.cli.run(
-            lifecycleArguments(command, context, extra),
+            args,
             context.workspaceFolder,
             {
-              cwd: path.dirname(context.projectManifest),
+              cwd: context.projectSystem === 'CMake' ? context.projectManifest : path.dirname(context.projectManifest),
               token,
               requireTrust: true,
               exclusive: true,
@@ -516,21 +651,26 @@ export class NginController implements vscode.Disposable {
           this.applyDiagnostics(result.diagnostics, path.dirname(context.projectManifest));
           this.applyDiagnosticCollection(this.compilerDiagnostics,
             parseCompilerDiagnostics(`${result.stdout}\n${result.stderr}`), path.dirname(context.projectManifest), 'Compiler');
-          if (context.projectManifest === this.contextValue?.projectManifest
+          if (this.isCurrentContext(context)
             && ['configure', 'build', 'stage', 'run', 'test', 'benchmark'].includes(command)) {
             this.configuredValue = true;
             this.configurationInvalidatedAt = 0;
           }
-          if (refreshGraph && context.projectManifest === this.contextValue?.projectManifest) await this.refreshGraph(false);
+          if (refreshGraph && this.isCurrentContext(context)) {
+            if (context.projectSystem === 'CMake') await this.refreshCMakeProject(this.requireProject(), false);
+            else await this.refreshGraph(false);
+          }
           const completedAt = Date.now();
           this.lastOperationValue = {
-            projectManifest: context.projectManifest, command, state: 'succeeded', completedAt,
+            projectId: context.projectId, projectManifest: context.projectManifest,
+            command, state: 'succeeded', completedAt,
             durationMs: completedAt - startedAt
           };
           return result;
         } catch (error) {
           this.lastOperationValue = {
-            projectManifest: context.projectManifest, command, state: 'failed', completedAt: Date.now(),
+            projectId: context.projectId, projectManifest: context.projectManifest,
+            command, state: 'failed', completedAt: Date.now(),
             durationMs: Date.now() - startedAt,
             message: error instanceof Error ? error.message : String(error)
           };
@@ -539,10 +679,15 @@ export class NginController implements vscode.Disposable {
             this.applyDiagnosticCollection(this.compilerDiagnostics,
               parseCompilerDiagnostics(`${error.result.stdout}\n${error.result.stderr}`), path.dirname(context.projectManifest), 'Compiler');
           }
+          if (refreshGraph && context.projectSystem === 'CMake') {
+            const project = this.projects.find(candidate => this.contextIsProject(context, candidate));
+            if (project) await this.refreshCMakeProject(project, false);
+          }
           if (options.announceFailure !== false) void this.showFailure(command, context.projectName);
           return undefined;
         } finally {
           this.busyValue = undefined;
+          this.busyProjectIdValue = undefined;
           this.busyProjectManifestValue = undefined;
           this.emit();
         }
@@ -560,5 +705,14 @@ export class NginController implements vscode.Disposable {
       { location: vscode.ProgressLocation.Window, title: operationLabel(command, context.projectName), cancellable: true },
       async (_progress, token) => operation(token)
     );
+  }
+
+  private cmakeLifecycleArguments(command: string, context: NginContext, extra: string[]): string[] {
+    const args = [command, '--project', context.projectManifest];
+    if (context.workspaceManifest) args.push('--workspace', context.workspaceManifest);
+    if (context.configurePreset) args.push('--configure-preset', context.configurePreset);
+    if (context.configuration) args.push('--configuration', context.configuration);
+    args.push(...extra);
+    return args;
   }
 }

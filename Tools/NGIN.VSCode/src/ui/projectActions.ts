@@ -49,6 +49,12 @@ export async function openProjectActions(
   const context = analysis.contextForProject(project);
   const graph = await controller.graphForContext(context, false);
   const snapshot = controller.snapshot;
+  const current = project.id && snapshot.context?.projectId
+    ? project.id === snapshot.context.projectId
+    : snapshot.context?.projectManifest === project.manifest;
+  const operationMatches = project.id && snapshot.lastOperation?.projectId
+    ? project.id === snapshot.lastOperation.projectId
+    : snapshot.lastOperation?.projectManifest === project.manifest;
   const descriptors = projectActionDescriptors({
     project,
     context,
@@ -64,8 +70,9 @@ export async function openProjectActions(
     toolchainChoices: project.workspaceChoices?.toolchains.length ?? 0,
     selectedRun: context.run,
     busy: snapshot.busy,
-    graphError: snapshot.context?.projectManifest === project.manifest ? snapshot.graphError : undefined,
-    lastOperation: snapshot.lastOperation?.projectManifest === project.manifest ? snapshot.lastOperation : undefined
+    graphError: current ? snapshot.graphError : undefined,
+    lastOperation: operationMatches ? snapshot.lastOperation : undefined,
+    trusted: vscode.workspace.isTrusted
   });
   const selected = await vscode.window.showQuickPick(quickPickItems(descriptors), {
     title: `NGIN: ${project.name}`,

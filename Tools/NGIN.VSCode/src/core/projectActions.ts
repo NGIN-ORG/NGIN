@@ -30,6 +30,7 @@ export interface ProjectActionState {
   busy?: string;
   graphError?: string;
   lastOperation?: { command: string; state: 'succeeded' | 'failed' };
+  trusted?: boolean;
 }
 
 export const projectActionGroupOrder: ProjectActionGroup[] = ['Lifecycle', 'Build context', 'Launch', 'Project', 'Diagnostics', 'Advanced'];
@@ -41,6 +42,31 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
     result.push(
       { group: 'Lifecycle', label: 'Cancel active operation', description: state.busy, icon: 'debug-stop', command: 'ngin.cancel' },
       { group: 'Diagnostics', label: 'Show NGIN Output', description: 'Follow operation details', icon: 'output', command: 'ngin.showOutput' }
+    );
+    return result;
+  }
+
+  if (project.projectSystem === 'CMake') {
+    if (state.trusted !== false) {
+      result.push(
+        { group: 'Lifecycle', label: 'Configure Project', description: state.context.configurePreset ?? 'Select a configure preset', icon: 'gear', command: 'ngin.configure', argument: project },
+        { group: 'Lifecycle', label: 'Build Project', description: project.name, icon: 'tools', command: 'ngin.build', argument: project }
+      );
+      if (project.capabilities?.includes('Test')) result.push(
+        { group: 'Lifecycle', label: 'Test Project', description: 'Run tests through CTest', icon: 'beaker', command: 'ngin.test', argument: project }
+      );
+    } else {
+      result.push({ group: 'Diagnostics', label: 'Trust Workspace to Run CMake', description: 'Configure, Build, and Test are disabled', icon: 'shield', command: 'workbench.trust.manage' });
+    }
+    result.push(
+      { group: 'Build context', label: 'Select Configure Preset', description: state.context.configurePreset, icon: 'settings-gear', command: 'ngin.selectConfigurePreset', argument: project },
+      { group: 'Build context', label: 'Select Configuration', description: state.context.configuration, icon: 'symbol-parameter', command: 'ngin.selectConfiguration', argument: project },
+      { group: 'Project', label: 'Select Active Project', description: 'Workspace-scoped fallback project', icon: 'pass-filled', command: 'ngin.setLaunchProduct', argument: project },
+      { group: 'Project', label: 'Open Project Root', description: project.directory, icon: 'folder-opened', command: 'ngin.openCMakeProject', argument: project },
+      { group: 'Diagnostics', label: 'Show NGIN Output', icon: 'output', command: 'ngin.showOutput' },
+      { group: 'Diagnostics', label: 'Check Setup', icon: 'pulse', command: 'ngin.checkSetup', argument: project },
+      { group: 'Advanced', label: 'Inspect CMake Project', icon: 'inspect', command: 'ngin.inspect', argument: project },
+      { group: 'Advanced', label: 'Refresh CMake Model', icon: 'refresh', command: 'ngin.refreshCMakeProject', argument: project }
     );
     return result;
   }

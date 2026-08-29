@@ -11,16 +11,30 @@ import {
 } from '../core/projectFiles';
 import { normalizeForComparison, pathsEqual } from '../core/paths';
 import { projectTreePresentation } from '../core/projectTreePresentation';
-import type { CompositionGraph, GraphNamedNode, GraphPackage, ProjectCandidate } from '../model';
+import type {
+  CMakeTargetDescription, CompositionGraph, GraphNamedNode, GraphPackage, ProjectCandidate, WorkspacePackage
+} from '../model';
 import type { SourceAnalysisProvider } from '../providers/sourceAnalysis';
 
 type ChildFactory = () => NginTreeNode[] | Promise<NginTreeNode[]>;
+
+function projectKey(project: ProjectCandidate): string {
+  return project.id ?? project.manifest;
+}
+
+function contextMatchesProject(project: ProjectCandidate, projectId: string | undefined, manifest: string | undefined): boolean {
+  return project.id && projectId ? project.id === projectId : project.manifest === manifest;
+}
 
 export class NginTreeNode extends vscode.TreeItem {
   parent?: NginTreeNode;
   project?: ProjectCandidate;
   projectFile?: ProductFileNode;
   package?: GraphPackage;
+  workspacePackage?: WorkspacePackage;
+  developmentProject?: ProjectCandidate;
+  cmakeTarget?: CMakeTargetDescription;
+  cmakeTestName?: string;
   directoryPath?: string;
 
   constructor(label: string, collapsibleState = vscode.TreeItemCollapsibleState.None, readonly children?: ChildFactory) {
@@ -63,27 +77,29 @@ function semanticGroup(
       child.command = { command: 'ngin.openGraphSource', title: 'Open Declaring Source', arguments: [value, project] };
     }
     return child;
-  }), String(values.length), `ngin.group:${project.manifest}:${label}`);
+  }), String(values.length), `ngin.group:${projectKey(project)}:${label}`);
   node.project = project;
   return node;
 }
 
-function packageGroup(values: GraphPackage[], project: ProjectCandidate): NginTreeNode {
+function packageGroup(values: GraphPackage[], project: ProjectCandidate, controller: NginController): NginTreeNode {
   const node = group('Packages', 'package', () => values.map(value => {
     const child = new NginTreeNode(value.name ?? value.identity);
     child.project = project;
     child.package = value;
+    child.workspacePackage = controller.workspacePackageForProject(project, value.name ?? value.identity);
+    child.developmentProject = controller.developmentProjectForPackage(project, value.name ?? value.identity);
     child.description = [value.version, value.context].filter(Boolean).join(' · ');
     const document = value.provenance?.document;
     const direct = Boolean(document) && (pathsEqual(document, project.manifest)
       || normalizeForComparison(project.manifest).endsWith(`${path.sep}${normalizeForComparison(document!)}`));
-    child.contextValue = direct
-      ? 'nginDirectPackage'
-      : 'nginTransitivePackage';
+    child.contextValue = `${direct ? 'nginDirectPackage' : 'nginTransitivePackage'}${child.developmentProject ? 'Development' : ''}`;
     child.tooltip = new vscode.MarkdownString([
       `**${value.name ?? value.identity}**`,
       value.version ? `Version: ${value.version}` : undefined,
       value.providerKind ? `Provider: ${value.providerKind}` : undefined,
+      child.workspacePackage?.exportedTargets.length
+        ? `Exports: ${child.workspacePackage.exportedTargets.join(', ')}` : undefined,
       value.provenance?.reason,
       value.provenance?.document ? `Declared in ${value.provenance.document}` : undefined
     ].filter(Boolean).join('\n\n'));
@@ -91,7 +107,7 @@ function packageGroup(values: GraphPackage[], project: ProjectCandidate): NginTr
       child.command = { command: 'ngin.openGraphSource', title: 'Open Declaring Source', arguments: [value, project] };
     }
     return child;
-  }), String(values.length), `ngin.group:${project.manifest}:Packages`);
+  }), String(values.length), `ngin.group:${projectKey(project)}:Packages`);
   node.project = project;
   node.contextValue = 'nginPackagesGroup';
   return node;
@@ -249,14 +265,14 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
 
   private compositionNode(graph: CompositionGraph, project: ProjectCandidate): NginTreeNode | undefined {
     const children: NginTreeNode[] = [];
-    if (graph.packages.length) children.push(packageGroup(graph.packages, project));
+    if (graph.packages.length) children.push(packageGroup(graph.packages, project, this.controller));
     if (graph.actions.length) children.push(semanticGroup('Actions', 'tools', graph.actions, project));
     if (graph.runs.length > 1) children.push(semanticGroup('Runs', 'run', graph.runs, project));
     if (graph.tests.length) children.push(semanticGroup('Tests', 'beaker', graph.tests, project));
     if (graph.benchmarks.length) children.push(semanticGroup('Benchmarks', 'dashboard', graph.benchmarks, project));
     if (!children.length) return undefined;
     const composition = group('Composition', 'references', () => children, `${graph.packages.length} packages`,
-      `ngin.group:${project.manifest}:Composition`);
+      `ngin.group:${projectKey(project)}:Composition`);
     composition.project = project;
     return composition;
   }
@@ -285,6 +301,7 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
   }
 
   private async productChildren(project: ProjectCandidate, parent: NginTreeNode): Promise<NginTreeNode[]> {
+    if (project.projectSystem === 'CMake') return this.cmakeProjectChildren(project, parent);
     const context = this.analysis.contextForProject(project);
     const graph = this.controller.cachedGraphForContext(context);
     if (!graph) {
@@ -307,19 +324,20 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
     if (composition) result.unshift(composition);
     if (semantics.generated.length) {
       const generated = group('Generated', 'sparkle', () => semantics.generated.map(entry => this.fileNode(entry, projection)),
-        String(semantics.generated.length), `ngin.group:${project.manifest}:Generated`);
+        String(semantics.generated.length), `ngin.group:${projectKey(project)}:Generated`);
       generated.project = project;
       result.push(generated);
     }
     if (semantics.external.length) {
       const external = group('External', 'link-external', () => semantics.external.map(entry => this.fileNode(entry, projection)),
-        String(semantics.external.length), `ngin.group:${project.manifest}:External`);
+        String(semantics.external.length), `ngin.group:${projectKey(project)}:External`);
       external.project = project;
       external.contextValue = 'nginExternalGroup';
       result.push(external);
     }
     const issues = await this.missingNodes(projection);
-    const graphProblem = this.controller.snapshot.context?.projectManifest === project.manifest
+    const graphProblem = contextMatchesProject(project, this.controller.snapshot.context?.projectId,
+      this.controller.snapshot.context?.projectManifest)
       ? this.controller.snapshot.graphError
       : undefined;
     if (!graph && graphProblem) {
@@ -332,9 +350,111 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
     }
     if (issues.length) {
       const node = group('Issues', 'warning', () => issues, String(issues.length),
-        `ngin.group:${project.manifest}:Issues`);
+        `ngin.group:${projectKey(project)}:Issues`);
       node.project = project;
       result.push(node);
+    }
+    result.forEach(node => { node.parent = parent; });
+    return result;
+  }
+
+  private cmakeTargetNode(project: ProjectCandidate, target: CMakeTargetDescription): NginTreeNode {
+    const children = (): NginTreeNode[] => {
+      const sources = target.sources.map(source => {
+        const node = new NginTreeNode(path.basename(source.path));
+        node.project = project;
+        node.resourceUri = vscode.Uri.file(source.path);
+        node.description = path.relative(project.directory, source.path).split(path.sep).join('/');
+        node.tooltip = [source.path, source.declaration
+          ? `Declared in ${source.declaration}:${source.declarationLine ?? 1}` : undefined].filter(Boolean).join('\n');
+        node.command = { command: 'vscode.open', title: 'Open Source', arguments: [node.resourceUri] };
+        return node;
+      });
+      return sources;
+    };
+    const node = new NginTreeNode(target.name,
+      target.sources.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+      target.sources.length ? children : undefined);
+    node.project = project;
+    node.cmakeTarget = target;
+    node.contextValue = `nginCMakeTarget.${target.type === 'EXECUTABLE' ? 'executable' : 'buildable'}`;
+    node.description = target.type.replaceAll('_', ' ').toLowerCase();
+    node.iconPath = new vscode.ThemeIcon(target.type === 'EXECUTABLE' ? 'run' : 'symbol-method');
+    node.tooltip = [target.id, target.declaration
+      ? `Declared in ${target.declaration}:${target.declarationLine ?? 1}` : undefined,
+      target.artifacts.length ? `Artifacts:\n${target.artifacts.join('\n')}` : undefined].filter(Boolean).join('\n');
+    return node;
+  }
+
+  private async cmakeProjectChildren(project: ProjectCandidate, parent: NginTreeNode): Promise<NginTreeNode[]> {
+    let snapshot = this.controller.cmakeSnapshot(project);
+    if (!snapshot) {
+      void this.controller.refreshCMakeProject(project, false).then(() => this.changed.fire(parent));
+    }
+    snapshot = this.controller.cmakeSnapshot(project);
+    const roles = new Map<string, ProductSemanticIndex['roles'] extends ReadonlyMap<string, infer R> ? R : never>();
+    const semantics: ProductSemanticIndex = { roles, generated: [], external: [] };
+    if (snapshot) {
+      for (const target of snapshot.targets) {
+        for (const source of target.sources) {
+          const existing = semantics.roles.get(normalizeForComparison(source.path));
+          roles.set(normalizeForComparison(source.path), {
+            state: 'selected',
+            kind: 'CMake source',
+            owner: existing?.owner ? `${existing.owner}, ${target.name}` : target.name,
+            provenance: source.declaration
+          });
+        }
+      }
+    }
+    const projection: ProductProjection = {
+      project,
+      semantics,
+      nestedBoundaries: new Set(),
+      showIgnored: vscode.workspace.getConfiguration('ngin', vscode.Uri.file(project.directory))
+        .get<boolean>('workspace.showIgnoredFiles', false)
+    };
+    const result = await this.directoryChildren(project.directory, projection, parent);
+    if (snapshot?.targets.length) {
+      const targets = group('Targets', 'symbol-method',
+        () => snapshot!.targets.map(target => this.cmakeTargetNode(project, target)),
+        String(snapshot.targets.length), `ngin.cmake-targets:${project.id ?? project.manifest}`);
+      targets.project = project;
+      targets.contextValue = 'nginCMakeTargetsGroup';
+      result.unshift(targets);
+    }
+    if (snapshot?.tests.length) {
+      const tests = group('Tests', 'beaker', () => snapshot!.tests.map(test => {
+        const node = new NginTreeNode(test.name);
+        node.project = project;
+        node.cmakeTestName = test.name;
+        node.contextValue = /_NOT_BUILT-[^/]+$/u.test(test.name) ? 'nginCMakeTestNotBuilt' : 'nginCMakeTest';
+        return node;
+      }), String(snapshot.tests.length), `ngin.cmake-tests:${project.id ?? project.manifest}`);
+      tests.project = project;
+      tests.contextValue = 'nginCMakeTestsGroup';
+      result.unshift(tests);
+    }
+    if (!vscode.workspace.isTrusted || snapshot?.cmake.stale || snapshot?.diagnostics.length) {
+      const issues: NginTreeNode[] = [];
+      if (!vscode.workspace.isTrusted) {
+        const trust = new NginTreeNode('Trust workspace to configure and build');
+        trust.iconPath = new vscode.ThemeIcon('shield');
+        trust.command = { command: 'workbench.trust.manage', title: 'Manage Workspace Trust' };
+        issues.push(trust);
+      }
+      if (snapshot?.cmake.stale) {
+        const stale = new NginTreeNode('CMake model is stale');
+        stale.description = 'Configure to refresh';
+        stale.iconPath = new vscode.ThemeIcon('warning');
+        issues.push(stale);
+      }
+      for (const diagnostic of snapshot?.diagnostics ?? []) {
+        const issue = new NginTreeNode(diagnostic);
+        issue.iconPath = new vscode.ThemeIcon('warning');
+        issues.push(issue);
+      }
+      if (issues.length) result.push(group('Issues', 'warning', () => issues, String(issues.length)));
     }
     result.forEach(node => { node.parent = parent; });
     return result;
@@ -346,37 +466,41 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
   }
 
   private nodeFor(project: ProjectCandidate, owner: ProjectCandidate | undefined): NginTreeNode {
-    const existing = this.projectNodes.get(project.manifest);
+    const existing = this.projectNodes.get(projectKey(project));
     if (existing) return existing;
     let node: NginTreeNode;
     node = new NginTreeNode(project.name, vscode.TreeItemCollapsibleState.Collapsed,
       () => this.productChildren(project, node));
     node.project = project;
-    node.id = `ngin.product:${project.manifest}`;
+    node.id = `ngin.product:${projectKey(project)}`;
     node.resourceUri = vscode.Uri.file(project.manifest);
-    const launch = this.controller.launchProduct?.manifest === project.manifest;
-    const activeFile = owner?.manifest === project.manifest;
-    const busy = this.controller.snapshot.busyProjectManifest === project.manifest ? this.controller.snapshot.busy : undefined;
-    const stateApplies = this.controller.snapshot.context?.projectManifest === project.manifest;
+    const launch = this.controller.isActiveProject(project);
+    const activeFile = owner ? projectKey(owner) === projectKey(project) : false;
+    const busy = contextMatchesProject(project, this.controller.snapshot.busyProjectId,
+      this.controller.snapshot.busyProjectManifest) ? this.controller.snapshot.busy : undefined;
+    const stateApplies = contextMatchesProject(project, this.controller.snapshot.context?.projectId,
+      this.controller.snapshot.context?.projectManifest);
     const graphIssue = stateApplies ? this.controller.snapshot.graphError : undefined;
     const context = this.analysis.contextForProject(project);
-    const summary = this.analysis.summary(project.manifest);
-    const lastOperation = this.controller.snapshot.lastOperation?.projectManifest === project.manifest
+    const cmake = project.projectSystem === 'CMake' ? this.controller.cmakeSnapshot(project) : undefined;
+    const summary = this.analysis.summary(projectKey(project));
+    const lastOperation = contextMatchesProject(project, this.controller.snapshot.lastOperation?.projectId,
+      this.controller.snapshot.lastOperation?.projectManifest)
       ? this.controller.snapshot.lastOperation
       : undefined;
     const presentation = projectTreePresentation({
-      configuration: context.configuration,
+      configuration: project.projectSystem === 'CMake' ? context.configurePreset ?? 'not configured' : context.configuration,
       activeFile,
       fallback: launch,
       busy,
       graphIssue,
-      graphReady: stateApplies && Boolean(this.controller.snapshot.graph),
+      graphReady: project.projectSystem === 'CMake' ? Boolean(cmake) : stateApplies && Boolean(this.controller.snapshot.graph),
       configured: stateApplies ? this.controller.snapshot.configured : undefined,
       analysisState: summary.state === 'analyzing' || summary.state === 'failed' ? summary.state : undefined,
       lastOperation
     });
     node.contextValue = [
-      'nginProductRoot',
+      project.projectSystem === 'CMake' ? 'nginCMakeProjectRoot' : 'nginProductRoot',
       project.hasTests ? 'test' : undefined,
       project.hasRun ? 'run' : undefined,
       project.hasAnalyze ? 'analyze' : undefined,
@@ -386,17 +510,18 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
     ].filter(Boolean).join('.');
     const hasIssue = Boolean(graphIssue) || summary.state === 'failed' || lastOperation?.state === 'failed';
     node.iconPath = new vscode.ThemeIcon(hasIssue ? 'warning' : launch ? 'pass-filled' : activeFile ? 'file-code'
-      : project.artifactKind === 'Library' ? 'library' : 'project');
+      : project.projectSystem === 'CMake' ? 'symbol-method' : project.artifactKind === 'Library' ? 'library' : 'project');
     node.description = presentation.description;
     node.tooltip = [
       project.manifest,
-      `${project.libraryKind ?? project.artifactKind ?? 'Product'}${activeFile ? ' · Owns current file' : ''}${launch ? ' · Active Project' : ''}`,
-      `Configuration: ${context.configuration}`,
-      `Target: ${context.target}`,
-      `Toolchain: ${context.toolchain}`,
+      `${project.projectSystem ?? 'Ngin'}${project.libraryKind ?? project.artifactKind ? ` · ${project.libraryKind ?? project.artifactKind}` : ''}${activeFile ? ' · Owns current file' : ''}${launch ? ' · Active Project' : ''}`,
+      project.projectSystem === 'CMake' ? `Configure preset: ${context.configurePreset ?? 'Select a preset'}`
+        : `Configuration: ${context.configuration}`,
+      project.projectSystem === 'CMake' ? `Configuration: ${context.configuration}` : `Target: ${context.target}`,
+      project.projectSystem === 'CMake' ? undefined : `Toolchain: ${context.toolchain}`,
       presentation.status ? `Status: ${presentation.status}` : undefined
     ].filter(Boolean).join('\n');
-    this.projectNodes.set(project.manifest, node);
+    this.projectNodes.set(projectKey(project), node);
     return node;
   }
 
@@ -428,8 +553,32 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
     });
   }
 
+  private workspacePackages(packages: readonly WorkspacePackage[], projects: readonly ProjectCandidate[]): NginTreeNode {
+    const node = group('Package Wrappers', 'package', () => packages.map(value => {
+      const child = new NginTreeNode(value.name);
+      child.workspacePackage = value;
+      child.resourceUri = vscode.Uri.file(value.manifest);
+      child.developmentProject = projects.find(project => project.id === value.developmentProjectId);
+      child.description = child.developmentProject
+        ? `Development: ${child.developmentProject.name}`
+        : undefined;
+      child.contextValue = child.developmentProject ? 'nginWorkspacePackageDevelopment' : 'nginWorkspacePackage';
+      child.iconPath = new vscode.ThemeIcon('package');
+      child.command = { command: 'vscode.open', title: 'Open Package Manifest', arguments: [child.resourceUri] };
+      child.tooltip = [value.manifest, child.developmentProject
+        ? `Development project: ${child.developmentProject.name}`
+        : 'No development project is registered in this workspace',
+      value.exportedTargets.length ? `Exports: ${value.exportedTargets.join(', ')}` : undefined,
+      value.consumingProjectIds.length ? `${value.consumingProjectIds.length} consuming project(s)` : undefined]
+        .filter(Boolean).join('\n');
+      return child;
+    }), String(packages.length), `ngin.workspace-packages:${packages.map(value => value.manifest).join('|')}`);
+    node.contextValue = 'nginWorkspacePackagesGroup';
+    return node;
+  }
+
   async revealFile(project: ProjectCandidate, file: string): Promise<NginTreeNode | undefined> {
-    const root = this.projectNodes.get(project.manifest);
+    const root = this.projectNodes.get(projectKey(project));
     if (!root) return undefined;
     let children = await this.getChildren(root);
     let current: NginTreeNode | undefined;
@@ -469,12 +618,13 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<NginTreeNod
         'root-folder',
         async () => {
           const children = [...products];
+          if (discovery.packages?.length) children.push(this.workspacePackages(discovery.packages, discovery.projects));
           const files = await this.workspaceFiles(discovery.workspaceFolder, discovery.projects, workspace);
           if (files.length) children.push(group('Workspace Files', 'files', () => files, String(files.length),
             `ngin.workspace-files:${discovery.workspaceFolder}`));
           return children;
         },
-        `${products.length} products`,
+        `${products.length} projects`,
         `ngin.workspace:${discovery.workspaceManifest}`
       );
       workspace.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;

@@ -6,6 +6,7 @@ import {
   Version,
   type CppToolsApi,
   type CustomConfigurationProvider,
+  type SourceFileConfiguration,
   type SourceFileConfigurationItem,
   type WorkspaceBrowseConfiguration
 } from 'vscode-cpptools';
@@ -16,16 +17,33 @@ import {
   findCompileCommand,
   parseCompileCommands,
   selectCompileCommand,
+  splitCommandLine,
   type CompileCommandEntry
 } from '../core/compileCommands';
 import type { NginController } from '../core/controller';
 import { graphOwnsFile } from '../core/projectOwnership';
-import { compileCommandsPath, isWithin } from '../core/paths';
-import type { CompositionGraph, NginContext } from '../model';
+import { compileCommandsPath, isWithin, normalizeForComparison } from '../core/paths';
+import type { CMakeProjectSnapshot, CMakeTargetDescription, CompositionGraph, NginContext } from '../model';
 
 interface ProjectConfigurationContext {
   context: NginContext;
-  graph: CompositionGraph;
+  graph?: CompositionGraph;
+  cmake?: CMakeProjectSnapshot;
+  cmakeTarget?: CMakeTargetDescription;
+}
+
+function cmakeSourceConfiguration(owner: ProjectConfigurationContext, file: string): SourceFileConfiguration {
+  const target = owner.cmakeTarget;
+  const source = target?.sources.find(value => normalizeForComparison(value.path) === normalizeForComparison(file));
+  const group = target?.compileGroups.find(value => value.id === source?.compileGroup) ?? target?.compileGroups[0];
+  const toolchain = owner.cmake?.cmake.toolchains.find(value => value.language === group?.language);
+  return {
+    includePath: [...new Set(group?.includes ?? [])],
+    defines: [...new Set(group?.defines ?? [])],
+    forcedInclude: [],
+    compilerPath: toolchain?.compilerPath || undefined,
+    compilerArgs: group?.compileCommandFragments.flatMap(splitCommandLine) ?? []
+  };
 }
 
 export class NginCppConfigurationProvider implements CustomConfigurationProvider {
@@ -103,6 +121,18 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
     const cached = this.owners.get(key);
     if (cached !== undefined) return cached ?? undefined;
 
+    for (const project of this.controller.projectsForFile?.(key) ?? []) {
+      if (project.projectSystem !== 'CMake') continue;
+      const cmake = this.controller.cmakeSnapshot(project);
+      const target = cmake?.targets.find(value => value.sources.some(source =>
+        normalizeForComparison(source.path) === normalizeForComparison(key)));
+      if (cmake && target) {
+        const result = { context: this.controller.contextForProject(project), cmake, cmakeTarget: target };
+        this.owners.set(key, result);
+        return result;
+      }
+    }
+
     const snapshot = this.controller.snapshot;
     const context = snapshot.context;
     if (context && snapshot.graph
@@ -123,6 +153,8 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
   }
 
   private async resolveConfigurationContext(file: string): Promise<ProjectConfigurationContext | undefined> {
+    const cmake = this.cachedConfigurationContext(file);
+    if (cmake?.cmake) return cmake;
     const snapshot = this.controller.snapshot;
     if (snapshot.context) {
       const entries = await this.loadEntries(snapshot.context);
@@ -146,7 +178,7 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
       const context = this.controller.contextForProject(project);
       const graph = await this.controller.graphForContext(context, false);
       return graph && graphOwnsFile(graph, context, file) ? { context, graph } : undefined;
-    }))).filter((value): value is ProjectConfigurationContext => Boolean(value));
+    }))).filter((value): value is { context: NginContext; graph: CompositionGraph } => Boolean(value));
     const activeManifest = this.controller.snapshot.context?.projectManifest;
     const authored = matches.find(match => match.context.projectManifest === activeManifest) ?? matches[0];
     if (authored) return authored;
@@ -192,25 +224,39 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
         if (!this.owners.has(path.resolve(uri.fsPath))) this.prepareConfiguration(uri.fsPath);
         return undefined;
       }
+      if (owner.cmake) return { uri, configuration: cmakeSourceConfiguration(owner, uri.fsPath) };
       const entries = await this.loadEntries(owner.context);
       const entry = selectCompileCommand(entries, uri.fsPath);
       return {
         uri,
-        configuration: entry
+        configuration: entry && owner.graph
           ? createSourceConfiguration(entry, owner.graph)
-          : createFallbackConfiguration(owner.graph, path.dirname(owner.context.projectManifest))
+          : createFallbackConfiguration(owner.graph!, path.dirname(owner.context.projectManifest))
       };
     }));
     return configurations.filter((value): value is NonNullable<typeof value> => value !== undefined);
   }
 
   async canProvideBrowseConfiguration(): Promise<boolean> {
-    return Boolean(this.controller.snapshot.graph);
+    const context = this.controller.snapshot.context;
+    const project = context && this.controller.projects.find(value => value.manifest === context.projectManifest);
+    return Boolean(this.controller.snapshot.graph || project && this.controller.cmakeSnapshot(project));
   }
 
   async provideBrowseConfiguration(): Promise<WorkspaceBrowseConfiguration | null> {
     const snapshot = this.controller.snapshot;
-    if (!snapshot.context || !snapshot.graph) return null;
+    if (!snapshot.context) return null;
+    const project = this.controller.projects.find(value => value.manifest === snapshot.context?.projectManifest);
+    const cmake = project && this.controller.cmakeSnapshot(project);
+    if (cmake) {
+      const groups = cmake.targets.flatMap(target => target.compileGroups);
+      return {
+        browsePath: [...new Set([project.directory, ...cmake.cmake.directories, ...groups.flatMap(group => group.includes)])],
+        compilerPath: cmake.cmake.toolchains.find(value => value.compilerPath)?.compilerPath,
+        compilerArgs: groups[0]?.compileCommandFragments.flatMap(splitCommandLine)
+      };
+    }
+    if (!snapshot.graph) return null;
     return createBrowseConfiguration(
       await this.loadEntries(snapshot.context),
       snapshot.graph,

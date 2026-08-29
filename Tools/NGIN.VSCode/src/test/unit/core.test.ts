@@ -39,7 +39,8 @@ import { statusPresentation } from '../../core/statusPresentation';
 import { isTransientAnalysisFailure } from '../../core/analysisPolicy';
 import { outputPolicy } from '../../core/outputPolicy';
 import {
-  encodeEditorItem, parseEditorAuthoringPlan, parseEditorProductSnapshot, parseEditorWorkspaceSnapshot
+  encodeEditorItem, parseCMakeProjectSnapshot, parseEditorAuthoringPlan, parseEditorProductSnapshot,
+  parseEditorWorkspaceSnapshot
 } from '../../core/editorProtocol';
 import { OperationCoordinator } from '../../core/operationCoordinator';
 import {
@@ -107,15 +108,51 @@ test('project actions prioritize valid lifecycle work and progressively disclose
   assert.deepEqual(busy.map(action => action.command), ['ngin.cancel', 'ngin.showOutput']);
 });
 
+test('CMake project actions expose only advertised version-one capabilities', () => {
+  const project: ProjectCandidate = {
+    id: 'cmake-one', projectSystem: 'CMake', capabilities: ['Inspect', 'Configure', 'Build', 'BuildTarget', 'Test'],
+    manifest: path.resolve('workspace', 'Library'), directory: path.resolve('workspace', 'Library'), name: 'Library',
+    hasTests: true
+  };
+  const actions = projectActionDescriptors({
+    project, context: { ...projectContext(project), projectSystem: 'CMake', configurePreset: 'tests' },
+    canRun: false, canTest: true, canBenchmark: false, hasAnalyze: false, hasFormat: false,
+    graphReady: true, canPublish: false, configurationChoices: 0, targetChoices: 0, toolchainChoices: 0
+  });
+  assert.deepEqual(actions.filter(action => action.group === 'Lifecycle').map(action => action.command), [
+    'ngin.configure', 'ngin.build', 'ngin.test'
+  ]);
+  for (const unavailable of ['ngin.run', 'ngin.debug', 'ngin.benchmark', 'ngin.stage', 'ngin.clean', 'ngin.rebuild']) {
+    assert.equal(actions.some(action => action.command === unavailable), false, unavailable);
+  }
+  const untrusted = projectActionDescriptors({
+    project, context: { ...projectContext(project), projectSystem: 'CMake' }, trusted: false,
+    canRun: false, canTest: true, canBenchmark: false, hasAnalyze: false, hasFormat: false,
+    graphReady: false, canPublish: false, configurationChoices: 0, targetChoices: 0, toolchainChoices: 0
+  });
+  assert.equal(untrusted.some(action => action.group === 'Lifecycle'), false);
+  assert.equal(untrusted.find(action => action.command === 'workbench.trust.manage')?.label,
+    'Trust Workspace to Run CMake');
+});
+
 test('project row context menu exposes selection and lifecycle commands directly', async () => {
   const manifest = JSON.parse(await fs.readFile(path.resolve('package.json'), 'utf8')) as {
     contributes: { menus: { 'view/item/context': Array<{ command: string; group: string; when?: string }> } };
   };
   const menu = manifest.contributes.menus['view/item/context'];
   assert.equal(menu.find(item => item.group === '1_project@1')?.command, 'ngin.setLaunchProduct');
-  assert.deepEqual(menu.filter(item => item.group.startsWith('2_lifecycle@')).map(item => item.command), [
+  assert.deepEqual(menu.filter(item => item.group.startsWith('2_lifecycle@') && item.when?.includes('nginProductRoot'))
+    .map(item => item.command), [
     'ngin.configure', 'ngin.build', 'ngin.run', 'ngin.debug', 'ngin.rebuild', 'ngin.clean'
   ]);
+  assert.deepEqual(menu.filter(item => item.group.startsWith('2_lifecycle@') && item.when?.includes('nginCMakeProjectRoot'))
+    .map(item => item.command), ['ngin.configure', 'ngin.build', 'ngin.test']);
+  assert.deepEqual(menu.filter(item => item.when?.includes('nginCMakeTestsGroup')).map(item => item.command), [
+    'ngin.build', 'ngin.runCMakeTests'
+  ]);
+  assert.equal(menu.find(item => item.when?.includes('viewItem == nginCMakeTest &&'))?.command, 'ngin.runCMakeTest');
+  assert.equal(menu.find(item => item.when?.includes('nginCMakeTestNotBuilt'))?.command, 'ngin.build');
+  assert.match(menu.find(item => item.command === 'ngin.openDevelopmentProject')?.when ?? '', /Development/u);
   assert.deepEqual(menu.filter(item => item.when?.includes('nginPackagesGroup')).map(item => item.command), [
     'ngin.addPackage', 'ngin.restore', 'ngin.lock', 'ngin.showGraph'
   ]);
@@ -540,10 +577,26 @@ test('editor protocol rejects incompatible envelopes and preserves plan precondi
   assert.equal(snapshot.manifestHash, 'sha256:one');
   assert.throws(() => parseEditorProductSnapshot(JSON.stringify({ ...snapshot, version: 2 })), /version 2/u);
   const workspace = parseEditorWorkspaceSnapshot(JSON.stringify({
-    kind: 'NGIN.EditorWorkspaceSnapshot', version: 1, state: 'ready', diagnostics: [],
-    workspaces: [], standaloneProducts: [snapshot.product]
+    kind: 'NGIN.EditorWorkspaceSnapshot', version: 2, state: 'ready', diagnostics: [],
+    workspaces: [{ id: 'workspace', name: 'Demo', manifest: '/Demo.ngin', boundary: '/', projects: [{
+      id: 'cmake', name: 'Library', projectSystem: 'CMake', root: '/Library', capabilities: ['Inspect']
+    }], packages: [{ name: 'Library', manifest: '/Library.nginpkg', developmentProjectId: 'cmake',
+      consumingProjectIds: [], exportedTargets: ['Library'] }]}],
+    standaloneProjects: []
   }));
-  assert.equal(workspace.standaloneProducts[0].name, 'App');
+  assert.equal(workspace.workspaces[0].projects[0].projectSystem, 'CMake');
+  assert.equal(workspace.workspaces[0].packages[0].developmentProjectId, 'cmake');
+  const cmake = parseCMakeProjectSnapshot(JSON.stringify({
+    kind: 'NGIN.EditorCMakeProjectSnapshot', version: 2, state: 'ready', diagnostics: [],
+    project: { id: 'cmake', name: 'Library', projectSystem: 'CMake', root: '/Library' },
+    capabilities: ['Inspect'], cmake: { buildDirectory: '/build', configurePreset: 'tests',
+      configuration: 'Debug', configured: true, stale: false, multiConfig: false,
+      configurePresets: [], buildPresets: [], testPresets: [] },
+    targets: [{ id: 'target', name: 'Library', type: 'STATIC_LIBRARY', dependencies: [], artifacts: [],
+      sources: [], compileGroups: [{ id: '0', language: 'CXX', compileCommandFragments: ['-g'], includes: [], defines: [] }] }],
+    tests: []
+  }));
+  assert.equal(cmake.targets[0].compileGroups[0].language, 'CXX');
   const plan = parseEditorAuthoringPlan(JSON.stringify({
     kind: 'NGIN.EditorAuthoringPlan', version: 1, state: 'ready', intent: 'CreateItems',
     filesystem: [], textEdits: [], preconditions: [{ path: '/App.nginproj', sha256: 'sha256:one' }],

@@ -31,8 +31,10 @@ export class StatusBarController implements vscode.Disposable {
     }
 
     const snapshot = this.controller.snapshot;
-    const busyProject = snapshot.busyProjectManifest
-      ? this.controller.projects.find(project => project.manifest === snapshot.busyProjectManifest)
+    const busyProject = snapshot.busyProjectId || snapshot.busyProjectManifest
+      ? this.controller.projects.find(project => project.id && snapshot.busyProjectId
+        ? project.id === snapshot.busyProjectId
+        : project.manifest === snapshot.busyProjectManifest)
       : undefined;
     const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
     const owner = !busyProject && activeFile ? await this.analysis.projectForFile(activeFile, false) : undefined;
@@ -42,19 +44,25 @@ export class StatusBarController implements vscode.Disposable {
       this.item.hide();
       return;
     }
-    const context = snapshot.context?.projectManifest === project.manifest
+    const current = Boolean(snapshot.context) && (project.id && snapshot.context?.projectId
+      ? project.id === snapshot.context.projectId
+      : snapshot.context?.projectManifest === project.manifest);
+    const operationMatches = project.id && snapshot.lastOperation?.projectId
+      ? project.id === snapshot.lastOperation.projectId
+      : snapshot.lastOperation?.projectManifest === project.manifest;
+    const context = current && snapshot.context
       ? snapshot.context
       : this.analysis.contextForProject(project);
-    const summary = this.analysis.summary(project.manifest);
+    const summary = this.analysis.summary(project.id ?? project.manifest);
     const presentation = statusPresentation({
       context,
       project,
       reason: busyProject ? 'operation' : owner ? 'activeFile' : 'launch',
       operation: busyProject ? snapshot.busy : undefined,
-      graphError: snapshot.context?.projectManifest === project.manifest ? snapshot.graphError : undefined,
+      graphError: current ? snapshot.graphError : undefined,
       analysisState: summary.state,
       analysisMessage: summary.message,
-      lastOperation: snapshot.lastOperation?.projectManifest === project.manifest ? snapshot.lastOperation : undefined
+      lastOperation: operationMatches ? snapshot.lastOperation : undefined
     });
     this.item.text = presentation.text;
     this.item.tooltip = presentation.tooltip;

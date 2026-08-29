@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, August 2026.
+Implemented, August 2026.
 
 This plan adds first-class development support for explicitly registered CMake
 projects in NGIN workspaces. It is intentionally narrower than a generic
@@ -664,19 +664,24 @@ behavior they describe:
 | Arbitrary CMake edits corrupt authored logic | Keep build declaration authoring out of version 1 |
 | Native NGIN behavior regresses | Preserve current discovery paths and add mixed-workspace tests |
 
-## Review decisions required before implementation
+## Recorded implementation decisions
 
-1. Confirm the authored `System` spelling and allowed values.
-2. Confirm whether CMake projects without presets are rejected in version 1.
-3. Confirm the minimum supported CMake and File API versions.
-4. Decide whether package development relationships live in package or
-   workspace manifests.
-5. Confirm whether the current editor protocol version 1 is already considered
-   published and therefore requires a version 2 shape.
-6. Define which CMake cache and toolchain fields are safe for editor snapshots.
-7. Define build-directory ownership persistence and Clean behavior.
-8. Confirm that loose-folder CMake, Run, Debug, Benchmark, and CMake authoring
-   remain deferred.
+1. The authored discriminator is `System="Ngin|CMake"`.
+2. CMake version 1 requires an authored configure preset.
+3. The minimum supported CMake is 3.20; the driver requests codemodel v2,
+   cmakeFiles v1, and toolchains v1.
+4. Package development relationships live in non-semantic package
+   `Development` metadata.
+5. Native product snapshots and authoring plans remain version 1; the breaking
+   mixed-workspace and CMake snapshot shapes use version 2.
+6. Snapshots expose preset display metadata and compiler identity/path data but
+   no cache values or environment values. CMake process output is redacted for
+   secret-like assignments.
+7. NGIN does not own authored preset build directories. The VS Code extension
+   offers no destructive CMake Clean/Rebuild path; target cleaning can be added
+   later as an explicit CMake operation.
+8. Loose-folder CMake, Run, Debug, Benchmark, and CMake build-declaration
+   authoring remain deferred.
 
 ## Completion criteria
 

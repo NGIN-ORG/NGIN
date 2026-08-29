@@ -60,6 +60,10 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<string>();
   readonly onDidChange = this.changed.event;
 
+  private contextKey(context: NginContext): string {
+    return context.projectId ?? context.projectManifest;
+  }
+
   constructor(
     private readonly extensionContext: vscode.ExtensionContext,
     private readonly controller: NginController,
@@ -75,8 +79,9 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       }),
       controller.onDidChange(snapshot => {
         if (!snapshot.context) return;
-        if (snapshot.graph) this.graphCache.set(snapshot.context.projectManifest, snapshot.graph);
-        else this.graphCache.delete(snapshot.context.projectManifest);
+        const key = this.contextKey(snapshot.context);
+        if (snapshot.graph) this.graphCache.set(key, snapshot.graph);
+        else this.graphCache.delete(key);
       })
     );
   }
@@ -106,7 +111,12 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   invalidate(projectManifest?: string): void {
-    if (projectManifest) this.graphCache.delete(projectManifest);
+    if (projectManifest) {
+      this.graphCache.delete(projectManifest);
+      for (const project of this.controller.projects.filter(value => value.manifest === projectManifest)) {
+        if (project.id) this.graphCache.delete(project.id);
+      }
+    }
     else this.graphCache.clear();
   }
 
@@ -146,7 +156,9 @@ export class SourceAnalysisProvider implements vscode.Disposable {
 
   contextForProject(project: ProjectCandidate): NginContext {
     const current = this.controller.snapshot.context;
-    return current?.projectManifest === project.manifest
+    return current && (current.projectId && project.id
+      ? current.projectId === project.id
+      : current.projectManifest === project.manifest)
       ? current
       : this.controller.contextForProject(project);
   }
@@ -157,7 +169,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
     const deepest = candidates.filter(candidate => candidate.directory.length === candidates[0].directory.length);
     if (deepest.length === 1) return deepest[0];
     const owners = this.extensionContext.workspaceState.get<Record<string, string>>(ownerStateKey, {});
-    const remembered = deepest.find(candidate => candidate.manifest === owners[file]);
+    const remembered = deepest.find(candidate => (candidate.id ?? candidate.manifest) === owners[file]);
     if (remembered) return remembered;
     if (!prompt) return undefined;
     const selected = await vscode.window.showQuickPick(deepest.map(candidate => ({
@@ -166,12 +178,15 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       candidate
     })), { title: `Choose the NGIN project that owns ${path.basename(file)}`, placeHolder: 'This choice is remembered for this file.' });
     if (!selected) return undefined;
-    await this.extensionContext.workspaceState.update(ownerStateKey, { ...owners, [file]: selected.candidate.manifest });
+    await this.extensionContext.workspaceState.update(ownerStateKey, {
+      ...owners, [file]: selected.candidate.id ?? selected.candidate.manifest
+    });
     return selected.candidate;
   }
 
   private async graph(context: NginContext) {
-    const cached = this.graphCache.get(context.projectManifest);
+    const key = this.contextKey(context);
+    const cached = this.graphCache.get(key);
     if (cached) return cached;
     const result = await this.cli.run(
       ['graph', ...selectionArguments(context), '--format', 'json'],
@@ -179,17 +194,19 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       { cwd: path.dirname(context.projectManifest), requireTrust: true }
     );
     const graph = parseCompositionGraph(result.stdout);
-    this.graphCache.set(context.projectManifest, graph);
+    this.graphCache.set(key, graph);
     return graph;
   }
 
   private async ensureTooling(context: NginContext): Promise<boolean> {
     if (!vscode.workspace.isTrusted) return false;
+    const key = this.contextKey(context);
     const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
-    if (consent[context.projectManifest] === false) return false;
-    if (consent[context.projectManifest] !== true) {
-      if (this.promptedThisSession.has(context.projectManifest)) return false;
-      this.promptedThisSession.add(context.projectManifest);
+    const decision = consent[key] ?? consent[context.projectManifest];
+    if (decision === false) return false;
+    if (decision !== true) {
+      if (this.promptedThisSession.has(key)) return false;
+      this.promptedThisSession.add(key);
       const answer = await vscode.window.showInformationMessage(
         `${context.projectName} provides analyzers and formatters. Enable them for this workspace?`,
         'Enable Analyzers and Formatters',
@@ -197,12 +214,12 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         "Don't Ask Again"
       );
       const enabled = answer === 'Enable Analyzers and Formatters';
-      if (enabled) await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [context.projectManifest]: true });
+      if (enabled) await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [key]: true });
       if (answer === "Don't Ask Again") {
-        await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [context.projectManifest]: false });
+        await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [key]: false });
       }
       if (!enabled) {
-        this.setSummary(context.projectManifest, { state: 'disabled', diagnostics: 0, message: 'Analyzers are not enabled' });
+        this.setSummary(key, { state: 'disabled', diagnostics: 0, message: 'Analyzers are not enabled' });
         return false;
       }
     }
@@ -218,10 +235,11 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   private async run(context: NginContext, files: string[]): Promise<ActionDiagnostic[]> {
+    const key = this.contextKey(context);
     const token = new vscode.CancellationTokenSource();
-    this.activeByProject.get(context.projectManifest)?.cancel();
-    this.activeByProject.set(context.projectManifest, token);
-    this.setSummary(context.projectManifest, { state: 'analyzing', diagnostics: this.summary(context.projectManifest).diagnostics });
+    this.activeByProject.get(key)?.cancel();
+    this.activeByProject.set(key, token);
+    this.setSummary(key, { state: 'analyzing', diagnostics: this.summary(key).diagnostics });
     try {
       const extra = files.flatMap(file => ['--file', file]);
       const result = await this.cli.run(
@@ -232,7 +250,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       this.controller.markConfigured(context);
       return parseActionDiagnostics(result.stdout).diagnostics;
     } finally {
-      if (this.activeByProject.get(context.projectManifest) === token) this.activeByProject.delete(context.projectManifest);
+      if (this.activeByProject.get(key) === token) this.activeByProject.delete(key);
       token.dispose();
     }
   }
@@ -256,6 +274,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   private async executeNow(context: NginContext, files: string[], replaceAll: boolean, announceFailures: boolean): Promise<void> {
+    const key = this.contextKey(context);
     if (!await this.ensureTooling(context)) return;
     try {
       const values = await this.run(context, files);
@@ -264,14 +283,14 @@ export class SourceAnalysisProvider implements vscode.Disposable {
         this.actionDiagnosticsByFile.delete(path.resolve(files[0]));
       }
       this.publish(values, replaceAll);
-      this.setSummary(context.projectManifest, {
+      this.setSummary(key, {
         state: 'ready', diagnostics: values.length, completedAt: Date.now(),
         message: values.length ? `${values.length} problem${values.length === 1 ? '' : 's'}` : 'No problems'
       });
     } catch (error) {
       if (isTransientAnalysisFailure(error)) {
-        this.setSummary(context.projectManifest, {
-          state: 'idle', diagnostics: this.summary(context.projectManifest).diagnostics,
+        this.setSummary(key, {
+          state: 'idle', diagnostics: this.summary(key).diagnostics,
           message: 'Waiting for the active NGIN operation'
         });
         this.scheduleVisibleEditors();
@@ -287,8 +306,8 @@ export class SourceAnalysisProvider implements vscode.Disposable {
           return this.executeNow(context, files, replaceAll, announceFailures);
         }
       }
-      this.setSummary(context.projectManifest, {
-        state: 'failed', diagnostics: this.summary(context.projectManifest).diagnostics,
+      this.setSummary(key, {
+        state: 'failed', diagnostics: this.summary(key).diagnostics,
         message: error instanceof Error ? error.message : String(error)
       });
       if (announceFailures && !/cancel/iu.test(error instanceof Error ? error.message : String(error))) {
@@ -302,17 +321,18 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   private async execute(context: NginContext, files: string[], replaceAll: boolean, announceFailures: boolean): Promise<void> {
-    this.activeByProject.get(context.projectManifest)?.cancel();
-    const previous = this.jobsByProject.get(context.projectManifest);
+    const key = this.contextKey(context);
+    this.activeByProject.get(key)?.cancel();
+    const previous = this.jobsByProject.get(key);
     const job = (async () => {
       if (previous) await previous.catch(() => undefined);
       await this.executeNow(context, files, replaceAll, announceFailures);
     })();
-    this.jobsByProject.set(context.projectManifest, job);
+    this.jobsByProject.set(key, job);
     try {
       await job;
     } finally {
-      if (this.jobsByProject.get(context.projectManifest) === job) this.jobsByProject.delete(context.projectManifest);
+      if (this.jobsByProject.get(key) === job) this.jobsByProject.delete(key);
     }
   }
 
@@ -327,6 +347,11 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       this.diagnostics.delete(document.uri);
       return;
     }
+    if (project.projectSystem === 'CMake') {
+      this.diagnostics.delete(document.uri);
+      this.setSummary(project.id ?? project.manifest, { state: 'disabled', diagnostics: 0, message: 'NGIN Actions do not apply to CMake projects' });
+      return;
+    }
     const context = this.contextForProject(project);
     try {
       const graph = await this.graph(context);
@@ -337,20 +362,25 @@ export class SourceAnalysisProvider implements vscode.Disposable {
       await this.execute(context, [document.uri.fsPath], false, false);
     } catch (error) {
       if (isTransientAnalysisFailure(error)) {
-        this.setSummary(context.projectManifest, {
-          state: 'idle', diagnostics: this.summary(context.projectManifest).diagnostics,
+        const key = this.contextKey(context);
+        this.setSummary(key, {
+          state: 'idle', diagnostics: this.summary(key).diagnostics,
           message: 'Waiting for the active NGIN operation'
         });
         this.schedule(document, 750);
         return;
       }
-      this.setSummary(context.projectManifest, { state: 'failed', diagnostics: 0, message: error instanceof Error ? error.message : String(error) });
+      this.setSummary(this.contextKey(context), { state: 'failed', diagnostics: 0, message: error instanceof Error ? error.message : String(error) });
     }
   }
 
   async analyzeProject(project?: ProjectCandidate): Promise<void> {
     const selected = project ?? this.controller.launchProduct;
     if (!selected) throw new Error('No NGIN project is selected.');
+    if (selected.projectSystem === 'CMake') {
+      void vscode.window.showInformationMessage(`${selected.name} is a CMake project; use its configured C++ tooling.`);
+      return;
+    }
     const context = this.contextForProject(selected);
     const graph = await this.graph(context);
     if (!graph.actions.some(action => action.kind === 'Analyze')) {
@@ -363,12 +393,13 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   async enableProjectTooling(project?: ProjectCandidate): Promise<void> {
     const selected = project ?? this.controller.launchProduct;
     if (!selected) throw new Error('No NGIN project is selected.');
-    const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
-    await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [selected.manifest]: true });
-    this.promptedThisSession.add(selected.manifest);
     const context = this.contextForProject(selected);
+    const key = this.contextKey(context);
+    const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
+    await this.extensionContext.workspaceState.update(toolingStateKey, { ...consent, [key]: true });
+    this.promptedThisSession.add(key);
     await this.createLock(context);
-    this.setSummary(selected.manifest, { state: 'idle', diagnostics: 0, message: 'Project tooling enabled' });
+    this.setSummary(key, { state: 'idle', diagnostics: 0, message: 'Project tooling enabled' });
     this.scheduleVisibleEditors();
   }
 }

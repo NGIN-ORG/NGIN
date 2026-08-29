@@ -10,9 +10,10 @@ file membership, composition, packages, lifecycle plans, and run intent.
 
 ## Workspace view
 
-The NGIN Activity Bar contains one product-scoped **Workspace** view. Authored
-workspaces contain their Executable and Library products; loose `.nginproj`
-files appear under **Standalone Products** when grouping is needed.
+The NGIN Activity Bar contains one project-scoped **Workspace** view. Authored
+workspaces contain native Executable and Library projects plus explicitly
+registered CMake project directories; loose `.nginproj` files appear under
+**Standalone Products** when grouping is needed.
 
 Expanding a product shows its physical folders and ordinary files directly.
 Folders are enumerated lazily through the VS Code workspace filesystem, so a
@@ -50,6 +51,19 @@ debugging another project from its row is a one-time target.
 Option overrides. Run selection is launch state, not a compiler dimension. One
 compact status item shows the effective project and Configuration; its tooltip
 includes the complete context, selection source, and current operation.
+
+CMake project rows show their selected configure preset and configuration,
+physical files, File API targets/sources/artifacts, CTest tests, stale state,
+and diagnostics. Select a preset explicitly, then use Configure, Build, Build
+Target, or Test. CMake Run, Debug, Benchmark, Stage, and destructive Clean are
+not offered without an explicit contract. Configure, Build, and Test require a
+trusted VS Code workspace; untrusted workspaces retain safe physical
+navigation and preset display metadata.
+
+The CMake project and Tests rows expose Build Project through their context
+menus. The Tests row can run the full CTest suite, and each built test row can
+run only that test. A CTest `_NOT_BUILT` placeholder offers Build Project;
+building refreshes the model and replaces placeholders with runnable tests.
 
 ## Files and authoring
 
@@ -103,6 +117,10 @@ adapter. Opening a file never triggers Configure merely to populate the tree.
 Compile-database-backed C++ configuration and structured analyzer diagnostics
 remain active. Project analyzers and formatters require workspace trust and one
 explicit enable decision; dependency locks are never bypassed.
+
+For CMake projects, compiler identity, include paths, definitions, and command
+fragments come from CMake File API compile groups. The extension does not
+require or consume state from the CMake Tools extension.
 
 ## Build and install
 

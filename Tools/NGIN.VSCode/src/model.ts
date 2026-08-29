@@ -12,6 +12,8 @@ export interface NginDiagnostic extends SourceLocation {
 }
 
 export interface NginContext {
+  projectId?: string;
+  projectSystem?: 'Ngin' | 'CMake';
   workspaceFolder: string;
   workspaceManifest?: string;
   projectManifest: string;
@@ -23,6 +25,7 @@ export interface NginContext {
   profile?: string;
   options: Readonly<Record<string, string>>;
   outputDirectory: string;
+  configurePreset?: string;
 }
 
 export interface WorkspaceChoices {
@@ -45,8 +48,12 @@ export interface WorkspaceChoices {
 }
 
 export interface ProjectCandidate {
+  id?: string;
+  projectSystem?: 'Ngin' | 'CMake';
+  capabilities?: readonly string[];
   manifest: string;
   directory: string;
+  root?: string;
   name: string;
   artifactKind?: 'Executable' | 'Library';
   libraryKind?: 'Static' | 'Shared' | 'Interface' | 'Plugin';
@@ -93,10 +100,83 @@ export interface ActionDiagnosticsEnvelope {
 }
 
 export interface DiscoveryResult {
+  workspaceId?: string;
   workspaceFolder: string;
   workspaceManifest?: string;
   workspaceChoices?: WorkspaceChoices;
+  packages?: WorkspacePackage[];
   projects: ProjectCandidate[];
+}
+
+export interface WorkspacePackage {
+  name: string;
+  manifest: string;
+  developmentProjectId?: string;
+  consumingProjectIds: string[];
+  exportedTargets: string[];
+}
+
+export interface CMakePresetDescription {
+  name: string;
+  displayName: string;
+  description: string;
+  configurePreset?: string;
+}
+
+export interface CMakeSourceDescription {
+  path: string;
+  compileGroup?: string;
+  declaration?: string;
+  declarationLine?: number;
+}
+
+export interface CMakeTargetDescription {
+  id: string;
+  name: string;
+  type: string;
+  sources: CMakeSourceDescription[];
+  compileGroups: Array<{
+    id: string;
+    language: string;
+    compileCommandFragments: string[];
+    includes: string[];
+    defines: string[];
+  }>;
+  dependencies: string[];
+  artifacts: string[];
+  declaration?: string;
+  declarationLine?: number;
+}
+
+export interface CMakeProjectSnapshot {
+  kind: 'NGIN.EditorCMakeProjectSnapshot';
+  version: 2;
+  state: 'ready' | 'degraded';
+  project: { id: string; name: string; projectSystem: 'CMake'; root: string };
+  capabilities: string[];
+  cmake: {
+    buildDirectory: string;
+    configurations: string[];
+    configurePreset: string;
+    configuration: string;
+    configured: boolean;
+    directories: string[];
+    stale: boolean;
+    multiConfig: boolean;
+    configurePresets: CMakePresetDescription[];
+    buildPresets: CMakePresetDescription[];
+    testPresets: CMakePresetDescription[];
+    toolchains: Array<{
+      language: string;
+      compilerPath: string;
+      compilerId: string;
+      compilerVersion: string;
+      target: string;
+    }>;
+  };
+  targets: CMakeTargetDescription[];
+  tests: Array<{ name: string }>;
+  diagnostics: string[];
 }
 
 export interface GraphProvenance {
@@ -248,7 +328,8 @@ export interface ContextSnapshot {
   graph?: CompositionGraph;
   graphError?: string;
   busy?: string;
+  busyProjectId?: string;
   busyProjectManifest?: string;
   configured?: boolean;
-  lastOperation?: { projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; durationMs: number; message?: string };
+  lastOperation?: { projectId?: string; projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; durationMs: number; message?: string };
 }
