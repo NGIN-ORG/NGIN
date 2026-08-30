@@ -601,12 +601,15 @@ header into an accidental dependency on every subsystem.
 - [x] Define the intended scope of `NGIN/NGIN.hpp`.
 - [x] Prefer it as a Foundation convenience surface rather than an include for
   all optional subsystems.
-- [x] Add or confirm focused subsystem umbrellas:
+- [x] Place each module umbrella beside its directory (`NGIN/Foo.hpp` for
+  `NGIN/Foo/`), including nested public modules.
+- [x] Add or confirm focused component umbrellas:
+  - `NGIN/Async.hpp`
   - `NGIN/Execution.hpp`
   - `NGIN/IO.hpp`
   - `NGIN/Net.hpp`
   - `NGIN/Serialization.hpp`
-  - `NGIN/Crypto/Crypto.hpp`
+  - `NGIN/Crypto.hpp`
 - [x] Add include-contract tests for every umbrella.
 - [x] Ensure public examples use the narrowest practical include surface.
 
