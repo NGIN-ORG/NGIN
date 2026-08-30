@@ -12,6 +12,7 @@ import {
   splitCommandLine
 } from '../../core/compileCommands';
 import { dependencyLockPath, lifecycleArguments } from '../../core/commandArguments';
+import { sameCMakeSnapshotSet, selectCMakeCompileGroup } from '../../core/cmakeConfiguration';
 import { parseActionDiagnostics } from '../../core/actionDiagnostics';
 import { parseCliDiagnostics, parseCompilerDiagnostics } from '../../core/diagnostics';
 import { graphOwnsFile, projectsForFile } from '../../core/projectOwnership';
@@ -46,7 +47,7 @@ import { OperationCoordinator } from '../../core/operationCoordinator';
 import {
   formatLifecycleCommand, formatRuntimeLine, LifecycleOutputPresenter, parseNinjaProgress
 } from '../../core/outputPresentation';
-import type { CompositionGraph, NginContext, ProjectCandidate } from '../../model';
+import type { CMakeProjectSnapshot, CompositionGraph, NginContext, ProjectCandidate } from '../../model';
 
 function graph(): CompositionGraph {
   return {
@@ -77,6 +78,67 @@ function projectContext(project: ProjectCandidate): NginContext {
     outputDirectory: path.resolve('workspace', 'build', project.name)
   };
 }
+
+function cmakeSnapshot(root: string): CMakeProjectSnapshot {
+  return {
+    kind: 'NGIN.EditorCMakeProjectSnapshot', version: 2, state: 'ready',
+    project: { id: 'cmake', name: 'Library', projectSystem: 'CMake', root },
+    capabilities: ['SourceOwnership'],
+    cmake: {
+      buildDirectory: path.join(root, 'build'), configurations: ['Debug'], configurePreset: 'tests',
+      configuration: 'Debug', configured: true, directories: [root], stale: false, multiConfig: false,
+      configurePresets: [], buildPresets: [], testPresets: [], toolchains: []
+    },
+    targets: [], tests: [], diagnostics: []
+  };
+}
+
+test('CMake compile-group selection configures public headers omitted from target sources', () => {
+  const root = path.resolve('workspace', 'Library');
+  const include = path.join(root, 'include');
+  const snapshot = cmakeSnapshot(root);
+  snapshot.targets = [
+    {
+      id: 'tests', name: 'LibraryTests', type: 'EXECUTABLE', sources: [], dependencies: [], artifacts: [],
+      compileGroups: [{ id: 'test-cxx', language: 'CXX', compileCommandFragments: [], includes: [include], defines: ['TESTS'] }]
+    },
+    {
+      id: 'library', name: 'Library', type: 'STATIC_LIBRARY', sources: [], dependencies: [], artifacts: [],
+      compileGroups: [{ id: 'library-cxx', language: 'CXX', compileCommandFragments: [], includes: [include], defines: ['LIBRARY'] }]
+    }
+  ];
+
+  const selected = selectCMakeCompileGroup(snapshot, path.join(include, 'Library', 'Public.hpp'));
+  assert.equal(selected?.target.id, 'library');
+  assert.equal(selected?.group.id, 'library-cxx');
+});
+
+test('CMake compile-group selection preserves exact source ownership and rejects files outside the project', () => {
+  const root = path.resolve('workspace', 'Library');
+  const source = path.join(root, 'src', 'Source.cpp');
+  const snapshot = cmakeSnapshot(root);
+  snapshot.targets = [{
+    id: 'library', name: 'Library', type: 'STATIC_LIBRARY', dependencies: [], artifacts: [],
+    sources: [{ path: source, compileGroup: 'special' }],
+    compileGroups: [
+      { id: 'default', language: 'CXX', compileCommandFragments: [], includes: [], defines: [] },
+      { id: 'special', language: 'CXX', compileCommandFragments: [], includes: [], defines: ['SPECIAL'] }
+    ]
+  }];
+
+  assert.equal(selectCMakeCompileGroup(snapshot, source)?.group.id, 'special');
+  assert.equal(selectCMakeCompileGroup(snapshot, path.resolve('elsewhere', 'Public.hpp')), undefined);
+});
+
+test('CMake snapshot replacement invalidates unresolved configuration caches', () => {
+  const root = path.resolve('workspace', 'Library');
+  const ready = cmakeSnapshot(root);
+  const missing = new Map<string, CMakeProjectSnapshot | undefined>([['cmake', undefined]]);
+  const resolved = new Map<string, CMakeProjectSnapshot | undefined>([['cmake', ready]]);
+  assert.equal(sameCMakeSnapshotSet(missing, resolved), false);
+  assert.equal(sameCMakeSnapshotSet(resolved, new Map(resolved)), true);
+  assert.equal(sameCMakeSnapshotSet(resolved, new Map([['cmake', cmakeSnapshot(root)]])), false);
+});
 
 test('project actions prioritize valid lifecycle work and progressively disclose expert commands', () => {
   const project: ProjectCandidate = {

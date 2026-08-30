@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed C/C++ IntelliSense configuration for CMake-owned public headers that
+  are not listed as direct File API target sources, including invalidation of
+  cached misses when a new CMake snapshot becomes available.
+
 - Added right-click Build Project on CMake projects and Tests groups, plus Run
   All Tests and per-test Run Test actions. CTest `_NOT_BUILT` placeholders now
   direct users to build the project before running discovered tests.

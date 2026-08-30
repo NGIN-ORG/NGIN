@@ -20,6 +20,7 @@ import {
   splitCommandLine,
   type CompileCommandEntry
 } from '../core/compileCommands';
+import { sameCMakeSnapshotSet, selectCMakeCompileGroup } from '../core/cmakeConfiguration';
 import type { NginController } from '../core/controller';
 import { graphOwnsFile } from '../core/projectOwnership';
 import { compileCommandsPath, isWithin, normalizeForComparison } from '../core/paths';
@@ -30,12 +31,15 @@ interface ProjectConfigurationContext {
   graph?: CompositionGraph;
   cmake?: CMakeProjectSnapshot;
   cmakeTarget?: CMakeTargetDescription;
+  cmakeCompileGroupId?: string;
 }
 
 function cmakeSourceConfiguration(owner: ProjectConfigurationContext, file: string): SourceFileConfiguration {
   const target = owner.cmakeTarget;
   const source = target?.sources.find(value => normalizeForComparison(value.path) === normalizeForComparison(file));
-  const group = target?.compileGroups.find(value => value.id === source?.compileGroup) ?? target?.compileGroups[0];
+  const group = target?.compileGroups.find(value => value.id === source?.compileGroup)
+    ?? target?.compileGroups.find(value => value.id === owner.cmakeCompileGroupId)
+    ?? target?.compileGroups[0];
   const toolchain = owner.cmake?.cmake.toolchains.find(value => value.language === group?.language);
   return {
     includePath: [...new Set(group?.includes ?? [])],
@@ -57,6 +61,7 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
   private generation = 0;
   private lastGraph?: CompositionGraph;
   private lastContext = '';
+  private lastCMakeSnapshots = new Map<string, CMakeProjectSnapshot | undefined>();
 
   constructor(private readonly controller: NginController) {
     this.subscription = controller.onDidChange(snapshot => {
@@ -64,9 +69,14 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
       const contextKey = context
         ? [context.projectManifest, context.configuration, context.target, context.toolchain, context.run, snapshot.configured].join('|')
         : '';
-      if (this.lastGraph === snapshot.graph && this.lastContext === contextKey) return;
+      const cmakeSnapshots = new Map(this.controller.projects
+        .filter(project => project.projectSystem === 'CMake')
+        .map(project => [project.id ?? project.manifest, this.controller.cmakeSnapshot(project)]));
+      const cmakeChanged = !sameCMakeSnapshotSet(this.lastCMakeSnapshots, cmakeSnapshots);
+      if (this.lastGraph === snapshot.graph && this.lastContext === contextKey && !cmakeChanged) return;
       this.lastGraph = snapshot.graph;
       this.lastContext = contextKey;
+      this.lastCMakeSnapshots = cmakeSnapshots;
       this.generation++;
       const generation = this.generation;
       this.owners.clear();
@@ -124,10 +134,14 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
     for (const project of this.controller.projectsForFile?.(key) ?? []) {
       if (project.projectSystem !== 'CMake') continue;
       const cmake = this.controller.cmakeSnapshot(project);
-      const target = cmake?.targets.find(value => value.sources.some(source =>
-        normalizeForComparison(source.path) === normalizeForComparison(key)));
-      if (cmake && target) {
-        const result = { context: this.controller.contextForProject(project), cmake, cmakeTarget: target };
+      const selection = cmake && selectCMakeCompileGroup(cmake, key);
+      if (cmake && selection) {
+        const result = {
+          context: this.controller.contextForProject(project),
+          cmake,
+          cmakeTarget: selection.target,
+          cmakeCompileGroupId: selection.group.id
+        };
         this.owners.set(key, result);
         return result;
       }
