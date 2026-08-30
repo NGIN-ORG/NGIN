@@ -9,3 +9,8 @@ updates:
     directory: /Tools/NGIN.VSCode
     schedule:
       interval: weekly
+
+  - package-ecosystem: npm
+    directory: /Documentation
+    schedule:
+      interval: weekly
