@@ -45,7 +45,7 @@ jobs:
           cmake --build build/ecs --config Release --parallel
           ctest --test-dir build/ecs -C Release --output-on-failure
           build/ecs/benchmarks/Release/ECSBenchmarks.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ecs-windows-msvc-logs
@@ -93,7 +93,7 @@ jobs:
           cmake --build build/ecs --config Release --parallel
           ctest --test-dir build/ecs -C Release --output-on-failure
           ./build/ecs/benchmarks/Release/ECSBenchmarks
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ecs-${{ matrix.name }}-logs
@@ -123,7 +123,7 @@ jobs:
         run: |
           cmake --build build/ecs-sanitized --parallel
           ctest --test-dir build/ecs-sanitized --output-on-failure
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ecs-sanitizer-logs
