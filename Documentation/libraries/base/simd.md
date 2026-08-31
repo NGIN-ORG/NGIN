@@ -6,8 +6,9 @@ description: Use portable lanes, masks, conversion/math policy, and byte scans w
 # Learn NGIN.SIMD
 
 NGIN.SIMD expresses the same operation over several lanes. It supplies a
-portable scalar backend and compile-time platform backends; it does not perform
-runtime CPU dispatch for arbitrary binaries.
+portable scalar backend, compile-time platform backends, and runtime selection
+between separately compiled kernels. Built-in runtime byte scans perform the
+dispatch automatically; `RuntimeDispatchTable` supports application kernels.
 
 ## Start here
 
@@ -32,9 +33,20 @@ V c = a + b;
 loads/stores, arithmetic, reductions, conversions, and selected math operations
 compose over them.
 
-Backend tags are `ScalarTag`, `SSE2Tag`, `AVX2Tag`, `AVX512Tag`, and `NeonTag`.
-`DefaultBackend` comes from build configuration. A header being available does
-not prove the running CPU supports instructions compiled into the binary.
+Supported backend tags are `ScalarTag`, `SSE2Tag`, `AVX2Tag`, `AVX512Tag`, and
+`NeonTag`. The AVX-512 backend requires AVX-512F, BW, DQ, and VL and provides
+native-width float, double, 32-bit integer, and byte operations.
+
+`DefaultBackend` remains a translation-unit build choice. It is safe only when
+the deployment CPU supports that translation unit's ISA. For a portable binary,
+compile kernels separately and resolve them through `RuntimeDispatchTable`, or
+use a built-in runtime-dispatched operation such as `FindEqByteRuntime`.
+
+```cpp
+std::span<const char> input = GetInput();
+const auto newline = NGIN::SIMD::FindAnyByteRuntime(input, '\r', '\n');
+const auto backend = NGIN::SIMD::GetRuntimeBackend();
+```
 
 ## Correctness before speed
 

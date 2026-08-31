@@ -9,9 +9,13 @@ description: Find delimiter bytes efficiently while preserving short-input, tail
 or four byte values. Each accepts pointer/length or `std::span` forms and returns
 the matching index, or the input length when no value is found.
 
+The `FindEqByteRuntime` and `FindAnyByteRuntime` forms keep the same contract but
+select once per process among the separately compiled scalar, SSE2, AVX2,
+AVX-512, and Neon kernels available in the linked Foundation library.
+
 ```cpp
 std::span<const char> input = GetInput();
-const std::size_t end = NGIN::SIMD::FindAnyByte(input, '\r', '\n');
+const std::size_t end = NGIN::SIMD::FindAnyByteRuntime(input, '\r', '\n');
 if (end == input.size()) {
     // No line ending.
 }

@@ -205,12 +205,23 @@ jobs:
           -GNinja
           -DNGIN_BASE_BUILD_TESTS=ON
           -DNGIN_BASE_BUILD_EXAMPLES=OFF
-          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=ON
+          -DNGIN_BENCH_USE_GLM=OFF
+          -DNGIN_BENCH_USE_SIMDJSON=OFF
           -DCMAKE_BUILD_TYPE=Release
-      - name: Build SIMD tests
-        run: cmake --build build/ngin-base-simd --target SIMD_VecScalarTestsTests --parallel 2
+      - name: Build SIMD tests and diagnostic benchmark
+        run: >
+          cmake --build build/ngin-base-simd --parallel 2 --target
+          SIMD_VecScalarTestsTests
+          SIMD_AVX512RuntimeTestsTests
+          SIMDFastMathBench
+          SIMDRuntimeDispatchBench
       - name: Run SIMD tests
         run: ctest --test-dir build/ngin-base-simd --output-on-failure -R "^Base\.SIMD\."
+      - name: Run equal-workload SIMD diagnostic benchmark
+        run: |
+          ./build/ngin-base-simd/benchmarks/SIMDFastMathBench
+          ./build/ngin-base-simd/benchmarks/SIMDRuntimeDispatchBench
 
   simd-arm64:
     name: ARM64 NEON
@@ -234,12 +245,20 @@ jobs:
           -GNinja
           -DNGIN_BASE_BUILD_TESTS=ON
           -DNGIN_BASE_BUILD_EXAMPLES=OFF
-          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=ON
+          -DNGIN_BENCH_USE_GLM=OFF
+          -DNGIN_BENCH_USE_SIMDJSON=OFF
           -DCMAKE_BUILD_TYPE=Release
       - name: Build and run native ARM SIMD tests
         run: |
-          cmake --build build/ngin-base-neon --target SIMD_VecScalarTestsTests --parallel 2
+          cmake --build build/ngin-base-neon --parallel 2 --target \
+            SIMD_VecScalarTestsTests \
+            SIMD_AVX512RuntimeTestsTests \
+            SIMDFastMathBench \
+            SIMDRuntimeDispatchBench
           ctest --test-dir build/ngin-base-neon --output-on-failure -R "^Base\.SIMD\."
+          ./build/ngin-base-neon/benchmarks/SIMDFastMathBench
+          ./build/ngin-base-neon/benchmarks/SIMDRuntimeDispatchBench
 
   shared-and-install:
     name: Shared consumers (${{ matrix.name }})
