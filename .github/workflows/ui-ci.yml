@@ -2,17 +2,6 @@ name: NGIN.UI CI
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/ui-ci.yml"
-      - "Dependencies/NGIN/NGIN.Base/**"
-      - "Examples/NGIN.UI.*/**"
-      - "Packages/NGIN.UI*/**"
-      - "Packages/SDL3/**"
-      - "docs/guides/ngin-ui*.md"
-      - "docs/policies/ngin-ui*.md"
   pull_request:
     branches:
       - main
@@ -29,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-ci-${{ github.ref }}-${{ matrix.os }}
+  group: ui-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

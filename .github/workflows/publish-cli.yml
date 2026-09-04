@@ -10,9 +10,45 @@ permissions:
   contents: read
 
 jobs:
+  validate-release:
+    name: Validate release source
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag belongs to main
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          release_commit=$(git rev-list -n 1 "${GITHUB_SHA}")
+          if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not belong to main."
+            exit 1
+          fi
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/.*Version="\([^"]*\)".*/\1/p' Tools/NGIN.CLI/NGIN.CLI.nginproj | head -n 1)
+          cmake_version=$(sed -n 's/project(NGIN VERSION \([^ ]*\).*/\1/p' CMakeLists.txt | head -n 1)
+          test -n "$version"
+          test "$version" = "$cmake_version"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then test "${GITHUB_REF_NAME}" = "v${version}"; fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
   package:
     name: CLI packages (${{ matrix.os }})
+    needs: validate-release
     runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.validate-release.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -27,16 +63,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
-
-      - name: Validate release version
-        shell: bash
-        run: |
-          version=$(sed -n 's/.*Version="\([^"]*\)".*/\1/p' Tools/NGIN.CLI/NGIN.CLI.nginproj | head -n 1)
-          cmake_version=$(sed -n 's/project(NGIN VERSION \([^ ]*\).*/\1/p' CMakeLists.txt | head -n 1)
-          test -n "$version"
-          test "$version" = "$cmake_version"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then test "${GITHUB_REF_NAME}" = "v${version}"; fi
-          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Install Linux prerequisites
         if: runner.os == 'Linux'

@@ -2,14 +2,6 @@ name: Documentation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/docs.yml"
-      - "Documentation/**"
-      - "Tools/scripts/check-docs.ps1"
-      - "**/*.md"
   pull_request:
     branches:
       - main
