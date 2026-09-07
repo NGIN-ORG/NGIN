@@ -128,4 +128,4 @@ At an application boundary:
 - fault is logged/reported as an infrastructure failure.
 
 Next: [cancellation](./cancellation.md) or the
-[`Completion<T, E>` API reference](../../../reference/cpp/base/async/completion.md).
+[`Completion<T, E>` API reference](/reference/doxygen/base/classNGIN_1_1Async_1_1Completion.html).

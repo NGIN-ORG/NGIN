@@ -5,12 +5,16 @@ description: Retrieve NGIN documentation as focused raw Markdown pages, library 
 
 # Documentation for AI
 
-The rendered website and AI-facing files come from the same Markdown source.
-There is no separate AI summary database that can silently drift.
+The guides, project-system reference, and AI-facing bundles come from the same
+Markdown source. Each library's Doxygen reference comes directly from its C++
+headers and is served at `/reference/doxygen/<library>/index.html`; it is not
+included in the Markdown bundles. Choose a library on the
+[reference page](../reference.md#c-api-reference) or use the checked-out
+headers to verify exact declarations.
 
 ## Per-page Markdown
 
-Every rendered page is available through the explicit raw Markdown namespace:
+Every authored Markdown page is available through the explicit raw namespace:
 
 ```text
 /libraries/base/memory-containers
@@ -28,7 +32,7 @@ and production.
 | --- | --- |
 | `/llms.txt` | Compact categorized index of every page |
 | `/llms-full.txt` | Complete documentation corpus |
-| `/llms/api.txt` | C++ symbol reference and API guides |
+| `/llms/api.txt` | C++ API usage guides |
 | `/llms/base.txt` | NGIN.Base overview and subsystem pages |
 | `/llms/core.txt` | NGIN.Core overview and subsystem pages |
 | `/llms/reflection.txt` | NGIN.Reflection documentation |
@@ -39,10 +43,10 @@ and production.
 Prefer the smallest source that covers the question. A focused page preserves
 more model context than the full corpus.
 
-Library bundles include the library's learning pages, API guides, and C++
-symbol reference. For example, `/llms/base.txt` contains the complete Async
-learning path and its per-symbol reference; `/llms/api.txt` contains API
-material across all libraries.
+Library bundles include the library's learning pages and API usage guides.
+For example, `/llms/base.txt` contains the Async learning path;
+`/llms/api.txt` contains API guides across all libraries. Exact C++ declarations
+live in Doxygen and the public headers.
 
 ## Version awareness
 

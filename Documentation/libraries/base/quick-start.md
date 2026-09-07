@@ -94,5 +94,5 @@ aggregate `NGIN::Base` target remains convenient for applications spanning
 several areas.
 
 Continue with [async and execution](./async-execution.md) or return to the
-[subsystem map](../base.md). Use the [Async C++ reference](../../reference/cpp/base/async/index.md)
+[subsystem map](../base.md). Use the [Async C++ reference](/reference/doxygen/base/namespaceNGIN_1_1Async.html)
 for exact task and completion contracts.

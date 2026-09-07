@@ -59,4 +59,4 @@ output. Keep passwords, private keys, symmetric keys, and derived shared
 secrets in secret-bearing types for as long as possible.
 
 Next: [encodings and key material](./encoding-keys.md), or inspect the
-[random and secret API](../../../reference/cpp/base/crypto/random-secrets.md).
+[random and secret API](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).

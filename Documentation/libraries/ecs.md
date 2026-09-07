@@ -15,7 +15,7 @@ writes.
 2. Learn [world and entity](./ecs/world-entities.md) ownership.
 3. Express work through [queries and systems](./ecs/queries-systems.md).
 4. Coordinate frames in [simulation and scheduling](./ecs/simulation-scheduling.md).
-5. Keep the [ECS C++ reference](../reference/cpp/ecs/index.md) open while writing world,
+5. Keep the [ECS C++ reference](/reference/doxygen/ecs/namespaceNGIN_1_1ECS.html) open while writing world,
    query, command, schedule, or simulation code.
 
 ## Model
@@ -33,7 +33,7 @@ query, schedule, and chunk APIs remain available.
 
 Structural changes can invalidate component references. Record them in
 `Commands` during query/system iteration and let the schedule flush at a safe
-boundary. The [symbol index](../reference/cpp/ecs/index.md) lists the supported terms,
+boundary. The [symbol index](/reference/doxygen/ecs/namespaceNGIN_1_1ECS.html) lists the supported terms,
 parameters, executors, and diagnostics.
 
 ## Detailed guides

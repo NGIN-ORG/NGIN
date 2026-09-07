@@ -80,5 +80,5 @@ Use `Task<Vector<T>, E>` when the whole collection is naturally produced and
 needed at once.
 
 Return to [Learn NGIN.Async](../async.md), or inspect
-[`AsyncGenerator<T, E>`](../../../reference/cpp/base/async/async-generator.md).
+[`AsyncGenerator<T, E>`](/reference/doxygen/base/classNGIN_1_1Async_1_1AsyncGenerator.html).
 

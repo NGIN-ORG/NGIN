@@ -109,5 +109,5 @@ and drain latency match your timeout policy. A source with `CancelAfter` can be
 clearer for one operation.
 
 Next: [contexts and schedulers](./runtime.md), or inspect
-[`WhenAll` and `WhenAny`](../../../reference/cpp/base/async/combinators.md).
+[`WhenAll` and `WhenAny`](/reference/doxygen/base/namespaceNGIN_1_1Async.html).
 

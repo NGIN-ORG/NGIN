@@ -48,5 +48,5 @@ task and architecture guides, not short API summaries.
 | Integrate Windows accessibility | [Windows accessibility](./ngin-ui-windows-accessibility.md) |
 | Diagnose a UI failure | [Troubleshooting](./ngin-ui-troubleshooting.md) |
 
-For exact declarations, use the [NGIN.UI C++ reference](../../../reference/cpp/ui/index.md).
+For exact declarations, use the [NGIN.UI C++ reference](/reference/doxygen/ui/namespaceNGIN_1_1UI.html).
 

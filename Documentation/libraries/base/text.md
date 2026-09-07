@@ -9,7 +9,7 @@ description: Use NGIN.Base owned strings, views, encodings, and Unicode conversi
 
 1. Learn [`BasicString`, aliases, views, and allocator behavior](./text/basic-string.md).
 2. Learn [validation, conversion, code points, and error policy](./text/unicode.md).
-3. Look up declarations in the [Text API](../../reference/cpp/base/text.md).
+3. Look up declarations in the [Text API](/reference/doxygen/base/namespaceNGIN_1_1Text.html).
 
 `NGIN.Base` splits text storage from encoding policy on purpose.
 

@@ -71,4 +71,4 @@ the runtime minimum is `Info` even though the template permits `Trace`.
 - Production losses/errors: inspect async sink drop and sink-error counters.
 
 Continue with [records and formatting](./records-formatting.md) or use the
-[NGIN.Log C++ reference](../../reference/cpp/log/index.md).
+[NGIN.Log C++ reference](/reference/doxygen/log/namespaceNGIN_1_1Log.html).

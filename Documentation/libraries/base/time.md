@@ -13,7 +13,7 @@ calendar dates, time zones, or persistent timestamps.
 
 1. Understand [monotonic points and duration units](./time/monotonic-time.md).
 2. Apply [deadlines, sleeping, overflow, and test policy](./time/deadlines-sleep.md).
-3. Look up declarations in the [Time API](../../reference/cpp/base/time.md).
+3. Look up declarations in the [Time API](/reference/doxygen/base/namespaceNGIN_1_1Time.html).
 
 ## Measure elapsed time
 

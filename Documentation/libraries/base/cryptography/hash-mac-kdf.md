@@ -52,4 +52,4 @@ hardware, and increase them over time. Never invent a repeated-hash password
 scheme.
 
 Next: [authenticated encryption](./authenticated-encryption.md), or inspect the
-[hash, MAC, and KDF API](../../../reference/cpp/base/crypto/hash-mac-kdf.md).
+[hash, MAC, and KDF API](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).

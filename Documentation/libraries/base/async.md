@@ -342,9 +342,9 @@ unowned failures observable.
 
 ### Look up exact code
 
-- [Async symbol index](../../reference/cpp/base/async/index.md)
-- [`Task<T, E>` reference](../../reference/cpp/base/async/task.md)
-- [`Completion<T, E>` reference](../../reference/cpp/base/async/completion.md)
-- [`TaskContext` reference](../../reference/cpp/base/async/task-context.md)
-- [Cancellation reference](../../reference/cpp/base/async/cancellation.md)
-- [Combinator reference](../../reference/cpp/base/async/combinators.md)
+- [Async symbol index](/reference/doxygen/base/namespaceNGIN_1_1Async.html)
+- [`Task<T, E>` reference](/reference/doxygen/base/classNGIN_1_1Async_1_1Task.html)
+- [`Completion<T, E>` reference](/reference/doxygen/base/classNGIN_1_1Async_1_1Completion.html)
+- [`TaskContext` reference](/reference/doxygen/base/classNGIN_1_1Async_1_1TaskContext.html)
+- [Cancellation reference](/reference/doxygen/base/namespaceNGIN_1_1Async.html)
+- [Combinator reference](/reference/doxygen/base/namespaceNGIN_1_1Async.html)

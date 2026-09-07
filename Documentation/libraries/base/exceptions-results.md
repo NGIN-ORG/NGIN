@@ -14,7 +14,7 @@ makes the caller's responsibilities visible.
 1. [Choose a failure shape](./results/choosing-a-shape.md).
 2. Learn [`Expected` and `Optional`](./results/expected-optional.md).
 3. Define [error translation and exception boundaries](./results/error-boundaries.md).
-4. Look up exact declarations in the [Results API](../../reference/cpp/base/results.md).
+4. Look up exact declarations in the [Results API](/reference/doxygen/base/namespaceNGIN_1_1Utilities.html).
 
 ## Smallest example
 

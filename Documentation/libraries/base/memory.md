@@ -23,7 +23,7 @@ If this is your first time using NGIN.Memory, follow this path:
    an allocator in a container or smart pointer.
 4. [Compose and diagnose allocators](./memory/composition-diagnostics.md) for
    fallback, tracking, debug, and thread-safe wrappers.
-5. Use the [Memory API reference](../../reference/cpp/base/memory-containers.md) for
+5. Use the [Memory API reference](/reference/doxygen/base/namespaceNGIN_1_1Memory.html) for
    exact declarations, failure, and ownership contracts.
 
 The basic flow is:

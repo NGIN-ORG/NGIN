@@ -133,4 +133,4 @@ a policy or using `WeaklyConsistentForEach`.
 2. [Flat hash tables](./containers/flat-hash.md)
 3. [Concurrent hash maps](./containers/concurrent-hash-map.md)
 4. [Invalidation and allocators](./containers/invalidation-allocators.md)
-5. [Containers API reference](../../reference/cpp/base/containers/index.md)
+5. [Containers API reference](/reference/doxygen/base/namespaceNGIN_1_1Containers.html)

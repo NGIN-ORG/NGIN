@@ -11,7 +11,7 @@ description: Use NGIN.Base vectors, matrices, transforms, geometry, big numbers,
 2. Build [quaternions, transforms, projections, and geometry](./math/geometry-transforms.md).
 3. Choose [BigInt or BigFloat](./math/big-numbers.md) for larger numeric domains.
 4. Protect dimensioned APIs with [units and conversions](./math/units.md).
-5. Look up declarations in the [Math and Units API](../../reference/cpp/base/math-units.md).
+5. Look up declarations in the [Math and Units API](/reference/doxygen/base/namespaceNGIN_1_1Math.html).
 
 `NGIN/Units.hpp` provides compile-time dimensional quantities and unit
 conversion. Arithmetic checks compatible dimensions at compile time and keeps

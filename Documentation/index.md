@@ -78,7 +78,7 @@ Composition Graph ──► generated CMake ──► native compiler
 
 ## Already know what you need?
 
-- [Look up a C++ type, function, or header](./reference/cpp/index.md).
+- [Look up a C++ type, function, or header](/reference.md#c-api-reference).
 - [Find a CLI command or manifest contract](./reference.md).
 - [Diagnose a build, stage, run, or package failure](./troubleshooting/index.md).
 - [Use raw Markdown and AI discovery endpoints](./reference/ai-access.md).

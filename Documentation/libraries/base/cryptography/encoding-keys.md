@@ -54,4 +54,4 @@ spans transient, and avoid string conversions. Parsing a certificate or key is
 not equivalent to validating its origin, permitted purpose, or trust.
 
 Next: choose [hash, MAC, and KDF](./hash-mac-kdf.md), or inspect
-[encoding and key declarations](../../../reference/cpp/base/crypto/encoding-keys.md).
+[encoding and key declarations](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).

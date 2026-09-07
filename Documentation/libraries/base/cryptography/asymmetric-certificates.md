@@ -51,4 +51,4 @@ Use `TlsCredentialMaterial` to hand a certificate chain and PKCS#8 private key
 to the networking TLS layer. Keep TLS session and peer-validation policy in
 NGIN.Networking, where connection identity is known.
 
-For declarations, see the [asymmetric and certificate API](../../../reference/cpp/base/crypto/asymmetric-certificates.md).
+For declarations, see the [asymmetric and certificate API](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).

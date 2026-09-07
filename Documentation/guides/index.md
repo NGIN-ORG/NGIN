@@ -31,5 +31,5 @@ something runnable, and tells you how to check that it worked.
 | NGIN.Log | [Logging quick start](../libraries/log/quick-start.md) | Structured records, formatters, sinks, and async delivery |
 
 When you know the symbol you need, skip the guide and use the [API
-C++ [API reference](../reference/cpp/index.md). When a command fails, go to
+C++ [API reference](/reference.md#c-api-reference). When a command fails, go to
 [troubleshooting](../troubleshooting/index.md).

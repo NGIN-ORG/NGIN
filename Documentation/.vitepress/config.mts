@@ -1,5 +1,8 @@
 import { defineConfig } from "vitepress";
 import { rawMarkdownPlugin } from "./config/raw-markdown";
+import { referenceLinks } from "../scripts/reference-links.mjs";
+import { libraries } from "../doxygen/libraries.mjs";
+import { doxygenServerPlugin } from "../scripts/doxygen-server.mjs";
 
 function normalizeBase(value: string | undefined): string {
   if (!value || value === "/") {
@@ -26,7 +29,6 @@ const baseSidebar = [
           { text: "Choosing a shape", link: "/libraries/base/results/choosing-a-shape" },
           { text: "Expected and Optional", link: "/libraries/base/results/expected-optional" },
           { text: "Error boundaries", link: "/libraries/base/results/error-boundaries" },
-          { text: "Results API", link: "/reference/cpp/base/results" }
         ]
       },
       {
@@ -37,7 +39,6 @@ const baseSidebar = [
           { text: "Type and symbol identity", link: "/libraries/base/meta/identity" },
           { text: "Traits", link: "/libraries/base/meta/traits" },
           { text: "Choosing a hash", link: "/libraries/base/hashing/choosing-a-hash" },
-          { text: "Meta and Hashing API", link: "/reference/cpp/base/meta-hashing" }
         ]
       },
       {
@@ -48,7 +49,6 @@ const baseSidebar = [
           { text: "Any", link: "/libraries/base/utilities/any" },
           { text: "Callable", link: "/libraries/base/utilities/callable" },
           { text: "Interning and symbols", link: "/libraries/base/utilities/interning-symbols" },
-          { text: "Utilities API", link: "/reference/cpp/base/utilities" }
         ]
       }
     ]
@@ -69,7 +69,6 @@ const baseSidebar = [
           { text: "Combining tasks", link: "/libraries/base/async/composition" },
           { text: "Contexts and schedulers", link: "/libraries/base/async/runtime" },
           { text: "Async generators", link: "/libraries/base/async/generators" },
-          { text: "Async API reference", link: "/reference/cpp/base/async/" }
         ]
       },
       {
@@ -82,7 +81,6 @@ const baseSidebar = [
           { text: "Submitting work", link: "/libraries/base/execution/submitting-work" },
           { text: "Threads and fibers", link: "/libraries/base/execution/threads-fibers" },
           { text: "Shutdown and lifetimes", link: "/libraries/base/execution/shutdown-lifetimes" },
-          { text: "Execution API", link: "/reference/cpp/base/execution" }
         ]
       },
       {
@@ -94,7 +92,6 @@ const baseSidebar = [
           { text: "Mutexes and guards", link: "/libraries/base/synchronization/mutexes-guards" },
           { text: "Semaphores and conditions", link: "/libraries/base/synchronization/semaphores-conditions" },
           { text: "Correctness and lifetime", link: "/libraries/base/synchronization/correctness-lifetime" },
-          { text: "Sync API", link: "/reference/cpp/base/sync/" }
         ]
       }
     ]
@@ -113,7 +110,6 @@ const baseSidebar = [
           { text: "Arenas and pools", link: "/libraries/base/memory/arenas-pools" },
           { text: "Ownership", link: "/libraries/base/memory/ownership" },
           { text: "Composition and diagnostics", link: "/libraries/base/memory/composition-diagnostics" },
-          { text: "Memory API", link: "/reference/cpp/base/memory-containers" }
         ]
       },
       {
@@ -125,7 +121,6 @@ const baseSidebar = [
           { text: "Flat hash tables", link: "/libraries/base/containers/flat-hash" },
           { text: "Concurrent hash maps", link: "/libraries/base/containers/concurrent-hash-map" },
           { text: "Invalidation and allocators", link: "/libraries/base/containers/invalidation-allocators" },
-          { text: "Containers API", link: "/reference/cpp/base/containers/" }
         ]
       },
       {
@@ -138,7 +133,6 @@ const baseSidebar = [
           { text: "JSON", link: "/libraries/base/serialization/json" },
           { text: "XML", link: "/libraries/base/serialization/xml" },
           { text: "Streaming", link: "/libraries/base/serialization/streaming" },
-          { text: "Serialization API", link: "/reference/cpp/base/serialization" }
         ]
       },
     ]
@@ -158,7 +152,6 @@ const baseSidebar = [
           { text: "Atomic writes", link: "/libraries/base/io/atomic-writes" },
           { text: "Async I/O", link: "/libraries/base/io/async-io" },
           { text: "Processes and libraries", link: "/libraries/base/io/processes-libraries" },
-          { text: "I/O API", link: "/reference/cpp/base/io" }
         ]
       },
       {
@@ -171,7 +164,6 @@ const baseSidebar = [
           { text: "Coroutine driver", link: "/libraries/base/networking/async-driver" },
           { text: "Transport and framing", link: "/libraries/base/networking/transports-framing" },
           { text: "TLS", link: "/libraries/base/networking/tls" },
-          { text: "Networking API", link: "/reference/cpp/base/networking" }
         ]
       },
       {
@@ -185,7 +177,6 @@ const baseSidebar = [
           { text: "Hash, MAC, and KDF", link: "/libraries/base/cryptography/hash-mac-kdf" },
           { text: "Authenticated encryption", link: "/libraries/base/cryptography/authenticated-encryption" },
           { text: "Asymmetric and certificates", link: "/libraries/base/cryptography/asymmetric-certificates" },
-          { text: "Crypto API", link: "/reference/cpp/base/crypto" }
         ]
       }
     ]
@@ -202,7 +193,6 @@ const baseSidebar = [
         items: [
           { text: "BasicString", link: "/libraries/base/text/basic-string" },
           { text: "Unicode", link: "/libraries/base/text/unicode" },
-          { text: "Text API", link: "/reference/cpp/base/text" }
         ]
       },
       {
@@ -214,7 +204,6 @@ const baseSidebar = [
           { text: "Geometry and transforms", link: "/libraries/base/math/geometry-transforms" },
           { text: "Big numbers", link: "/libraries/base/math/big-numbers" },
           { text: "Dimensioned units", link: "/libraries/base/math/units" },
-          { text: "Math and Units API", link: "/reference/cpp/base/math-units" }
         ]
       },
       {
@@ -224,7 +213,6 @@ const baseSidebar = [
         items: [
           { text: "Monotonic time", link: "/libraries/base/time/monotonic-time" },
           { text: "Deadlines and sleep", link: "/libraries/base/time/deadlines-sleep" },
-          { text: "Time API", link: "/reference/cpp/base/time" }
         ]
       },
       {
@@ -234,12 +222,10 @@ const baseSidebar = [
         items: [
           { text: "Vectors and backends", link: "/libraries/base/simd/vectors-backends" },
           { text: "Scans and correctness", link: "/libraries/base/simd/scans-correctness" },
-          { text: "SIMD API", link: "/reference/cpp/base/simd" }
         ]
       }
     ]
   },
-  { text: "C++ API reference", link: "/reference/cpp/base/" }
 ];
 
 const coreSidebar = [
@@ -250,7 +236,6 @@ const coreSidebar = [
   { text: "Dependency injection", link: "/libraries/core/dependency-injection" },
   { text: "Modules and plugins", link: "/libraries/core/modules-plugins" },
   { text: "Configuration and events", link: "/libraries/core/configuration-events" },
-  { text: "C++ API reference", link: "/reference/cpp/core/" }
 ];
 
 const reflectionSidebar = [
@@ -259,7 +244,6 @@ const reflectionSidebar = [
   { text: "Registration model", link: "/libraries/reflection/registration" },
   { text: "MetaGen", link: "/libraries/reflection/metagen" },
   { text: "Modules and lifetimes", link: "/libraries/reflection/modules-lifetimes" },
-  { text: "C++ API reference", link: "/reference/cpp/reflection/" }
 ];
 
 const ecsSidebar = [
@@ -282,7 +266,6 @@ const ecsSidebar = [
       { text: "Errors and threading", link: "/libraries/ecs/guides/ErrorsAndThreading" }
     ]
   },
-  { text: "C++ API reference", link: "/reference/cpp/ecs/" }
 ];
 
 const uiSidebar = [
@@ -312,7 +295,6 @@ const uiSidebar = [
       { text: "Troubleshooting", link: "/libraries/ui/guides/ngin-ui-troubleshooting" }
     ]
   },
-  { text: "C++ API reference", link: "/reference/cpp/ui/" }
 ];
 
 const logSidebar = [
@@ -331,7 +313,6 @@ const logSidebar = [
       { text: "Architecture", link: "/libraries/log/guides/Architecture" }
     ]
   },
-  { text: "C++ API reference", link: "/reference/cpp/log/" }
 ];
 
 const apiSidebar = [
@@ -368,149 +349,6 @@ const apiSidebar = [
   }
 ];
 
-const cppApiSidebar = [
-  { text: "C++ API reference", link: "/reference/cpp/" },
-  {
-    text: "NGIN.Base",
-    collapsed: false,
-    items: [
-      { text: "Library index", link: "/reference/cpp/base/" },
-      {
-        text: "Async",
-        collapsed: false,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/async/" },
-          { text: "Task", link: "/reference/cpp/base/async/task" },
-          { text: "Operation", link: "/reference/cpp/base/async/operation" },
-          { text: "Completion", link: "/reference/cpp/base/async/completion" },
-          { text: "TaskContext", link: "/reference/cpp/base/async/task-context" },
-          { text: "Cancellation", link: "/reference/cpp/base/async/cancellation" },
-          { text: "WhenAll / WhenAny", link: "/reference/cpp/base/async/combinators" },
-          { text: "AsyncGenerator", link: "/reference/cpp/base/async/async-generator" }
-        ]
-      },
-      {
-        text: "Execution",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/execution" },
-          { text: "ExecutorRef", link: "/reference/cpp/base/execution/executor-ref" },
-          { text: "WorkItem", link: "/reference/cpp/base/execution/work-item" },
-          { text: "Schedulers", link: "/reference/cpp/base/execution/schedulers" },
-          { text: "Thread", link: "/reference/cpp/base/execution/thread" },
-          { text: "Fiber", link: "/reference/cpp/base/execution/fiber" }
-        ]
-      },
-      {
-        text: "Synchronization",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/sync/" },
-          { text: "Mutexes and guards", link: "/reference/cpp/base/sync/mutexes" },
-          { text: "Semaphore", link: "/reference/cpp/base/sync/semaphore" },
-          { text: "AtomicCondition", link: "/reference/cpp/base/sync/atomic-condition" }
-        ]
-      },
-      {
-        text: "Memory",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/memory-containers" },
-          { text: "Allocator references", link: "/reference/cpp/base/memory/allocator-references" },
-          { text: "Concrete allocators", link: "/reference/cpp/base/memory/allocators" },
-          { text: "Composition", link: "/reference/cpp/base/memory/composition" },
-          { text: "Ownership helpers", link: "/reference/cpp/base/memory/ownership" }
-        ]
-      },
-      {
-        text: "Containers",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/containers/" },
-          { text: "Vector", link: "/reference/cpp/base/containers/vector" },
-          { text: "String", link: "/reference/cpp/base/containers/string" },
-          { text: "FlatHashMap", link: "/reference/cpp/base/containers/flat-hash-map" },
-          { text: "ConcurrentHashMap", link: "/reference/cpp/base/containers/concurrent-hash-map" }
-        ]
-      },
-      {
-        text: "I/O and Processes",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/io" },
-          { text: "Paths and filesystems", link: "/reference/cpp/base/io/paths-filesystems" },
-          { text: "Files and directories", link: "/reference/cpp/base/io/files-directories" },
-          { text: "Async I/O", link: "/reference/cpp/base/io/async" },
-          { text: "Processes and libraries", link: "/reference/cpp/base/io/processes-libraries" }
-        ]
-      },
-      {
-        text: "Networking and TLS",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/networking" },
-          { text: "Addresses and resolution", link: "/reference/cpp/base/networking/addresses-resolution" },
-          { text: "Sockets", link: "/reference/cpp/base/networking/sockets" },
-          { text: "NetworkDriver", link: "/reference/cpp/base/networking/network-driver" },
-          { text: "Transport and framing", link: "/reference/cpp/base/networking/transport" },
-          { text: "TLS", link: "/reference/cpp/base/networking/tls" }
-        ]
-      },
-      {
-        text: "Serialization",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/serialization" },
-          { text: "Parsing core", link: "/reference/cpp/base/serialization/parsing-core" },
-          { text: "JSON", link: "/reference/cpp/base/serialization/json" },
-          { text: "XML", link: "/reference/cpp/base/serialization/xml" },
-          { text: "Events", link: "/reference/cpp/base/serialization/events" },
-          { text: "Writers", link: "/reference/cpp/base/serialization/writers" }
-        ]
-      },
-      {
-        text: "Cryptography",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/crypto" },
-          { text: "Providers and errors", link: "/reference/cpp/base/crypto/providers-errors" },
-          { text: "Random and secrets", link: "/reference/cpp/base/crypto/random-secrets" },
-          { text: "Encoding and keys", link: "/reference/cpp/base/crypto/encoding-keys" },
-          { text: "Hash, MAC, and KDF", link: "/reference/cpp/base/crypto/hash-mac-kdf" },
-          { text: "AEAD", link: "/reference/cpp/base/crypto/aead" },
-          { text: "Asymmetric and certificates", link: "/reference/cpp/base/crypto/asymmetric-certificates" }
-        ]
-      },
-      {
-        text: "Foundation",
-        collapsed: true,
-        items: [
-          { text: "Overview", link: "/reference/cpp/base/foundation" },
-          { text: "Primitives and platform", link: "/reference/cpp/base/foundation/primitives-platform" },
-          { text: "Results and exceptions", link: "/reference/cpp/base/results" },
-          { text: "Meta and hashing", link: "/reference/cpp/base/meta-hashing" },
-          { text: "Utilities", link: "/reference/cpp/base/utilities" },
-          { text: "Text and Unicode", link: "/reference/cpp/base/text" },
-          { text: "Math and units", link: "/reference/cpp/base/math-units" },
-          { text: "Time", link: "/reference/cpp/base/time" },
-          { text: "SIMD", link: "/reference/cpp/base/simd" }
-        ]
-      }
-    ]
-  },
-  {
-    text: "Application libraries",
-    collapsed: false,
-    items: [
-      { text: "NGIN.Core", link: "/reference/cpp/core/" },
-      { text: "NGIN.Reflection", link: "/reference/cpp/reflection/" },
-      { text: "NGIN.ECS", link: "/reference/cpp/ecs/" },
-      { text: "NGIN.UI", link: "/reference/cpp/ui/" },
-      { text: "NGIN.Log", link: "/reference/cpp/log/" }
-    ]
-  }
-];
-
 export default defineConfig({
   base: siteBase,
   title: "NGIN",
@@ -524,6 +362,9 @@ export default defineConfig({
     ["meta", { property: "og:site_name", content: "NGIN Documentation" }]
   ],
   markdown: {
+    config(md) {
+      md.use(referenceLinks, { base: siteBase });
+    },
     lineNumbers: true,
     theme: { light: "github-light", dark: "github-dark" }
   },
@@ -534,7 +375,12 @@ export default defineConfig({
       { text: "Start", link: "/start" },
       { text: "Guides", link: "/guides" },
       { text: "Libraries", link: "/libraries" },
-      { text: "C++ API", link: "/reference/cpp/" },
+      {
+        text: "C++ API",
+        items: libraries.map(({ id, name }) => ({
+          text: name, link: `/reference/doxygen/${id}/index.html`, target: "_self"
+        }))
+      },
       { text: "Reference", link: "/reference" },
       { text: "Help", link: "/troubleshooting" }
     ],
@@ -612,7 +458,6 @@ export default defineConfig({
       ],
       "/api/base": apiSidebar,
       "/api": apiSidebar,
-      "/reference/cpp": cppApiSidebar,
       "/reference": [
         { text: "Reference", link: "/reference" },
         { text: "Project manifest", link: "/reference/project-manifest" },
@@ -657,6 +502,6 @@ export default defineConfig({
     }
   },
   vite: {
-    plugins: [rawMarkdownPlugin({ base: siteBase })]
+    plugins: [doxygenServerPlugin({ base: siteBase }), rawMarkdownPlugin({ base: siteBase })]
   }
 });

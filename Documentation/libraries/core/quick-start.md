@@ -79,4 +79,4 @@ The runnable `Examples/Hello.Hosted` product demonstrates staged configuration
 and a static startup module together.
 
 Continue with [application lifecycle](./application-lifecycle.md) and keep the
-[Core C++ reference](../../reference/cpp/core/index.md) open for service and host contracts.
+[Core C++ reference](/reference/doxygen/core/namespaceNGIN_1_1Core.html) open for service and host contracts.

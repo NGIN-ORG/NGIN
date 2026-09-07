@@ -17,7 +17,7 @@ description: Use NGIN.Base cryptographic providers, secrets, encodings, hashing,
 5. Use [authenticated encryption](./cryptography/authenticated-encryption.md)
    and never release unauthenticated plaintext.
 6. Handle [signatures, key agreement, and certificates](./cryptography/asymmetric-certificates.md).
-7. Look up declarations in the [Crypto API reference](../../reference/cpp/base/crypto.md).
+7. Look up declarations in the [Crypto API reference](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).
 
 Cryptographic capability is provider-dependent. Header availability does not
 prove an algorithm exists on the selected runtime provider.

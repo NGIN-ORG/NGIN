@@ -1,87 +1,97 @@
 ---
 title: Start with NGIN
-description: Build your first native product or choose the shortest path to the NGIN capability you need.
+description: What NGIN is, how its project tool and C++ libraries work, and how to get started.
 ---
 
-# Start with NGIN
+# What is NGIN?
 
-NGIN gives modern C++ applications one explicit project model and a set of
-optional libraries. The project system can build an ordinary native executable
-without linking an NGIN runtime. Libraries are adopted only when their model
-solves a problem in your application.
+NGIN is an open-source toolkit for developing C++ applications. It includes
+the `ngin` command-line tool for building, running, and testing projects, and
+C++ libraries for user interfaces, networking, asynchronous tasks, logging,
+reflection, and entity-component systems.
 
-## What do you want to do?
+You describe a project's source files, dependencies, and build settings in a
+`.nginproj` file. The `ngin` tool uses that file to generate a CMake build and
+invoke your C++ compiler. The libraries supply reusable code for the
+application itself and can be used independently of the project tool.
 
-| I want to… | Go here |
-| --- | --- |
-| Build my first executable | [Follow the recommended path](#the-recommended-first-run) |
-| Understand projects, packages, workspaces, and the Composition Graph | [Learn the project system](./project-system.md) |
-| Add Async, Networking, Memory, Serialization, or another Base subsystem | [Explore NGIN.Base](./libraries/base.md) |
-| Use application hosting, services, modules, or lifecycle | [Explore NGIN.Core](./libraries/core.md) |
-| Choose Reflection, ECS, UI, or Log | [Browse all libraries](./libraries.md) |
-| Look up a C++ declaration | [Open the C++ API reference](./reference/cpp/index.md) |
-| Find an exact CLI or manifest contract | [Open Reference](./reference.md) |
-| Contribute to NGIN | [Choose the contributor path](./start/choose-your-path.md#ngin-contributor) |
+The goal of NGIN is to reduce the build configuration and application
+infrastructure that C++ developers need to write and maintain.
 
-## The recommended first run
+**[Install NGIN](./start/installation.md) → [Build your first project](./start/first-project.md)**
 
-This path starts with a plain C++ executable. It introduces packages,
-workspaces, and libraries only after the smallest product works.
+## Start with a program you can run
+
+The first walkthrough takes you from an empty directory to an executable
+that prints `Hello from NGIN!`. You create two files: your C++ source and a
+small project manifest that tells NGIN what to build.
 
 ```text
-Install CLI → Create project → Validate → Build → Run → Inspect the graph
+Hello/
+├── Hello.nginproj
+└── src/
+    └── main.cpp
 ```
 
-1. [Install and verify the CLI](./start/installation.md).
-2. [Create, validate, build, and run your first project](./start/first-project.md).
-3. [Understand how NGIN resolves the product](./start/mental-model.md).
-4. Add [packages](./project-system/packages.md) or a
-   [workspace](./project-system/workspaces.md) when the product needs them.
-5. Choose an [NGIN library](./libraries.md) only when the application needs its
-   capabilities.
+1. **[Set up the tools](./start/installation.md).** Build the CLI and check that
+   it runs. You will need Git, CMake, Ninja, and a C++23-capable compiler.
+2. **[Create and run Hello](./start/first-project.md).** Write the two files,
+   validate the project, and build your first executable.
+3. **Make it yours.** Change the message in `main.cpp`, then build and run again
+   from the `Hello` directory:
 
-After step two, you will have a normal native executable managed by NGIN but
-not coupled to an NGIN runtime library.
-
-## One model drives the lifecycle
-
-NGIN records authored product intent, resolves it into a Composition Graph,
-and derives the rest of the lifecycle from that graph. CMake remains the
-current generated build backend, and the native compiler remains visible.
-
-```text
-authored manifests
-       │
-       ▼
-Composition Graph ──► configure ──► build ──► stage ──► run
-       │                              ├─────► test
-       │                              └─────► benchmark
-       └─────────────────────────────► inspect and editor tooling
+```bash
+ngin build --project Hello.nginproj --configuration Debug
+ngin run --project Hello.nginproj --configuration Debug
 ```
 
-When behavior is surprising, inspect the resolved graph before debugging
-generated build files.
+You should see your updated message. That is the starting point for your own
+application. The example uses the C++ standard library; NGIN libraries are
+available when you want to add more.
 
-## Choose libraries by capability
+## What will you build next?
 
-| Need | Library |
+Pick something you want your application to do. Each path below starts with
+code you can try and explains how the pieces fit together.
+
+| Add to your application | Start here |
 | --- | --- |
-| Async, execution, memory, containers, I/O, networking, serialization, crypto, text, math, or time | [NGIN.Base](./libraries/base.md) |
-| Application host, services, modules, configuration, and lifecycle | [NGIN.Core](./libraries/core.md) |
-| Explicit generated runtime type metadata | [NGIN.Reflection](./libraries/reflection.md) |
-| Entity-component-system simulation | [NGIN.ECS](./libraries/ecs.md) |
-| Backend-neutral native application interfaces | [NGIN.UI](./libraries/ui.md) |
-| Structured records, sinks, formatting, and bounded asynchronous logging | [NGIN.Log](./libraries/log.md) |
+| A native window with text and interactive controls | [Create a UI with NGIN.UI](./libraries/ui/quick-start.md) |
+| Entities and systems that advance a simulation | [Run your first NGIN.ECS simulation](./libraries/ecs/quick-start.md) |
+| Background tasks, cancellation, and asynchronous operations | [Write your first async operation](./libraries/base/async/first-task.md) |
+| Services and modules with a shared startup and shutdown lifecycle | [Create an NGIN.Core host](./libraries/core/quick-start.md) |
+| Logs with structured attributes and console output | [Add NGIN.Log](./libraries/log/quick-start.md) |
+| Runtime access to type metadata and registered members | [Try NGIN.Reflection](./libraries/reflection/quick-start.md) |
 
-Plain projects should remain plain. A library is an application capability,
-not a requirement for using the NGIN project system.
+Already working on an application? Go straight to the guide that fits your
+next feature. The [library overview](./libraries.md) also covers memory,
+containers, I/O, networking, serialization, cryptography, and math.
 
-## After the first project
+## Give the project room to grow
 
-- Learn the complete [project contract](./project-system/projects.md).
-- Add reusable dependencies through [packages](./project-system/packages.md).
-- Share discovery, versions, profiles, and policy through
-  [workspaces](./project-system/workspaces.md).
-- Inspect exact commands and manifest elements in [Reference](./reference.md).
-- Enter [Libraries](./libraries.md) when you are ready to add application
-  capabilities.
+Once the first executable works, bring the rest of the application into the
+same workflow:
+
+- **[Add a package](./project-system/packages.md)** to use a library or a
+  development tool.
+- **[Stage application files](./project-system/build-stage-run.md)** so assets
+  and runtime dependencies are available when the program launches.
+- **[Create a workspace](./project-system/workspaces.md)** when several projects
+  need shared package discovery and build profiles.
+
+NGIN builds through CMake and your native compiler. When you want to understand
+how a project is resolved, the [mental model](./start/mental-model.md) connects
+your project file to the build, and the
+[Composition Graph guide](./project-system/composition-graph.md) shows how to
+inspect the result.
+
+## Keep these nearby
+
+- [C++ API reference](./reference.md#c-api-reference) — choose a library and
+  browse its Doxygen declarations.
+- [CLI and manifest reference](./reference.md) — look up commands and project
+  file syntax.
+- [Troubleshooting](./troubleshooting/index.md) — investigate a failed build,
+  missing dependency, or launch problem.
+- [Contributor path](./start/choose-your-path.md#ngin-contributor) — work on
+  NGIN itself.

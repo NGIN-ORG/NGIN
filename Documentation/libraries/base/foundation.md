@@ -40,7 +40,7 @@ Foundation APIs are low-level, but they are not interchangeable conveniences:
 ## Reading reference pages
 
 Learning pages explain when and why to use a facility. The
-[Foundation C++ API](../../reference/cpp/base/foundation.md) is organized by
+[Foundation C++ API](/reference/doxygen/base/namespaceNGIN.html) is organized by
 headers and symbols for exact declarations. Every detailed reference links to
 the owning public headers in the repository.
 

@@ -13,7 +13,7 @@ can use it independently or through NGIN.Core integration.
 1. Create a console logger in the [quick start](./log/quick-start.md).
 2. Learn [records and formatting](./log/records-formatting.md).
 3. Choose [sinks and production](./log/sinks-production.md) behavior explicitly.
-4. Use the [NGIN.Log C++ reference](../reference/cpp/log/index.md) for record, formatter,
+4. Use the [NGIN.Log C++ reference](/reference/doxygen/log/namespaceNGIN_1_1Log.html) for record, formatter,
    registry, sink, overflow, and error contracts.
 
 ## Capabilities

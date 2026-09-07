@@ -1,0 +1,16 @@
+/**
+\mainpage @LIBRARY@ C++ API reference
+
+Browse @LIBRARY@ namespaces, classes, concepts, files, and members using the
+navigation tree or search box. References to types from other NGIN libraries
+link to those libraries' separate documentation.
+
+\htmlonly
+<p><a href="../../../reference.html#c-api-reference">Choose another library</a> ·
+<a href="../../../libraries/@GUIDE@.html">Tutorials and guides</a></p>
+\endhtmlonly
+
+This reference is generated from @LIBRARY@ public headers. Undocumented
+declarations are included for discovery; explanatory coverage depends on the
+header comments. Implementation details are not supported public contracts.
+*/

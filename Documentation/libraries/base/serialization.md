@@ -22,7 +22,7 @@ generic object archive.
 4. Use [event parsing and stream writing](./serialization/streaming.md) when a
    retained document is not the right boundary.
 5. Look up exact declarations in the
-   [Serialization API reference](../../reference/cpp/base/serialization.md).
+   [Serialization API reference](/reference/doxygen/base/namespaceNGIN_1_1Serialization.html).
 
 The central decision is what must own the input and parsed state:
 

@@ -51,4 +51,4 @@ key. Keep ciphertext and nonces in ordinary storage, but keep keys in secret
 types. Authenticate before parsing decrypted bytes.
 
 Next: [asymmetric keys and certificates](./asymmetric-certificates.md), or
-inspect the [AEAD API](../../../reference/cpp/base/crypto/aead.md).
+inspect the [AEAD API](/reference/doxygen/base/namespaceNGIN_1_1Crypto_1_1Symmetric.html).

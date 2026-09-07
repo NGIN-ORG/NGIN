@@ -18,7 +18,7 @@ Plain native applications do not need it.
 3. Add [services](./core/services.md) and [modules](./core/modules-plugins.md)
    at explicit ownership boundaries.
 4. Look up host, service, event, task, config, plugin, and error contracts in
-   the [NGIN.Core C++ reference](../reference/cpp/core/index.md).
+   the [NGIN.Core C++ reference](/reference/doxygen/core/namespaceNGIN_1_1Core.html).
 
 ## Capabilities
 
@@ -45,7 +45,7 @@ does not require runtime reflection.
   the main services.
 - `CoreResult<T>` and `KernelError` carry structured failures.
 
-Use the [symbol index](../reference/cpp/core/index.md) for code lookup and the
+Use the [symbol index](/reference/doxygen/core/namespaceNGIN_1_1Core.html) for code lookup and the
 [Core API guide](../api/core.md) for cross-cutting contract explanation.
 
 > [!WARNING]

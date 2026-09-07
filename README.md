@@ -128,6 +128,7 @@ Start with the example closest to what you want to build:
 | [Hello.Hosted](Examples/Hello.Hosted) | Application hosted by `NGIN.Core` |
 | [Hello.Reflection](Examples/Hello.Reflection) | Reflection metadata generation |
 | [Hello.ECS](Examples/Hello.ECS) | Entity-component-system integration |
+| [Hello.IO](Examples/Hello.IO) | Async tasks, filesystem I/O, networking, and graceful shutdown |
 | [Hello.Analyzer](Examples/Hello.Analyzer) | Package-provided Clang-Tidy execution |
 | [Hello.Formatter](Examples/Hello.Formatter) | Package-provided formatting |
 | [Hello.Benchmark](Examples/Hello.Benchmark) | Executable Benchmark registration |

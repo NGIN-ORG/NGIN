@@ -157,5 +157,5 @@ if (result.IsDomainError() &&
 
 Read [errors and completions](./errors.md), then
 [contexts and schedulers](./runtime.md). For exact declarations, open the
-[`Task<T, E>` reference](../../../reference/cpp/base/async/task.md).
+[`Task<T, E>` reference](/reference/doxygen/base/classNGIN_1_1Async_1_1Task.html).
 

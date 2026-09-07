@@ -207,9 +207,9 @@ before putting a scheduler in a service or plugin.
 
 ### Look up exact code
 
-- [Execution symbol index](../../reference/cpp/base/execution.md)
-- [`ExecutorRef`](../../reference/cpp/base/execution/executor-ref.md)
-- [Scheduler classes](../../reference/cpp/base/execution/schedulers.md)
-- [`WorkItem` and scheduling errors](../../reference/cpp/base/execution/work-item.md)
-- [`Thread` and `WorkerThread`](../../reference/cpp/base/execution/thread.md)
-- [`Fiber`](../../reference/cpp/base/execution/fiber.md)
+- [Execution symbol index](/reference/doxygen/base/namespaceNGIN_1_1Execution.html)
+- [`ExecutorRef`](/reference/doxygen/base/classNGIN_1_1Execution_1_1ExecutorRef.html)
+- [Scheduler classes](/reference/doxygen/base/namespaceNGIN_1_1Execution.html)
+- [`WorkItem` and scheduling errors](/reference/doxygen/base/classNGIN_1_1Execution_1_1WorkItem.html)
+- [`Thread` and `WorkerThread`](/reference/doxygen/base/classNGIN_1_1Execution_1_1Thread.html)
+- [`Fiber`](/reference/doxygen/base/classNGIN_1_1Execution_1_1Fiber.html)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Executable Name="Hello.IO">
+  <Uses>
+    <Package Name="NGIN.Base" Version="0.1">
+      <Library Name="IO" />
+      <Library Name="Net" />
+    </Package>
+  </Uses>
+  <Build>
+    <Source Include="src/**/*.cpp" />
+  </Build>
+  <Test Name="smoke" Timeout="20" />
+</Executable>

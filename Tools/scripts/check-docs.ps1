@@ -51,6 +51,12 @@ foreach ($file in $markdownFiles) {
             }
 
             $decoded = [uri]::UnescapeDataString($pathPart)
+            if ($relativePath.Replace('\', '/').StartsWith('Documentation/') -and
+                $decoded.StartsWith('/reference/doxygen/')) {
+                # Generated files do not exist in a clean checkout. The documentation
+                # build validates these file/anchor targets in check-reference.mjs.
+                continue
+            }
             $resolved = [System.IO.Path]::GetFullPath((Join-Path $file.DirectoryName $decoded))
             if (-not (Test-Path -LiteralPath $resolved)) {
                 $failures.Add("${relativePath}:${lineNumber}: broken link '${target}'")

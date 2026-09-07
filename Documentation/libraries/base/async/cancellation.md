@@ -107,5 +107,5 @@ Canceling and immediately destroying borrowed state is a use-after-free, not
 cooperative shutdown.
 
 Next: [combining tasks](./composition.md) or the
-[cancellation API reference](../../../reference/cpp/base/async/cancellation.md).
+[cancellation API reference](/reference/doxygen/base/namespaceNGIN_1_1Async.html).
 

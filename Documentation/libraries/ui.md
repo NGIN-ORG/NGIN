@@ -24,7 +24,7 @@ semantics, and diagnostics without exposing a windowing API dependency.
 2. Learn [composition and layout](./ui/composition-layout.md).
 3. Add [controls and input](./ui/controls-input.md).
 4. Choose a state model in [state and MVVM](./ui/state-mvvm.md).
-5. Use the [UI C++ reference](../reference/cpp/ui/index.md) for application, composition,
+5. Use the [UI C++ reference](/reference/doxygen/ui/namespaceNGIN_1_1UI.html) for application, composition,
    state, backend, accessibility, and testing contracts.
 
 ## Topic map

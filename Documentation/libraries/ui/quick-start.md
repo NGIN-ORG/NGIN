@@ -113,4 +113,4 @@ should exit `0`.
   rather than an SDL native window.
 
 Continue with [composition and layout](./composition-layout.md) or the
-[UI C++ reference](../../reference/cpp/ui/index.md).
+[UI C++ reference](/reference/doxygen/ui/namespaceNGIN_1_1UI.html).

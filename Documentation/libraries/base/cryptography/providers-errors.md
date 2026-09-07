@@ -66,4 +66,4 @@ and prevents an accidental provider change from silently changing the
 application's security contract.
 
 Next: [secure random values and secrets](./random-secrets.md), or inspect
-[provider and error declarations](../../../reference/cpp/base/crypto/providers-errors.md).
+[provider and error declarations](/reference/doxygen/base/namespaceNGIN_1_1Crypto.html).

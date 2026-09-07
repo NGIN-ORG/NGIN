@@ -1,0 +1,41 @@
+# Shared settings. npm run reference supplies one library's inputs and output.
+PROJECT_BRIEF          = "Public library declarations and source reference"
+FILE_PATTERNS          = *.hpp *.h *.dox
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */detail/* */Detail/*
+EXCLUDE_SYMBOLS        = *::detail *::detail::* *::Detail *::Detail::*
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+INTERNAL_DOCS          = NO
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = ../
+SHOW_INCLUDE_FILES     = YES
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+ENABLE_PREPROCESSING   = YES
+SEARCH_INCLUDES        = NO
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED            = NGIN_BASE_API= NGIN_FOUNDATION_API= NGIN_EXECUTION_API= \
+                        NGIN_IO_API= NGIN_SERIALIZATION_API= NGIN_CRYPTO_API= \
+                        NGIN_NET_API= NGIN_NETTLS_API= NGIN_CORE_API= \
+                        NGIN_REFLECTION_API= NGIN_ECS_API= NGIN_LOG_API=
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+SEARCHENGINE           = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+# Doxygen Awesome supplies its own automatic light/dark colors.
+HTML_COLORSTYLE        = LIGHT
+HTML_EXTRA_STYLESHEET  = node_modules/@jothepro/doxygen-awesome-css/doxygen-awesome.css
+HTML_EXTRA_FILES       = node_modules/@jothepro/doxygen-awesome-css/LICENSE
+GENERATE_LATEX         = NO
+ALLEXTERNALS           = NO
+EXTERNAL_GROUPS        = NO
+EXTERNAL_PAGES         = NO
+HAVE_DOT               = NO
+QUIET                  = YES

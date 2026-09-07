@@ -72,5 +72,5 @@ Exit `2` means commit failed; exit `1` means the committed name was not found.
 
 Continue with the [registration model](./registration.md), or use
 [MetaGen](./metagen.md) to generate registrations from annotated headers.
-The [Reflection C++ reference](../../reference/cpp/reflection/index.md) covers descriptors,
+The [Reflection C++ reference](/reference/doxygen/reflection/namespaceNGIN_1_1Reflection.html) covers descriptors,
 values, member access, invocation, errors, and module lifetimes.

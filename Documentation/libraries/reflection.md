@@ -17,7 +17,7 @@ code.
    same registration calls.
 4. Read [modules and lifetimes](./reflection/modules-lifetimes.md) before
    importing or unloading reflection modules.
-5. Use the [Reflection C++ reference](../reference/cpp/reflection/index.md) for descriptors,
+5. Use the [Reflection C++ reference](/reference/doxygen/reflection/namespaceNGIN_1_1Reflection.html) for descriptors,
    values, instances, member access, invocation, adapters, and errors.
 
 ## Reflected surface
@@ -38,7 +38,7 @@ The shortest API path is `ModuleRegistration` → `RegisterType<T>` → `Commit`
 → `GetType` → checked descriptor/member operations. Generated MetaGen output
 uses that same registration model.
 
-Use the [symbol index](../reference/cpp/reflection/index.md) for code lookup and
+Use the [symbol index](/reference/doxygen/reflection/namespaceNGIN_1_1Reflection.html) for code lookup and
 the [Reflection API guide](../api/reflection.md) for end-to-end contracts.
 
 > [!WARNING]

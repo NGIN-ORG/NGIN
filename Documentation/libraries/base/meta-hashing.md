@@ -14,7 +14,7 @@ neither supplies runtime reflection or cryptographic integrity.
 1. Learn [type names, IDs, symbols, and reflection identity](./meta/identity.md).
 2. Use [traits and compile-time inspection](./meta/traits.md) at generic API boundaries.
 3. Choose [FNV, CRC, or a cryptographic primitive](./hashing/choosing-a-hash.md).
-4. Look up exact symbols in the [Meta and Hashing API](../../reference/cpp/base/meta-hashing.md).
+4. Look up exact symbols in the [Meta and Hashing API](/reference/doxygen/base/namespaceNGIN_1_1Meta.html).
 
 ## Identity boundaries
 

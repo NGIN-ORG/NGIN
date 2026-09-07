@@ -6,11 +6,16 @@
     "node": ">=20.19.0"
   },
   "scripts": {
+    "reference": "node scripts/generate-reference.mjs",
+    "predev": "npm run reference",
     "dev": "vitepress dev .",
-    "build": "vitepress build .",
+    "prebuild": "npm run reference",
+    "build": "vitepress build . && node scripts/check-reference.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "preview": "vitepress preview ."
   },
   "devDependencies": {
+    "@jothepro/doxygen-awesome-css": "https://codeload.github.com/jothepro/doxygen-awesome-css/tar.gz/refs/tags/v2.4.2",
     "vitepress": "2.0.0-alpha.15"
   }
 }

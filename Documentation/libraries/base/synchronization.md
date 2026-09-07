@@ -167,7 +167,7 @@ deadlock, destruction, async, and shutdown guidance.
 
 ### Look up exact code
 
-- [Synchronization symbol index](../../reference/cpp/base/sync/index.md)
-- [Mutex and guard reference](../../reference/cpp/base/sync/mutexes.md)
-- [`Semaphore`](../../reference/cpp/base/sync/semaphore.md)
-- [`AtomicCondition`](../../reference/cpp/base/sync/atomic-condition.md)
+- [Synchronization symbol index](/reference/doxygen/base/namespaceNGIN_1_1Sync.html)
+- [Mutex and guard reference](/reference/doxygen/base/namespaceNGIN_1_1Sync.html)
+- [`Semaphore`](/reference/doxygen/base/classNGIN_1_1Sync_1_1Semaphore.html)
+- [`AtomicCondition`](/reference/doxygen/base/classNGIN_1_1Sync_1_1AtomicCondition.html)

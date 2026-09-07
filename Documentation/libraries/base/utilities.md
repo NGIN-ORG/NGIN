@@ -14,7 +14,7 @@ utility to hide a domain concept that deserves its own type.
 1. Store heterogeneous values with [`Any` and its views](./utilities/any.md).
 2. Own invocable state with [`Callable`](./utilities/callable.md).
 3. Deduplicate names with [string interning and symbol tables](./utilities/interning-symbols.md).
-4. Look up exact declarations in the [Utilities API](../../reference/cpp/base/utilities.md).
+4. Look up exact declarations in the [Utilities API](/reference/doxygen/base/namespaceNGIN_1_1Utilities.html).
 
 ## Selection map
 

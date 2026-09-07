@@ -16,7 +16,7 @@ description: Choose and use NGIN.Base addresses, resolution, sockets, coroutine 
    when `TaskContext` owns cancellation and resumption.
 4. Build protocols with [transports and framing](./networking/transports-framing.md).
 5. Add [TLS](./networking/tls.md) with explicit verification policy.
-6. Look up exact declarations in the [Networking API reference](../../reference/cpp/base/networking.md).
+6. Look up exact declarations in the [Networking API reference](/reference/doxygen/base/namespaceNGIN_1_1Net.html).
 
 The most important lifetime chain is:
 

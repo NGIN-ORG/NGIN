@@ -17,6 +17,7 @@ current path through the project system or an NGIN library.
 | 8 | [NGIN.UI.Gallery.Hosted](NGIN.UI.Gallery.Hosted) | The same UI through `NGIN.Core` |
 | 9 | [Hello.Benchmark](Hello.Benchmark) | Executable registration through `ngin benchmark` |
 | 10 | [Hello.Plugin](Hello.Plugin) | Loadable Plugin library artifact without runtime activation |
+| 11 | [Hello.IO](Hello.IO) | Async application setup, file I/O, loopback TCP, and cancellation |
 
 [NGIN.UI.MultiPage](NGIN.UI.MultiPage) demonstrates a smaller hosted,
 service-driven UI application. [Hello.GameOfLife](Hello.GameOfLife) combines

@@ -72,4 +72,4 @@ means the system did not produce the expected component value.
   `Commands` for structural changes.
 
 Continue with [world and entities](./world-entities.md), then use the
-[ECS C++ reference](../../reference/cpp/ecs/index.md) for query terms and schedule operations.
+[ECS C++ reference](/reference/doxygen/ecs/namespaceNGIN_1_1ECS.html) for query terms and schedule operations.

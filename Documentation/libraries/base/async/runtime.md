@@ -102,5 +102,5 @@ scheduler contract; it does not make arbitrary borrowed application state safe
 to destroy immediately.
 
 Next: [async generators](./generators.md) or the
-[`TaskContext` reference](../../../reference/cpp/base/async/task-context.md).
+[`TaskContext` reference](/reference/doxygen/base/classNGIN_1_1Async_1_1TaskContext.html).
 

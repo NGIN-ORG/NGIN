@@ -78,17 +78,14 @@ function filesForComponent(files: string[], component: string): string[] {
     return path === `libraries/${component}.md` ||
       path.startsWith(`libraries/${component}/`) ||
       path === `api/${component}.md` ||
-      path.startsWith(`api/${component}/`) ||
-      path === `reference/cpp/${component}.md` ||
-      path.startsWith(`reference/cpp/${component}/`);
+      path.startsWith(`api/${component}/`);
   });
 }
 
 function filesForApi(files: string[]): string[] {
   return files.filter((file) => {
     const path = portablePath(relative(documentationRoot, file));
-    return path === "api.md" || path.startsWith("api/") ||
-      path === "reference/cpp.md" || path.startsWith("reference/cpp/");
+    return path === "api.md" || path.startsWith("api/");
   });
 }
 
@@ -230,7 +227,7 @@ export function rawMarkdownPlugin(options: RawMarkdownOptions): Plugin {
         if (pathname === "/llms/api.txt") {
           response.statusCode = 200;
           response.setHeader("Content-Type", "text/plain; charset=utf-8");
-          response.end(fullBundle(filesForApi(files), "NGIN C++ API reference and guides"));
+          response.end(fullBundle(filesForApi(files), "NGIN C++ API guides"));
           return;
         }
 
@@ -314,7 +311,7 @@ export function rawMarkdownPlugin(options: RawMarkdownOptions): Plugin {
       this.emitFile({
         type: "asset",
         fileName: "llms/api.txt",
-        source: fullBundle(filesForApi(files), "NGIN C++ API reference and guides")
+        source: fullBundle(filesForApi(files), "NGIN C++ API guides")
       });
     }
   };

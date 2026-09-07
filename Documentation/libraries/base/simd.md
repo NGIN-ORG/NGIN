@@ -14,7 +14,7 @@ dispatch automatically; `RuntimeDispatchTable` supports application kernels.
 
 1. Learn [`Vec`, masks, backends, and policy tags](./simd/vectors-backends.md).
 2. Use [byte scans and preserve tail/edge semantics](./simd/scans-correctness.md).
-3. Look up exact declarations in the [SIMD API](../../reference/cpp/base/simd.md).
+3. Look up exact declarations in the [SIMD API](/reference/doxygen/base/namespaceNGIN_1_1SIMD.html).
 
 ## Smallest shape
 

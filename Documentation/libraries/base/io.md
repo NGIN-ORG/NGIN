@@ -16,7 +16,7 @@ description: Work with paths, filesystems, files, directories, processes, and as
 4. Add [async file I/O](./io/async-io.md) only when an async runtime owns it.
 5. Use [processes and dynamic libraries](./io/processes-libraries.md) at explicit
    OS ownership boundaries.
-6. Look up exact declarations in the [I/O API reference](../../reference/cpp/base/io.md).
+6. Look up exact declarations in the [I/O API reference](/reference/doxygen/base/namespaceNGIN_1_1IO.html).
 
 The key separation is:
 
