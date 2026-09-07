@@ -17,13 +17,25 @@ must survive the return.
 
 ## Incremental input
 
-Incremental event parsers accept `Feed(chunk)` and complete with `Finish()`.
-They retain enough input/state to validate the complete document before event
-commit. `Feed` normally reports `NeedMoreInput`; `Finish` emits exactly once and
-is idempotent. A failure diagnostic remains stable until `Reset`.
+Incremental event parsers consume `Feed(chunk)` input and deliver callbacks as
+complete tokens become available. A feed returns `EventProduced` when it invokes
+callbacks, otherwise `NeedMoreInput`. Each result counts only callbacks from that
+call. `Finish()` marks end of input and validates completion; repeated successful
+finishes are idempotent.
 
-`Reset` starts another document while retaining capacity. It invalidates prior
-transient views and parser state.
+A later error does not retract earlier callbacks. Stage application changes until
+`Finish()` succeeds if they must be atomic. Failed diagnostics remain stable until
+`Reset()`. Handler exceptions propagate; reset before reuse after an exception.
+
+Retained state consists of unfinished tokens, decoding scratch, and open
+containers (including their JSON keys). Complete input is released. One very large
+token can still need large storage. `BufferedBytes()` reports pending bytes;
+`MemoryCommitted()` reports retained dynamic parser and scratch capacity.
+Input and structural limits, and source offsets, span the whole stream.
+
+JSON `KeepLast` buffers the document until `Finish()`, because later keys can
+replace earlier values. Other JSON policies and XML deliver during `Feed()`.
+`Reset()` starts another document while retaining reusable capacity.
 
 ## Text sinks
 

@@ -18,14 +18,18 @@ ambiguous objects differently.
 
 ## Typed views
 
-`ValueView` exposes its kind and checked `TryNull`/Boolean/numeric/string/array/
-object conversions. Integers retain signed/unsigned 64-bit representation
+`ValueView::Kind()` exposes the exact storage kind. `IsNull()` tests null;
+`TryBool`, `TryInt64`, `TryUInt64`, `TryDouble`, `TryString`, `TryArray`, and
+`TryObject` return optional values instead of silently defaulting on a mismatch. Integers retain signed/unsigned 64-bit representation
 rather than round-tripping through `double`; non-integral numbers must be
 finite.
 
 `ArrayView` iterates values. `ObjectView` iterates `MemberView` entries and
-offers `Find`. These are borrowed and allocation-free; copy data that outlives
-the document.
+offers `Find`. These views and queries allocate no memory; copy data that outlives
+the document. Small objects use linear lookup; wider objects retain a compact name
+index built while parsing. Iteration preserves source order. The redundant
+`GetType`, `As*`, and `FindPtr` APIs have been removed; use `Kind`, `Try*`, and
+`Find`. Arrays retain constant-time subscripting.
 
 ## Build
 

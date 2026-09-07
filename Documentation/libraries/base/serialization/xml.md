@@ -17,7 +17,12 @@ entities. The default model preserves qualified-name spelling but does not
 resolve namespace prefixes to URI/local-name pairs.
 
 Use `ElementView::Attribute`, `Children(name)`, `FirstChild`, and `FirstText`.
-Node/attribute/child ranges borrow document state.
+Node/attribute/child ranges borrow document state. Iterate `Children()` with a
+range-for loop: each sibling increment is constant time. Linear-time child
+subscripting has been removed; filtered `Children(name).Size()` scans siblings.
+Attribute ranges retain constant-time subscripting. Wide attribute lists retain
+compact name indexes for faster duplicate checking and repeated `Attribute` lookup;
+small lists use an allocation-free linear scan.
 
 ## Lossless syntax
 

@@ -112,12 +112,15 @@ if (!document) {
 - `JSON::EventParser::ParseContiguous` and
   `XML::EventParser::ParseContiguous` process one complete buffer.
 - `JSON::IncrementalEventParser` and `XML::IncrementalEventParser` accept
-  `Feed()` chunks and commit events during `Finish()`.
+  `Feed()` chunks and deliver events during `Feed()` and `Finish()`.
 
-Incremental parsers validate the complete retained document before emitting
-events. `Feed()` returns `NeedMoreInput`; `Finish()` emits exactly once and
-becomes idempotent; `Reset()` starts another document while retaining capacity.
-A failed diagnostic stays stable until reset.
+Incremental parsers retain unfinished tokens and open-container state. `Feed()`
+returns `EventProduced` when callbacks ran, otherwise `NeedMoreInput`; `Finish()`
+checks completion and becomes idempotent on success. A later error does not
+retract earlier events. Stage consumer changes until successful completion when
+atomic updates are required. JSON `KeepLast` buffers the document until `Finish()`
+to resolve later duplicate keys. `Reset()` starts another document while retaining
+capacity; failed diagnostics remain stable until reset.
 
 Event values are callback-scoped, including values assembled from several
 chunks. Copy any value that must survive the callback.
