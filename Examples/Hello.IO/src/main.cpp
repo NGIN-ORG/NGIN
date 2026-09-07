@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #endif
 
-#include "Runtime.hpp"
+#include "Application.hpp"
 
 #include <NGIN/Async/Task.hpp>
 #include <NGIN/Async/WhenAll.hpp>
@@ -72,7 +72,7 @@ namespace HelloIO
         }
     }
 
-    // Completion distinguishes typed I/O errors, cancellation, and runtime faults.
+    // Completion distinguishes typed I/O errors, cancellation, and app faults.
     template<typename T, typename E>
     T Require(Async::Completion<T, E> result, std::string_view action)
     {
@@ -153,9 +153,9 @@ namespace HelloIO
         return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
     }
 
-    const char* BackendName(IO::FileSystemDriver::ActiveBackend backend)
+    const char* BackendName(IO::Runtime::FileBackend backend)
     {
-        using Backend = IO::FileSystemDriver::ActiveBackend;
+        using Backend = IO::Runtime::FileBackend;
         switch (backend)
         {
             case Backend::NativeIoUring:
@@ -230,9 +230,9 @@ namespace HelloIO
         return port;
     }
 
-    Net::TcpListener OpenStation()
+    Net::TcpListener OpenStation(IO::Runtime& io)
     {
-        Net::TcpListener listener;
+        Net::TcpListener listener(io);
         Require(listener.Open(Net::AddressFamily::V4), "open station listener");
         Require(listener.Bind({Net::IpAddress::LoopbackV4(), 0}),
                 "bind loopback station");
@@ -241,14 +241,13 @@ namespace HelloIO
     }
 
     Async::Task<void, Net::NetError> EchoStation(Async::TaskContext& ctx,
-                                                 Net::NetworkDriver& driver,
                                                  Net::TcpListener&   listener)
     {
         const auto token  = ctx.GetCancellationToken();
-        auto       socket = co_await listener.AcceptAsync(ctx, driver, token);
-        // This existing adapter owns the socket and borrows the shared driver once.
+        auto       socket = co_await listener.AcceptAsync(ctx);
+        // The accepted socket inherits the listener runtime; adapters preserve that binding.
         MessageStream                messages(std::make_unique<Net::Transport::TcpByteStream>(
-                std::move(socket), driver));
+                std::move(socket)));
         std::array<NGIN::Byte, 4096> storage {};
         Net::Buffer                  buffer;
         buffer.data     = storage.data();
@@ -262,13 +261,13 @@ namespace HelloIO
     }
 
     Async::Task<void, Net::NetError>
-    SendProbeLog(Async::TaskContext& ctx, Net::NetworkDriver& driver,
+    SendProbeLog(Async::TaskContext& ctx,
                  Net::TcpSocket socket, Net::Endpoint station, std::string log)
     {
         const auto token = ctx.GetCancellationToken();
-        co_await socket.ConnectAsync(ctx, driver, station, token);
+        co_await socket.ConnectAsync(ctx, station);
         MessageStream messages(std::make_unique<Net::Transport::TcpByteStream>(
-                std::move(socket), driver));
+                std::move(socket)));
         co_await messages.WriteMessageAsync(ctx, Bytes(log), token);
 
         std::array<NGIN::Byte, 4096> storage {};
@@ -280,30 +279,30 @@ namespace HelloIO
         co_return;
     }
 
-    void ExchangeWithMissionControl(Runtime& runtime, Async::TaskContext& ctx,
+    void ExchangeWithMissionControl(Application& app, Async::TaskContext& ctx,
                                     const std::string& log)
     {
-        auto           listener = OpenStation();
-        Net::TcpSocket probe;
+        auto           listener = OpenStation(app.Io());
+        Net::TcpSocket probe(app.Io());
         Require(probe.Open(Net::AddressFamily::V4), "open probe socket");
         const Net::Endpoint station {Net::IpAddress::LoopbackV4(),
                                      BoundPort(listener.Handle())};
 
-        // All children finish before listener, driver references, or buffers go
+        // All children finish before listener, runtime references, or buffers go
         // away. The application deadline also releases a peer left waiting if
         // the other child fails. Never block a task worker with SyncWait.
         Require(Async::SyncWait(
                         ctx,
-                        Async::WhenAll(ctx, EchoStation(ctx, runtime.Network(), listener),
-                                       SendProbeLog(ctx, runtime.Network(),
+                        Async::WhenAll(ctx, EchoStation(ctx, listener),
+                                       SendProbeLog(ctx,
                                                     std::move(probe), station, log))),
                 "exchange mission log");
     }
 
-    void CancelSilentStation(Runtime&            runtime,
+    void CancelSilentStation(Application&        app,
                              Async::TaskContext& applicationContext)
     {
-        auto                      listener = OpenStation();
+        auto                      listener = OpenStation(app.Io());
         Async::CancellationSource patience;
         auto                      waitContext =
                 applicationContext.WithLinkedCancellationToken(patience.GetToken());
@@ -314,8 +313,7 @@ namespace HelloIO
         // No client will connect. Cancellation requests termination; awaiting the
         // terminal completion is what makes it safe to destroy the listener.
         auto result = Async::SyncWait(
-                waitContext, listener.AcceptAsync(waitContext, runtime.Network(),
-                                                  waitContext.GetCancellationToken()));
+                waitContext, listener.AcceptAsync(waitContext));
         if (!result.IsCanceled())
         {
             Require(std::move(result), "wait for silent station");
@@ -332,31 +330,31 @@ int main()
     using namespace HelloIO;
     try
     {
-        Runtime                   runtime;
+        Application               app;
         Async::CancellationSource shutdown;
-        auto                      ctx = runtime.MakeTaskContext(shutdown.GetToken());
+        auto                      ctx = app.MakeTaskContext(shutdown.GetToken());
         Expect(shutdown.CancelAfter(ctx.GetExecutor(), Milliseconds {10000})
                        .has_value(),
                "could not schedule application deadline");
-        ScratchDirectory scratch(runtime.Files());
+        ScratchDirectory scratch(app.Files());
 
-        std::cout << "Hello.IO: launching the async expedition\n"
-                  << "File backend: " << BackendName(runtime.FileBackend()) << '\n';
+        std::cout << "Hello.IO: launching the async expedition\n";
         auto log =
                 Require(Async::SyncWait(ctx, GatherTelemetry(ctx)), "gather telemetry");
         std::cout << "[async] Both sensors checked in\n"
                   << log;
 
         auto restored =
-                Require(Async::SyncWait(ctx, SaveMissionLog(ctx, runtime.Files(),
+                Require(Async::SyncWait(ctx, SaveMissionLog(ctx, app.Files(),
                                                             scratch.Path(), log)),
                         "save and restore black-box log");
+        std::cout << "File backend: " << BackendName(app.Io().GetFileBackend()) << '\n';
         std::cout << "[files] Mission log saved, copied, and verified\n";
 
-        ExchangeWithMissionControl(runtime, ctx, restored);
+        ExchangeWithMissionControl(app, ctx, restored);
         std::cout << "[tcp] Mission control echoed the complete log\n";
 
-        CancelSilentStation(runtime, ctx);
+        CancelSilentStation(app, ctx);
         std::cout << "[cancel] Silent station wait canceled and completed\n";
 
         // Every root and child operation is terminal before cleanup and Stop().

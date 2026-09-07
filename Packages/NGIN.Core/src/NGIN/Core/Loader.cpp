@@ -129,15 +129,14 @@ void ReadStringRefs(const std::optional<XmlElement> &element,
                                           const std::string_view xmlText,
                                           ModuleDescriptor &out) noexcept
     -> CoreResult<void> {
-  auto parsed = XmlParser::Parse(
-      NGIN::Serialization::OwnedTextBuffer{xmlText});
+  auto parsed = XmlParser::Parse(xmlText);
   if (!parsed) {
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeKernelError(KernelErrorCode::ConfigFailure, "Loader", {},
                         "failed to parse plugin descriptor: " + filePath));
   }
 
-  const XmlDocument &doc = parsed.Value();
+  const XmlDocument &doc = parsed.value();
   const auto root = doc.Root();
   if (!root.IsValid() || root.Name() != "Module") {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(

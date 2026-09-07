@@ -23,7 +23,7 @@ handles or async I/O only when their control is useful.
 | Whole-file access | `ReadAllText`, `WriteAllText`, `ReadAllBytes`, `WriteAllBytes` |
 | Crash-safe replacement | `WriteAllTextAtomic`, `WriteAllBytesAtomic`, `AtomicWriteOptions` |
 | Mounted namespaces | `VirtualFileSystem` |
-| Coroutine file operations | `FileSystemDriver`, `IAsyncFileSystem`, async handles |
+| Coroutine file operations | `IO::Runtime`, `IAsyncFileSystem`, async handles |
 | Child processes | `Process`, `ProcessOptions`, `ProcessResult`, `ProcessError` |
 | Shared-library loading | `DynamicLibrary` |
 
@@ -119,21 +119,23 @@ loop until the required byte count or an error/end condition is reached.
 
 ## Async filesystem
 
-Async operations require both a `TaskContext` and an explicitly owned driver.
+Async operations require both a `TaskContext` and an explicitly owned runtime.
 
 ```cpp
-NGIN::IO::FileSystemDriver driver;
-NGIN::Async::TaskContext context = driver.MakeTaskContext();
-NGIN::IO::LocalFileSystem fileSystem;
+NGIN::Execution::ThreadPoolScheduler scheduler(1);
+NGIN::IO::Runtime io;
+NGIN::Async::TaskContext context(scheduler);
+NGIN::IO::LocalFileSystem fileSystem(io);
 
 auto task = NGIN::IO::ReadAllBytesAsync(fileSystem, context, path);
-auto operation = NGIN::Async::Spawn(context, std::move(task));
+auto completion = NGIN::Async::SyncWait(context, std::move(task));
+if (!completion.Succeeded()) { /* handle domain error, cancellation, or fault */ }
 ```
 
 Native support is platform-sensitive. Linux can use `io_uring`; Windows can
 use IOCP for supported file operations. Path lookup and directory work may use
-the driver's fallback path. Completion resumes on the caller's executor. The
-driver and context must remain alive until work terminates.
+the runtime's fallback path. Completion resumes on the caller's executor. The
+runtime and context must remain alive until work terminates.
 
 For startup code and ordinary tools, synchronous access is usually simpler.
 

@@ -15,8 +15,7 @@ description: Parse and inspect complete JSON and XML documents with checked view
 int main() {
     using namespace NGIN::Serialization;
 
-    auto parsed = JSON::Parse(OwnedTextBuffer {
-        R"({"name":"Ada","count":3})"});
+    auto parsed = JSON::Parse(R"({"name":"Ada","count":3})");
 
     if (!parsed) {
         const auto& error = parsed.error();
@@ -47,15 +46,15 @@ Expected output:
 Ada 3
 ```
 
-The returned `Document` owns parsed state. `Root`, `ObjectView`, and member
+The returned `Document` owns the input copy and parsed state; the original input
+is needed only during the call. `Root`, `ObjectView`, and member
 `ValueView` objects borrow that state and must not outlive the document.
 
 ## Parse XML
 
 ```cpp
 auto parsed = NGIN::Serialization::XML::Parse(
-    NGIN::Serialization::OwnedTextBuffer {
-        R"(<user count="3">Ada</user>)"});
+    R"(<user count="3">Ada</user>)");
 
 if (!parsed) {
     return Report(parsed.error());

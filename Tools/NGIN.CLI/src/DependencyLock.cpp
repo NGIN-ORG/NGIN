@@ -2,7 +2,6 @@
 
 #include "Canonical.hpp"
 
-#include <NGIN/Serialization/Core/SourceBuffer.hpp>
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 
 #include <algorithm>
@@ -223,15 +222,15 @@ namespace NGIN::CLI
     auto ParseDependencyLock(const std::string_view text) -> DependencyLockParseResult
     {
         DependencyLockParseResult result{};
-        auto parsed = NGIN::Serialization::JSON::Parse(NGIN::Serialization::OwnedTextBuffer{text});
-        if (!parsed.HasValue())
+        auto parsed = NGIN::Serialization::JSON::Parse(text);
+        if (!parsed.has_value())
         {
-            const auto &error = parsed.Error();
+            const auto &error = parsed.error();
             AddParseError(result.diagnostics, "invalid dependency lock JSON: " + std::string(error.message.View()),
                           error.location.line, error.location.column);
             return result;
         }
-        const auto root = parsed.Value().Root().TryObject();
+        const auto root = parsed.value().Root().TryObject();
         if (!root.has_value())
         {
             AddParseError(result.diagnostics, "dependency lock root must be an object");

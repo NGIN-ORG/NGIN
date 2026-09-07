@@ -84,7 +84,7 @@ You probably do not need it when:
 - Need fine-grained file IO:
   - use `FileHandle`
 - Need async filesystem operations:
-  - use `IAsyncFileSystem` together with `FileSystemDriver` or another suitable executor-backed `TaskContext`
+  - use `IAsyncFileSystem` together with a runtime-bound `LocalFileSystem` and an executor-backed `TaskContext`
   - use `AsyncDirectoryHandle` when async code needs directory-relative operations
 
 ## Sync-First Recommendation
@@ -96,13 +96,15 @@ Use async filesystem APIs only when:
 - your surrounding code already uses `TaskContext` and an executor
 - avoiding blocking is materially important to the design
 
-If you want a straightforward setup, start with `FileSystemDriver`.
+Create `NGIN::IO::Runtime io`, bind `LocalFileSystem files(io)`, and use a separate task scheduler.
+The runtime creates file workers lazily on first async use. Default-constructed
+filesystems support synchronous operations; async use requires runtime binding.
 
-Current async local-file execution is driver-backed and platform-sensitive:
+Current async local-file execution is runtime-backed and platform-sensitive:
 
-- on Linux, `FileSystemDriver` uses `io_uring` for async file read, write, flush, and close when the native backend is available
-- on Windows, `FileSystemDriver` uses an IOCP-backed native file backend for async file read, write, flush, and close when the native backend is available
-- path lookup, directory operations, and other unsupported operations can still route through the driver fallback path
+- on Linux, `IO::Runtime` uses `io_uring` for async file read, write, flush, and close when the native backend is available
+- on Windows, `IO::Runtime` uses an IOCP-backed native file backend for async file read, write, flush, and close when the native backend is available
+- path lookup, directory operations, and other unsupported operations can still route through the runtime fallback path
 
 In all cases, the operation resumes your task on the `TaskContext` executor when the work completes.
 
@@ -348,7 +350,7 @@ Recommended async types:
 - `IAsyncFileSystem` for async filesystem entry points
 - `AsyncFileHandle` for lower-level async file reads and writes
 - `AsyncDirectoryHandle` for directory-relative async filesystem work
-- `FileSystemDriver` when you want a ready-made async filesystem driver and executor
+- `IO::Runtime` when you want a ready-made shared filesystem/socket backend owner
 
 ## `Path` Versus `std::filesystem::path`
 

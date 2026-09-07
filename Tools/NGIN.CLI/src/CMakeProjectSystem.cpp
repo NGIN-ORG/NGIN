@@ -1,6 +1,5 @@
 #include "CMakeProjectSystem.hpp"
 
-#include <NGIN/Serialization/Core/SourceBuffer.hpp>
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 
 #include <algorithm>
@@ -128,16 +127,16 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseJson(const fs::path &path) -> NGIN::Serialization::JSON::Document
         {
-            auto parsed = NGIN::Serialization::JSON::Parse(NGIN::Serialization::OwnedTextBuffer{ReadText(path)});
-            if (!parsed.HasValue())
+            auto parsed = NGIN::Serialization::JSON::Parse(ReadText(path));
+            if (!parsed.has_value())
             {
-                const auto &error = parsed.Error();
+                const auto &error = parsed.error();
                 throw std::runtime_error(path.generic_string() + ": invalid JSON at " +
                                          std::to_string(error.location.line) + ':' +
                                          std::to_string(error.location.column) + ": " +
                                          std::string(error.message.View()));
             }
-            return std::move(parsed.Value());
+            return std::move(parsed.value());
         }
 
         [[nodiscard]] auto Quote(const std::string &value) -> std::string
@@ -482,9 +481,9 @@ namespace NGIN::CLI
             }
             const auto process = RunCaptured("ctest", arguments, snapshot.root);
             if (process.exitCode != 0) return;
-            auto parsed = NGIN::Serialization::JSON::Parse(NGIN::Serialization::OwnedTextBuffer{process.output});
-            if (!parsed.HasValue()) return;
-            const auto root = parsed.Value().Root().TryObject();
+            auto parsed = NGIN::Serialization::JSON::Parse(process.output);
+            if (!parsed.has_value()) return;
+            const auto root = parsed.value().Root().TryObject();
             if (!root.has_value()) return;
             ForObjects(*root, "tests", [&](const JsonObject &test) {
                 if (const auto name = String(test, "name"); name.has_value()) snapshot.tests.push_back({.name = *name});

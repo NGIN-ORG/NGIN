@@ -2,7 +2,6 @@
 
 #include "MetaGenCommon.hpp"
 
-#include <NGIN/Serialization/Core/SourceBuffer.hpp>
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 
 #include <algorithm>
@@ -125,14 +124,13 @@ struct CompileCommand {
                           path.string() + "'");
     return {};
   }
-  JsonParseResult parsed = NGIN::Serialization::JSON::Parser::Parse(
-      NGIN::Serialization::OwnedTextBuffer{*text});
+  JsonParseResult parsed = NGIN::Serialization::JSON::Parser::Parse(*text);
   if (!parsed) {
     diagnostics.push_back("failed to parse compilation database '" +
                           path.string() + "'");
     return {};
   }
-  const std::optional<JsonArray> array = parsed.Value().Root().TryArray();
+  const std::optional<JsonArray> array = parsed.value().Root().TryArray();
   if (!array) {
     diagnostics.push_back("compilation database root must be an array");
     return {};

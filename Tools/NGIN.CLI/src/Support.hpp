@@ -329,13 +329,12 @@ inline auto ExtractZipFile(const fs::path &archivePath,
 [[nodiscard]] inline auto LoadXml(const fs::path &path) -> LoadedXml {
   LoadedXml loaded{};
   loaded.text = ReadText(path);
-  auto parsed = XmlParser::Parse(
-      NGIN::Serialization::OwnedTextBuffer{loaded.text});
-  if (!parsed.HasValue()) {
+  auto parsed = XmlParser::Parse(loaded.text);
+  if (!parsed.has_value()) {
     throw std::runtime_error(
-        path.string() + ": failed to parse XML: " + ToString(parsed.Error()));
+        path.string() + ": failed to parse XML: " + ToString(parsed.error()));
   }
-  loaded.document = std::move(parsed.Value());
+  loaded.document = std::move(parsed.value());
   return loaded;
 }
 
@@ -343,13 +342,12 @@ inline auto ExtractZipFile(const fs::path &archivePath,
                                       const std::string &origin) -> LoadedXml {
   LoadedXml loaded{};
   loaded.text = text;
-  auto parsed = XmlParser::Parse(
-      NGIN::Serialization::OwnedTextBuffer{loaded.text});
-  if (!parsed.HasValue()) {
+  auto parsed = XmlParser::Parse(loaded.text);
+  if (!parsed.has_value()) {
     throw std::runtime_error(
-        origin + ": failed to parse XML: " + ToString(parsed.Error()));
+        origin + ": failed to parse XML: " + ToString(parsed.error()));
   }
-  loaded.document = std::move(parsed.Value());
+  loaded.document = std::move(parsed.value());
   return loaded;
 }
 
@@ -406,7 +404,7 @@ inline auto ExtractZipFile(const fs::path &archivePath,
   auto encoded = NGIN::Serialization::XML::Writer::EscapeAttribute(input);
   if (!encoded)
     throw std::runtime_error("failed to encode XML attribute");
-  return std::move(encoded.Value());
+  return std::move(encoded.value());
 }
 
 [[nodiscard]] inline auto EscapeCMake(std::string_view input) -> std::string {

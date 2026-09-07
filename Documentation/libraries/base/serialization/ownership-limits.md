@@ -1,22 +1,28 @@
 ---
 title: Serialization ownership, views, limits, and diagnostics
-description: Choose owned, borrowed, in-situ, or lossless parsing and preserve every backing lifetime.
+description: Parse strings into self-contained documents and understand view lifetimes, limits, and diagnostics.
 ---
 
 # Ownership, views, limits, and diagnostics
 
-## Parse modes
+## Parse documents
 
-| Mode | Owns source/state | Use when |
-| --- | --- | --- |
-| `Parse(OwnedTextBuffer)` | Returned document owns source and arena | Normal self-contained document |
-| `ParseBorrowed(BorrowedTextView, ParseScratch&)` | Input and document state are borrowed | Caller already owns stable input and wants explicit scratch |
-| `ParseInSitu(MutableTextBuffer)` | Document owns mutable source; parser may rewrite it | Decoding/normalization in the owned buffer is acceptable |
-| `XML::ParseSyntax` | Owns original bytes and syntax tokens | Exact formatter/editor round trip matters |
+Use `JSON::Parse(text)` or `XML::Parse(text)` for ordinary parsing. The
+`std::string_view` argument accepts literals, `std::string`, and views. Input
+is copied into the returned document and is needed only during the call.
+`XML::ParseSyntax(text)` provides the same ownership guarantee for lossless XML.
 
-`ParseScratch` is working storage; borrowed parsing does not make external input
-owned. Keep the input, document, and every view alive in the order required by
-the selected mode.
+Every document parse owns its source and parsed state. Use `XML::ParseSyntax`
+when exact source bytes and syntax tokens are needed for editor/formatter work.
+Set `ParseOptions::source` to identify source spans without wrapping the input.
+
+```cpp
+auto document = NGIN::Serialization::JSON::Parse(
+    text, {.source = NGIN::Serialization::SourceId {7}});
+```
+
+`ParseScratch` is reusable workspace for event parsing. Event values are valid
+only during the callback and must be copied if retained.
 
 ## View lifetime
 

@@ -27,11 +27,11 @@ Typical output (the selected file backend varies by platform):
 
 ```text
 Hello.IO: launching the async expedition
-File backend: worker fallback
 [async] Both sensors checked in
 Captain's log: the async expedition
 Shields: 98%
 Emergency cookies: 7
+File backend: worker fallback
 [files] Mission log saved, copied, and verified
 [tcp] Mission control echoed the complete log
 [cancel] Silent station wait canceled and completed
@@ -40,34 +40,32 @@ Hello.IO complete: scratch files removed, all tasks joined
 
 ## Application setup
 
-Start with [`src/Runtime.hpp`](src/Runtime.hpp). The application owns these
-resources once and shares them across operations:
+Start with [`src/Application.hpp`](src/Application.hpp). The application owns
+one task scheduler and one `NGIN::IO::Runtime`:
 
 | Resource | Responsibility |
 | --- | --- |
 | `ThreadPoolScheduler` | Executes coroutine continuations and timers; accepts completion submissions from I/O threads |
 | `TaskContext` | Borrows that scheduler and carries cancellation into tasks |
-| Shared `FileSystemDriver` | Owns native file I/O machinery and fallback workers |
-| `LocalFileSystem` | Uses that explicitly supplied file driver |
-| `NetworkDriver` | Tracks socket readiness/completion for all sockets |
-| Dedicated network thread | Calls `NetworkDriver::Run()` until shutdown |
+| `IO::Runtime` | Lazily owns file and network backends, including the background network thread |
+| `LocalFileSystem(io)` | Binds file operations to the shared runtime |
+| `TcpSocket(io)` / `TcpListener(io)` | Bind socket operations once; accepted sockets inherit the listener binding |
 
-The task scheduler uses one worker, enough for these mostly-waiting tasks.
-Schedulers also have timer infrastructure; this is not a promise of only one
-thread for the whole application. Filesystem work has separate workers.
-`workerThreads = 0` on the network driver means its `Run()` loop executes on
-our dedicated thread. `Create()` alone does not start polling, and increasing
-`workerThreads` does not turn `Run()` into a nonblocking start function.
+Construction and binding start no I/O workers. The first async file operation
+initializes the file backend; the first async socket operation initializes the
+network backend. A networking-only application starts no filesystem workers.
+The task scheduler uses one worker for these mostly-waiting coroutines and has
+its own timer infrastructure. TaskContext remains independent of the I/O runtime.
 
-All demos use the same application task context. They do not run their whole
-coroutines on the network driver or use a special filesystem task context.
-The main thread calls `SyncWait` only at application boundaries. Coroutine
-functions use `co_await`; blocking an executor worker could prevent progress.
+All demos use the same application task context. The main thread calls
+`SyncWait` only at application boundaries. Coroutine functions use `co_await`;
+blocking an executor worker could prevent progress. `ThreadPoolScheduler`
+accepts cross-thread completion submissions; the current unsynchronized
+`CooperativeScheduler` cannot be substituted into this background-I/O setup.
 
-The current `CooperativeScheduler` does not synchronize cross-thread queue
-access. Do not substitute it here while background I/O threads submit to it.
-An application integrating polling into its own loop must choose a scheduler
-and completion-dispatch arrangement appropriate to that threading model.
+`IO::Runtime` defaults to Background networking. Applications with their own
+polling loop can select `NetworkMode::Manual` and call `Run()` or `PollOnce()`
+on one polling thread. Background mode requires neither call and rejects them.
 
 ## The expedition
 
@@ -79,10 +77,10 @@ Read the named functions in [`src/main.cpp`](src/main.cpp):
 2. **Save the black box.** Write the telemetry asynchronously, copy it to a
    backup, read it back, and verify every byte. The coroutine owns the string
    while the write operation borrows its byte span. `LocalFileSystem` uses
-   the shared driver's native backend when available, otherwise its fallback.
+   the shared runtime's native backend when available, otherwise its fallback.
 3. **Contact mission control.** Run a TCP listener and client concurrently on
    loopback. Send the saved log and verify the echo. `TcpByteStream` owns its
-   socket and borrows the driver once; `LengthPrefixedMessageStream` handles
+   socket and preserves its runtime binding; `LengthPrefixedMessageStream` handles
    message framing and partial TCP transfers. Receive storage is bounded to
    4096 bytes and stays alive across every await.
 4. **Give up on a silent station.** Await an incoming connection with a short,
@@ -107,11 +105,11 @@ The shutdown order is deliberate:
 1. Finish work, or request cancellation and still await completion.
 2. Release sockets, buffers, and file handles after their operations finish.
 3. Remove the example's scratch directory.
-4. Stop the network loop and join its thread.
-5. Destroy the I/O drivers, then the task scheduler.
+4. Stop/destroy the I/O runtime, which joins its owned network thread.
+5. Destroy the task scheduler.
 
-`NetworkDriver::Stop()` stops polling; it is not an application task-draining
-operation. Dropping an `Operation` is also not a join. `Runtime` expects callers
+`IO::Runtime::Stop()` stops polling and rejects new async work; it is not an application task-draining
+operation. Dropping an `Operation` is also not a join. `IO::Runtime` expects callers
 to finish their operations before its destructor runs, as the demos do.
 Cleanup of the unique scratch directory is also attempted on failure.
 
@@ -121,9 +119,10 @@ Cleanup of the unique scratch directory is also attempted on failure.
 - Send several framed messages, updating both client and server loops.
 - Change the silent station's deadline and observe cancellation independently
   of the application deadline.
-- Select `FileSystemDriver::BackendPreference::Fallback` in `Runtime` to try
-  the portable worker path explicitly.
+- Set `.files = {.backendPreference = IO::Runtime::FileBackendPreference::Fallback}`
+  in the runtime options to try the portable worker path explicitly.
 
-Continue with the Base guides for [async tasks](../../Dependencies/NGIN/NGIN.Base/docs/Async.md),
+Continue with the [shared runtime guide](../../Dependencies/NGIN/NGIN.Base/docs/IORuntime.md)
+and the Base guides for [async tasks](../../Dependencies/NGIN/NGIN.Base/docs/Async.md),
 [filesystem I/O](../../Dependencies/NGIN/NGIN.Base/docs/IO.md), and
 [networking](../../Dependencies/NGIN/NGIN.Base/docs/Network.md).

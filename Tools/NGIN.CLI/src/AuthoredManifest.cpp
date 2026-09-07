@@ -457,16 +457,16 @@ namespace NGIN::CLI
         AuthoredManifestResult result{};
         const auto &spec = options.spec == nullptr ? CurrentManifestSpec() : *options.spec;
         const SourceMap sourceMap(text, origin);
-        auto parsed = XmlParser::Parse(NGIN::Serialization::OwnedTextBuffer{text});
-        if (!parsed.HasValue())
+        auto parsed = XmlParser::Parse(text);
+        if (!parsed.has_value())
         {
-            const auto &error = parsed.Error();
+            const auto &error = parsed.error();
             AddDiagnostic(result.diagnostics, "NGIN1000", "invalid XML: " + ToString(error),
                           sourceMap.Point(error.location.offset));
             return result;
         }
 
-        const auto &document = parsed.Value();
+        const auto &document = parsed.value();
         const auto root = document.Root();
         NamespaceMap namespaces{{"xml", std::string(XmlNamespace)}, {"xmlns", std::string(XmlnsNamespace)}};
         ParseContext context{.spec = spec, .sourceMap = sourceMap, .diagnostics = result.diagnostics};

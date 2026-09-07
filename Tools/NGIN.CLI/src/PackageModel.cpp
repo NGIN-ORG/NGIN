@@ -2,7 +2,6 @@
 
 #include "Canonical.hpp"
 
-#include <NGIN/Serialization/Core/SourceBuffer.hpp>
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 
 #include <algorithm>
@@ -298,17 +297,17 @@ namespace NGIN::CLI
                          import.source);
                 return;
             }
-            auto parsed = NGIN::Serialization::JSON::Parse(NGIN::Serialization::OwnedTextBuffer{*text});
-            if (!parsed.HasValue())
+            auto parsed = NGIN::Serialization::JSON::Parse(*text);
+            if (!parsed.has_value())
             {
-                const auto &error = parsed.Error();
+                const auto &error = parsed.error();
                 AddError(diagnostics, "NGIN4011", "invalid CPS JSON: " + std::string(error.message.View()),
                          ManifestSourceRange{.path = cpsPath,
                                              .begin = ManifestSourcePosition{.line = error.location.line,
                                                                              .column = error.location.column}});
                 return;
             }
-            const auto root = parsed.Value().Root().TryObject();
+            const auto root = parsed.value().Root().TryObject();
             if (!root.has_value())
             {
                 AddError(diagnostics, "NGIN4011", "CPS root must be an object", source);

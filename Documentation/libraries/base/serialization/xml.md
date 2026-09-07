@@ -21,7 +21,7 @@ Node/attribute/child ranges borrow document state.
 
 ## Lossless syntax
 
-`XML::ParseSyntax(OwnedTextBuffer)` returns `SyntaxDocument`, which retains
+`XML::ParseSyntax(std::string_view)` returns `SyntaxDocument`, which retains
 tokens and original bytes for comments, whitespace, quote style, CDATA,
 declarations, processing instructions, and line endings. Choose this before
 semantic parsing if byte-preserving rewrite is a requirement; discarded trivia

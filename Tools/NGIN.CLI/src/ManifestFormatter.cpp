@@ -1,6 +1,5 @@
 #include "ManifestFormatter.hpp"
 
-#include <NGIN/Serialization/Core/SourceBuffer.hpp>
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <fstream>
@@ -111,9 +110,9 @@ namespace NGIN::CLI
     {
         ParseOptions options{};
         options.trivia = TriviaPolicy::Preserve;
-        auto parsed = Parse(NGIN::Serialization::OwnedTextBuffer{source}, options);
-        if (!parsed.HasValue()) throw std::runtime_error("invalid XML manifest");
-        const auto root = parsed.Value().Root();
+        auto parsed = Parse(source, options);
+        if (!parsed.has_value()) throw std::runtime_error("invalid XML manifest");
+        const auto root = parsed.value().Root();
         if (!root.IsValid()) throw std::runtime_error("manifest has no XML root element");
         std::ostringstream result{};
         result << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";

@@ -1,39 +1,38 @@
 ---
-title: Coroutine sockets and NetworkDriver
-description: Drive cancellation-aware socket tasks through an explicit NetworkDriver and caller-owned executor.
+title: Coroutine sockets and the I/O runtime
+description: Bind sockets to a shared IO::Runtime and resume tasks through their own executor.
 ---
 
-# Coroutine sockets and `NetworkDriver`
-
-Create one explicit readiness runtime and ensure it makes progress:
+# Coroutine sockets and the I/O runtime
 
 ```cpp
-auto driver = NGIN::Net::NetworkDriver::Create({});
-NGIN::Execution::CooperativeScheduler scheduler;
-NGIN::Async::TaskContext context {scheduler};
+NGIN::Execution::ThreadPoolScheduler scheduler(1);
+NGIN::IO::Runtime io;
+NGIN::Async::TaskContext ctx(scheduler);
+NGIN::Net::TcpSocket socket(io);
+if (!socket.Open()) return;
 
-auto task = socket.ConnectAsync(
-    context, *driver, endpoint, context.GetCancellationToken());
-auto operation = NGIN::Async::Spawn(context, std::move(task));
-
-while (!operation.IsCompleted()) {
-    driver->PollOnce();
-    scheduler.RunUntilIdle();
-}
+// At the application boundary; do not block a task worker with SyncWait.
+auto result = NGIN::Async::SyncWait(ctx, socket.ConnectAsync(
+        ctx, {NGIN::Net::IpAddress::LoopbackV4(), 9000}));
+if (!result.Succeeded()) return;
 ```
 
-`Run()` lets the driver own a blocking readiness loop; `PollOnce()` integrates
-one cycle into another loop; `Stop()` ends `Run`. No global driver exists.
+The runtime initializes networking on the first async operation and owns a
+background polling thread by default. It can also serve `LocalFileSystem(io)`
+without requiring file workers in a networking-only application. Sockets bind
+once; accepted sockets inherit the listener binding, and transport adapters
+preserve it when taking ownership of a socket.
 
-Async socket methods return `Task<T, NetError>`. Networking failures are domain
-errors, cancellation is the separate task cancellation state, and executor/
-runtime failures are async faults.
+`TaskContext` selects the continuation executor and cancellation. A socket
+method's optional explicit cancellation token is linked with the context token.
+The runtime and all borrowed buffers must remain alive until completion.
 
-Only retain caller buffers until send/receive task completion. Keep driver,
-socket, context/executor, cancellation state, and buffers alive. Stop/cancel
-new operations, drive them terminal, then destroy sockets and driver.
+For application-managed polling, construct the runtime with
+`.network = {.mode = NGIN::IO::Runtime::NetworkMode::Manual}` and call `Run()`
+or `PollOnce()` on one polling thread. Background mode rejects those calls.
+Cancel and await pending tasks before calling `Stop()` or destroying the runtime.
+The task executor must accept completion submissions from the I/O threads.
 
-Platform backends differ (IOCP, epoll, kqueue, select fallback) but expose the
-same public readiness contract. `ResourceExhausted` means required operation/
-cancellation readiness state could not be allocated and registration failed.
-
+See [Hello.IO](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/Hello.IO)
+for a complete loopback application, file operations, and cancellation.

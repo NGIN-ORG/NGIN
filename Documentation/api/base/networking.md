@@ -1,6 +1,6 @@
 ---
 title: NGIN.Base Networking and TLS API
-description: Addresses, endpoints, resolution, non-blocking sockets, network drivers, transports, framing, and TLS streams.
+description: Addresses, endpoints, resolution, non-blocking sockets, I/O runtimes, transports, framing, and TLS streams.
 ---
 
 # NGIN.Base Networking and TLS API
@@ -11,7 +11,7 @@ description: Addresses, endpoints, resolution, non-blocking sockets, network dri
 
 NGIN.Net is a low-level non-blocking socket library. Choose manual `Try*`
 operations when your application owns readiness, or async methods when an
-explicit `NetworkDriver` owns readiness.
+explicit `IO::Runtime` owns readiness.
 
 ## API map
 
@@ -23,7 +23,7 @@ explicit `NetworkDriver` owns readiness.
 | Outbound TCP | `TcpSocket` |
 | Inbound TCP | `TcpListener` |
 | UDP | `UdpSocket` |
-| Async readiness | `NetworkDriver` |
+| Async readiness | `IO::Runtime` |
 | Byte-stream abstraction | `IByteStream`, `TcpByteStream` |
 | Datagram abstraction | `IDatagramChannel`, `UdpDatagramChannel` |
 | Framed messages | `LengthPrefixedMessageStream` |
@@ -34,7 +34,7 @@ explicit `NetworkDriver` owns readiness.
 
 Socket and transport operations use `NetError`. `NetErrorCode::WouldBlock` is
 not a fatal connection failure: the non-blocking operation is not ready. Wait
-for the required readiness and try again, or use the driver's async operation.
+for the required readiness and try again, or await a bound socket operation.
 Preserve the native error value in diagnostics.
 
 ## Addresses and endpoints
@@ -87,30 +87,19 @@ send and receive operations can be partial; keep the remaining span and retry.
 ## Coroutine sockets
 
 ```cpp
-NGIN::Execution::CooperativeScheduler scheduler;
-NGIN::Async::TaskContext context {scheduler};
-auto driver = NGIN::Net::NetworkDriver::Create({});
-
-NGIN::Net::TcpSocket socket;
+NGIN::Execution::ThreadPoolScheduler scheduler(1);
+NGIN::IO::Runtime io;
+NGIN::Async::TaskContext ctx(scheduler);
+NGIN::Net::TcpSocket socket(io);
 if (!socket.Open()) return;
 
-auto task = [&]() -> NGIN::Async::Task<void, NGIN::Net::NetError> {
-    co_await socket.ConnectAsync(
-        context,
-        *driver,
-        {NGIN::Net::IpAddress::LoopbackV4(), 9000},
-        context.GetCancellationToken());
-    co_return;
-}();
-
-auto operation = NGIN::Async::Spawn(context, std::move(task));
-while (!operation.IsCompleted()) {
-    driver->PollOnce();
-    scheduler.RunUntilIdle();
-}
+// At the application boundary; do not block a task worker with SyncWait.
+auto result = NGIN::Async::SyncWait(ctx, socket.ConnectAsync(
+        ctx, {NGIN::Net::IpAddress::LoopbackV4(), 9000}));
+if (!result.Succeeded()) return;
 ```
 
-The network driver handles readiness; the task context chooses where the
+The I/O runtime handles readiness; the task context chooses where the
 coroutine resumes. Both owners, the socket, and the buffers used by the
 operation must remain valid until completion.
 
@@ -141,7 +130,7 @@ check is not sufficient authentication.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Async connect never completes | `NetworkDriver` is not polled/run | Drive the network driver and resume executor |
+| Async connect never completes | Manual runtime or continuation executor is not progressing | Poll Manual mode and run the continuation executor |
 | `WouldBlock` treated as disconnect | Manual non-blocking flow is incomplete | Wait for readiness and retry |
 | Corrupt application messages | TCP byte chunks treated as message boundaries | Add an explicit framing protocol |
 | TLS connects to the wrong peer | Identity verification is disabled/misconfigured | Set trust and expected-host policy before handshake |

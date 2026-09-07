@@ -32,24 +32,26 @@ input bytes → parse mode → document state → borrowed views
                  └─ limits      └─ owns arena     └─ never outlive state
 ```
 
-## Choose an ownership model
+## Parse text into an owning document
 
 | Parse API | Returned document | Lifetime rule |
 | --- | --- | --- |
-| `JSON::Parse(OwnedTextBuffer)` / `XML::Parse(...)` | Owned semantic document | Self-contained and movable |
-| `ParseBorrowed(BorrowedTextView, ParseScratch&)` | Borrowed document | Input and document must remain alive; scratch is not retained |
-| `ParseInSitu(MutableTextBuffer)` | Owned semantic document | Parser may decode/normalize inside the mutable source |
-| `XML::ParseSyntax(OwnedTextBuffer)` | Lossless syntax document | Preserves authored bytes and tokens for formatter/editor round trips |
+| `JSON::Parse(std::string_view)` / `XML::Parse(...)` | Owned semantic document | Self-contained and movable |
+| `XML::ParseSyntax(std::string_view)` | Lossless syntax document | Preserves authored bytes and tokens for formatter/editor round trips |
 
-A bare `std::string_view` is deliberately not an owning parse input. Views into
-a document remain valid while its backing document state lives. Moving a
-document does not relocate that state.
+`JSON::Parse(text)` and `XML::Parse(text)` accept `std::string_view` and copy
+the input into the returned document. The input can be modified or destroyed
+after the call returns. Views into a document remain valid while its backing
+state lives; moving a document does not relocate that state.
+
+Set `ParseOptions::source` to attach a `SourceId` to spans and diagnostics.
+All document parse results own their storage.
 
 ## JSON
 
 ```cpp
 auto document = NGIN::Serialization::JSON::Parse(
-    NGIN::Serialization::OwnedTextBuffer {R"({"count":42})"});
+    R"({"count":42})");
 if (!document) {
     return Report(document.error());
 }
@@ -86,10 +88,9 @@ local-name pairs.
 Use `ElementView::Attribute`, `Children(name)`, `FirstChild`, and `FirstText`
 for allocation-free reads. Semantic nodes carry source spans.
 
-`ParseInSitu` can rewrite decoded entities and normalized line endings in its
-owned source. Use ordinary `Parse` when exact original bytes matter, and
-`ParseSyntax` when the output must preserve comments, whitespace, quote choice,
-CDATA, declarations, processing instructions, and line endings byte for byte.
+Semantic parsing preserves the original source and stores decoded text
+separately. Use `ParseSyntax` when output must preserve comments, whitespace,
+quote choices, and line endings exactly.
 
 ## Limits and diagnostics
 

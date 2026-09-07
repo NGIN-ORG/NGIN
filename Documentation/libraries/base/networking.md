@@ -5,7 +5,7 @@ description: Choose and use NGIN.Base addresses, resolution, sockets, coroutine 
 
 # Learn NGIN.Networking
 
-`NGIN::Net` is a low-level non-blocking socket library with an explicit async driver.
+`NGIN::Net` is a low-level non-blocking socket library with a shared I/O runtime.
 
 ## Start here
 
@@ -21,7 +21,7 @@ description: Choose and use NGIN.Base addresses, resolution, sockets, coroutine 
 The most important lifetime chain is:
 
 ```text
-NetworkDriver → socket operation → TaskContext/cancellation → caller buffer
+IO::Runtime → socket operation → TaskContext/cancellation → caller buffer
 ```
 
 Every item on the left and the caller buffer must satisfy the operation’s
@@ -42,7 +42,7 @@ The two main styles are:
   - handle `WouldBlock`
   - integrate with your own readiness loop
 - coroutine async:
-  - create a `NetworkDriver`
+  - create a `NGIN::IO::Runtime`
   - run or poll it
   - use `ConnectAsync`, `AcceptAsync`, `SendAsync`, and `ReceiveAsync`
 
@@ -66,7 +66,7 @@ You probably do not need it when:
 
 - Stable and central:
   - low-level TCP/UDP socket wrappers
-  - explicit `NetworkDriver`
+  - explicit `NGIN::IO::Runtime`
   - `WouldBlock`-based non-blocking flow
 - Usable and maturing:
   - higher-level transport guidance and end-to-end examples
@@ -81,7 +81,7 @@ You probably do not need it when:
 - Need UDP datagrams:
   - use `UdpSocket`
 - Need coroutine-based socket async:
-  - use a `NetworkDriver` plus the async socket methods
+  - use a `NGIN::IO::Runtime` plus the async socket methods
 - Need to parse a numeric address or endpoint:
   - use `IpAddress::Parse` or `Endpoint::Parse`
 - Need to resolve a hostname or service:
@@ -102,9 +102,10 @@ That means:
 
 - `Try*` methods may return `NetErrorCode::WouldBlock`
 - `WouldBlock` means “not ready yet”, not “fatal error”
-- async socket operations require a `NetworkDriver`
+- async socket operations require a `NGIN::IO::Runtime`
 
-If you forget to run or poll the `NetworkDriver`, async network tasks will not make progress.
+The runtime polls networking on an owned thread by default. In Manual mode,
+call `Run()` or `PollOnce()` so pending socket operations can progress.
 
 ## Addresses and endpoints
 
@@ -176,35 +177,16 @@ Use this style when you already have your own event loop or readiness model.
 ### Coroutine-based TCP client
 
 ```cpp
-NGIN::Execution::CooperativeScheduler scheduler;
+NGIN::Execution::ThreadPoolScheduler scheduler(1);
+NGIN::IO::Runtime io;
 NGIN::Async::TaskContext ctx(scheduler);
-auto driver = NGIN::Net::NetworkDriver::Create({});
+NGIN::Net::TcpSocket socket(io);
+if (!socket.Open()) return;
 
-NGIN::Net::TcpSocket socket;
-auto opened = socket.Open();
-if (!opened)
-{
-    return;
-}
-
-auto task = [&]() -> NGIN::Async::Task<void, NGIN::Net::NetError>
-{
-    co_await socket.ConnectAsync(
-        ctx,
-        *driver,
-        {NGIN::Net::IpAddress::LoopbackV4(), 9000},
-        ctx.GetCancellationToken());
-    co_return;
-}();
-
-auto operation = NGIN::Async::Spawn(ctx, std::move(task));
-while (!operation.IsCompleted())
-{
-    driver->PollOnce();
-    scheduler.RunUntilIdle();
-}
-
-auto result = operation.TakeResult();
+// At the application boundary; do not block a task worker with SyncWait.
+auto result = NGIN::Async::SyncWait(ctx, socket.ConnectAsync(
+        ctx, {NGIN::Net::IpAddress::LoopbackV4(), 9000}));
+if (!result.Succeeded()) return;
 ```
 
 Use this style when the rest of your code already uses `Task<T, E>`.
@@ -228,12 +210,12 @@ This applies to:
 - `TrySend`
 - `TryReceive`
 
-### Use async methods when you already have a driver
+### Bind a runtime before using async methods
 
 The coroutine path is:
 
-1. create a `NetworkDriver`
-2. make sure it is being run or polled
+1. create a `NGIN::IO::Runtime`
+2. construct sockets/listeners with that runtime (the default mode polls in the background)
 3. create a `TaskContext`
 4. call the async socket methods from tasks
 
@@ -258,7 +240,7 @@ Manual flow:
 Async flow:
 
 - same setup
-- then `AcceptAsync(ctx, driver, token)`
+- then `AcceptAsync(ctx)`
 
 ### Use transport adapters at the right level
 
@@ -321,32 +303,21 @@ operations fail explicitly.
 If no provider was compiled, context and stream factories return
 `TlsErrorCode::ProviderUnavailable`. They never silently fall back to plaintext.
 
-## `NetworkDriver` In Practice
+## Shared I/O runtime
 
-`NetworkDriver` is the explicit async runtime for socket readiness.
+Bind sockets and filesystems to the same `NGIN::IO::Runtime`. It lazily creates
+independent file and socket backends. Accepted sockets and transport adapters
+retain their runtime binding. TaskContext selects the continuation executor;
+async socket methods also inherit its cancellation token.
 
-You need it for:
-
-- socket async methods
-- transport adapters that depend on async socket operations
-
-You do not need it for:
-
-- plain `Try*` socket usage in your own loop
-
-Operationally:
-
-- `Create(options)` constructs the driver
-- `Run()` blocks and drives the runtime continuously
-- `PollOnce()` performs one readiness cycle
-- `Stop()` ends a running driver loop
-
-Choose `Run()` when the driver owns a thread or dedicated loop.
-Choose `PollOnce()` when you want to integrate it into an existing loop.
+The default Background mode owns its polling thread. Manual mode supports
+`Run()` or nonblocking `PollOnce()` on one externally owned polling thread.
+Cancel and await pending work before `Stop()`, which ends polling and rejects
+new async work. The runtime must outlive resources and operations.
 
 ## Common Mistakes
 
-- Using async socket methods without a running or polled `NetworkDriver`.
+- Using async socket methods without a bound runtime, or neglecting to poll Manual mode.
 - Treating `WouldBlock` as a fatal error.
 - Reaching for transport adapters when raw sockets are the right level.
 - Reaching for raw sockets when a byte-stream or message-stream adapter is the right level.
@@ -361,7 +332,7 @@ Choose `PollOnce()` when you want to integrate it into an existing loop.
 Platform differences should not change the basic usage model:
 
 - manual non-blocking flow uses `Try*`
-- coroutine async flow uses `NetworkDriver`
+- coroutine async flow uses `NGIN::IO::Runtime`
 
 ## Reference Notes
 
@@ -370,7 +341,7 @@ Important types:
 - `TcpSocket`
 - `TcpListener`
 - `UdpSocket`
-- `NetworkDriver`
+- `NGIN::IO::Runtime`
 - `TcpByteStream`
 - `LengthPrefixedMessageStream`
 

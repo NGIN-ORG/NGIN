@@ -56,14 +56,13 @@ struct LoadedXmlDocument {
   text << input.rdbuf();
   loaded.text = text.str();
 
-  XmlParseResult parsed =
-      XmlParser::Parse(NGIN::Serialization::OwnedTextBuffer{loaded.text});
+  XmlParseResult parsed = XmlParser::Parse(loaded.text);
   if (!parsed) {
     diagnostics.push_back("failed to parse generator context '" +
                           path.string() + "'");
     return std::nullopt;
   }
-  loaded.document = std::move(parsed.Value());
+  loaded.document = std::move(parsed.value());
   return loaded;
 }
 } // namespace
