@@ -12,6 +12,10 @@
 
 #include <NGIN/Async/Task.hpp>
 #include <NGIN/Async/WhenAll.hpp>
+#include <NGIN/Async/TaskScope.hpp>
+#include <NGIN/Execution/ThreadPoolScheduler.hpp>
+#include <NGIN/IO/RunTask.hpp>
+#include <NGIN/IO/RuntimeRunner.hpp>
 #include <NGIN/IO/FileSystemUtilities.hpp>
 #include <NGIN/Net/Sockets/TcpListener.hpp>
 #include <NGIN/Net/Transport/Filters/LengthPrefixedMessageStream.hpp>
@@ -279,28 +283,45 @@ namespace HelloIO
         co_return;
     }
 
-    void ExchangeWithMissionControl(Application& app, Async::TaskContext& ctx,
-                                    const std::string& log)
+    Async::Task<void, Net::NetError>
+    ExchangeWithMissionControl(Async::TaskContext& ctx, Application& app,
+                               const std::string& log)
     {
         auto           listener = OpenStation(app.Io());
         Net::TcpSocket probe(app.Io());
         Require(probe.Open(Net::AddressFamily::V4), "open probe socket");
-        const Net::Endpoint station {Net::IpAddress::LoopbackV4(),
+        const Net::Endpoint             station {Net::IpAddress::LoopbackV4(),
                                      BoundPort(listener.Handle())};
-
-        // All children finish before listener, runtime references, or buffers go
-        // away. The application deadline also releases a peer left waiting if
-        // the other child fails. Never block a task worker with SyncWait.
-        Require(Async::SyncWait(
-                        ctx,
-                        Async::WhenAll(ctx, EchoStation(ctx, listener),
-                                       SendProbeLog(ctx,
-                                                    std::move(probe), station, log))),
-                "exchange mission log");
+        Async::TaskScope<Net::NetError> children(ctx.GetExecutor(),
+                                                 ctx.GetCancellationToken());
+        const auto                      server = children.Spawn([&listener](Async::TaskContext& child) {
+            return EchoStation(child, listener);
+        });
+        const auto                      client = children.Spawn([socket = std::move(probe), station,
+                                            &log](Async::TaskContext& child) mutable {
+            return SendProbeLog(child, std::move(socket), station, log);
+        });
+        if (!server || !client)
+            children.RequestCancel();
+        (void) co_await children.Join();
+        // The listener is borrowed by a child, so join before it leaves this frame.
+        // A failed peer requests sibling cancellation rather than waiting for the
+        // deadline.
+        if (!server || !client)
+            co_await Async::Faulted(
+                    Async::MakeAsyncFault(Async::AsyncFaultCode::SchedulerDispatchFailed));
+        auto result = children.TakeResult();
+        if (result.IsDomainError())
+            co_await Async::DomainFailure(std::move(result).DomainError());
+        else if (result.IsCanceled())
+            co_await Async::Canceled();
+        else if (result.IsFault())
+            co_await Async::Faulted(std::move(result).Fault());
+        co_return;
     }
 
-    void CancelSilentStation(Application&        app,
-                             Async::TaskContext& applicationContext)
+    Async::Task<void> CancelSilentStation(Async::TaskContext& applicationContext,
+                                          Application&        app)
     {
         auto                      listener = OpenStation(app.Io());
         Async::CancellationSource patience;
@@ -312,8 +333,8 @@ namespace HelloIO
 
         // No client will connect. Cancellation requests termination; awaiting the
         // terminal completion is what makes it safe to destroy the listener.
-        auto result = Async::SyncWait(
-                waitContext, listener.AcceptAsync(waitContext));
+        auto result =
+                co_await Async::Spawn(waitContext, listener.AcceptAsync(waitContext));
         if (!result.IsCanceled())
         {
             Require(std::move(result), "wait for silent station");
@@ -323,44 +344,136 @@ namespace HelloIO
         Expect(!applicationContext.IsCancellationRequested(),
                "application deadline reached during cancellation demo");
     }
+    Async::Task<void> Expedition(Async::TaskContext& ctx, Application& app,
+                                 const IO::Path& directory)
+    {
+        auto log = co_await GatherTelemetry(ctx);
+        std::cout << "[async] Both sensors checked in\n"
+                  << log;
+        auto restored =
+                Require(co_await Async::Spawn(
+                                ctx, SaveMissionLog(ctx, app.Files(), directory, log)),
+                        "save and restore black-box log");
+        std::cout << "File backend: " << BackendName(app.Io().GetFileBackend())
+                  << '\n';
+        std::cout << "[files] Mission log saved, copied, and verified\n";
+        Require(co_await Async::Spawn(ctx,
+                                      ExchangeWithMissionControl(ctx, app, restored)),
+                "exchange mission log");
+        std::cout << "[tcp] Mission control echoed the complete log\n";
+        co_await CancelSilentStation(ctx, app);
+        std::cout << "[cancel] Silent station wait canceled and joined\n";
+    }
+
+    Async::Task<void> ShortShutdownDelay(Async::TaskContext& ctx)
+    {
+        co_await ctx.Delay(Milliseconds {10});
+    }
+
+    Async::Task<void> StopWithPendingAccept(Async::TaskContext& ctx,
+                                            Application&        app)
+    {
+        auto listener = OpenStation(app.Io());
+        auto pending  = Async::Spawn(ctx, listener.AcceptAsync(ctx));
+        auto delayed  = co_await Async::Spawn(ctx, ShortShutdownDelay(ctx));
+        app.Io().RequestStop();
+        // This continuation was admitted before stopping. It can join the pending
+        // accept after new tasks and I/O submissions have been rejected.
+        auto result = co_await pending;
+        Expect(result.IsCanceled(), "shutdown did not cancel the pending accept");
+        Require(std::move(delayed), "wait before shutdown");
+    }
+
+    Async::Task<NGIN::UInt64> AnalyzeOnWorker(Async::TaskContext& ctx,
+                                              IO::Runtime&        io)
+    {
+        co_await ctx.YieldNow();
+        Expect(ctx.GetExecutor().IsCurrent() && !io.GetExecutor().IsCurrent(),
+               "analysis ran on the I/O loop");
+        NGIN::UInt64 checksum = 1469598103934665603ULL;
+        for (NGIN::UInt64 index = 0; index < 1000000; ++index)
+            checksum = (checksum ^ index) * 1099511628211ULL;
+        co_return checksum;
+    }
+
+    void ManualEntry()
+    {
+        Application               app;
+        ScratchDirectory          scratch(app.Files());
+        Async::CancellationSource deadline;
+        Expect(deadline.CancelAfter(app.Io().GetExecutor(), Milliseconds {10000})
+                       .has_value(),
+               "schedule deadline");
+        std::cout
+                << "[manual] RunTask drives I/O, timers, and continuations on main\n";
+        Require(IO::RunTask(
+                        app.Io(),
+                        [&](Async::TaskContext& ctx, Async::TaskScope<>&) {
+                            return Expedition(ctx, app, scratch.Path());
+                        },
+                        deadline.GetToken()),
+                "manual expedition");
+        Expect(app.Io().IsStopped(), "RunTask returned before shutdown");
+        scratch.Remove();
+    }
+
+    void BackgroundEntry()
+    {
+        Application               app;
+        IO::RuntimeRunner         runner(app.Io());
+        ScratchDirectory          scratch(app.Files());
+        Async::CancellationSource deadline;
+        auto                      ctx = app.MakeTaskContext(deadline.GetToken());
+        Expect(
+                deadline.CancelAfter(ctx.GetExecutor(), Milliseconds {10000}).has_value(),
+                "schedule deadline");
+        std::cout << "[runner] Main waits while RuntimeRunner drives runtime "
+                     "continuations\n";
+        // SyncWait is on main; the runner owns the independently progressing loop.
+        Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
+                "background expedition");
+        scratch.Remove();
+        Require(Async::SyncWait(ctx, StopWithPendingAccept(ctx, app)),
+                "in-flight shutdown");
+        runner.Shutdown();
+        std::cout
+                << "[shutdown] Pending accept canceled and joined during stopping\n";
+    }
+
+    void ExternalEntry()
+    {
+        NGIN::Execution::ThreadPoolScheduler tasks {1};
+        Application                          app;
+        IO::RuntimeRunner                    runner(app.Io());
+        ScratchDirectory                     scratch(app.Files());
+        Async::CancellationSource            deadline;
+        Async::TaskContext                   ctx(tasks, deadline.GetToken());
+        Expect(
+                deadline.CancelAfter(ctx.GetExecutor(), Milliseconds {10000}).has_value(),
+                "schedule deadline");
+        std::cout
+                << "[external] I/O completions return to the selected task executor\n";
+        Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
+                "external expedition");
+        auto checksum = Require(Async::SyncWait(ctx, AnalyzeOnWorker(ctx, app.Io())),
+                                "worker analysis");
+        Expect(checksum != 0, "analysis produced an empty checksum");
+        std::cout << "[cpu] Analysis completed on an external worker; I/O retained "
+                     "its own loop\n";
+        deadline.Cancel();
+        scratch.Remove();
+        runner.Shutdown();
+    }
 }// namespace HelloIO
 
 int main()
 {
-    using namespace HelloIO;
     try
     {
-        Application               app;
-        Async::CancellationSource shutdown;
-        auto                      ctx = app.MakeTaskContext(shutdown.GetToken());
-        Expect(shutdown.CancelAfter(ctx.GetExecutor(), Milliseconds {10000})
-                       .has_value(),
-               "could not schedule application deadline");
-        ScratchDirectory scratch(app.Files());
-
-        std::cout << "Hello.IO: launching the async expedition\n";
-        auto log =
-                Require(Async::SyncWait(ctx, GatherTelemetry(ctx)), "gather telemetry");
-        std::cout << "[async] Both sensors checked in\n"
-                  << log;
-
-        auto restored =
-                Require(Async::SyncWait(ctx, SaveMissionLog(ctx, app.Files(),
-                                                            scratch.Path(), log)),
-                        "save and restore black-box log");
-        std::cout << "File backend: " << BackendName(app.Io().GetFileBackend()) << '\n';
-        std::cout << "[files] Mission log saved, copied, and verified\n";
-
-        ExchangeWithMissionControl(app, ctx, restored);
-        std::cout << "[tcp] Mission control echoed the complete log\n";
-
-        CancelSilentStation(app, ctx);
-        std::cout << "[cancel] Silent station wait canceled and completed\n";
-
-        // Every root and child operation is terminal before cleanup and Stop().
-        shutdown.Cancel();
-        scratch.Remove();
-        std::cout << "Hello.IO complete: scratch files removed, all tasks joined\n";
+        HelloIO::ManualEntry();
+        HelloIO::BackgroundEntry();
+        HelloIO::ExternalEntry();
+        std::cout << "Hello.IO complete: three execution modes, all tasks joined\n";
         return 0;
     } catch (const std::exception& error)
     {

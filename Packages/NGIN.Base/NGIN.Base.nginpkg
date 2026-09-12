@@ -5,6 +5,7 @@
   <Library Name="Base" Default="true" />
   <Library Name="Foundation" />
   <Library Name="Execution" />
+  <Library Name="IORuntime" />
   <Library Name="IO" />
   <Library Name="Serialization" />
   <Library Name="Crypto" />
@@ -18,6 +19,7 @@
       <cmake:Target Export="Base" Name="NGIN::Base" />
       <cmake:Target Export="Foundation" Name="NGIN::Base::Foundation" />
       <cmake:Target Export="Execution" Name="NGIN::Base::Execution" />
+      <cmake:Target Export="IORuntime" Name="NGIN::Base::IORuntime" />
       <cmake:Target Export="IO" Name="NGIN::Base::IO" />
       <cmake:Target Export="Serialization" Name="NGIN::Base::Serialization" />
       <cmake:Target Export="Crypto" Name="NGIN::Base::Crypto" />

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <NGIN/Async/TaskContext.hpp>
-#include <NGIN/Execution/ThreadPoolScheduler.hpp>
 #include <NGIN/IO/LocalFileSystem.hpp>
 #include <NGIN/IO/Runtime.hpp>
 
@@ -9,23 +8,22 @@
 
 namespace HelloIO
 {
-    // Composition at the application boundary: tasks choose their executor,
-    // while filesystem and sockets share the lazily initialized I/O runtime.
+    // Binding resources does not choose a driver thread or continuation executor.
     class Application final
     {
     public:
-        NGIN::Async::TaskContext MakeTaskContext(NGIN::Async::CancellationToken token = {})
+        NGIN::Async::TaskContext
+        MakeTaskContext(NGIN::Async::CancellationToken token = {})
         {
-            return NGIN::Async::TaskContext(m_tasks, std::move(token));
+            return NGIN::Async::TaskContext(m_io.GetExecutor(), std::move(token));
         }
         NGIN::IO::LocalFileSystem& Files() noexcept { return m_files; }
         NGIN::IO::Runtime&         Io() noexcept { return m_io; }
 
     private:
-        // Callers await all tasks before destruction. Reverse destruction order
-        // releases the filesystem, stops/joins I/O, then destroys the task executor.
-        NGIN::Execution::ThreadPoolScheduler m_tasks {1};
-        NGIN::IO::Runtime                    m_io;
-        NGIN::IO::LocalFileSystem            m_files {m_io};
+        // The caller joins application tasks and shuts down before these owners
+        // leave scope. Files are destroyed before their borrowed runtime.
+        NGIN::IO::Runtime         m_io;
+        NGIN::IO::LocalFileSystem m_files {m_io};
     };
 }// namespace HelloIO
