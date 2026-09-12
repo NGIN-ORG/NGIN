@@ -2,6 +2,9 @@ name: Documentation
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -20,12 +23,33 @@ jobs:
   check:
     name: Links and current terminology
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           submodules: recursive
+
+      - name: Validate release tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          release_commit=$(git rev-list -n 1 "${GITHUB_SHA}")
+          if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not belong to main."
+            exit 1
+          fi
+          version=$(sed -n 's/.*Version="\([^"]*\)".*/\1/p' Tools/NGIN.CLI/NGIN.CLI.nginproj | head -n 1)
+          cmake_version=$(sed -n 's/project(NGIN VERSION \([^ ]*\).*/\1/p' CMakeLists.txt | head -n 1)
+          if [[ -z "$version" || "$version" != "$cmake_version" || "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::Release tag must match the CLI manifest and CMake versions."
+            exit 1
+          fi
 
       - name: Check documentation
         shell: pwsh
@@ -49,6 +73,38 @@ jobs:
         working-directory: Documentation
         run: npm test
 
+      - name: Read Pages configuration
+        if: github.ref_type == 'tag'
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Build documentation site
         working-directory: Documentation
+        env:
+          NGIN_DOCS_BASE: ${{ github.ref_type != 'tag' && format('/{0}/', github.event.repository.name) || steps.pages.outputs.base_path }}
         run: npm run build
+
+      - name: Upload Pages artifact
+        if: github.ref_type == 'tag'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: Documentation/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref_type == 'tag'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy documentation
+        id: deployment
+        uses: actions/deploy-pages@v4

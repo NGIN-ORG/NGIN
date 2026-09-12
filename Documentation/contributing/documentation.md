@@ -125,3 +125,32 @@ Markdown links, Doxygen file and anchor targets, and navigation from the guides.
 It generates Doxygen HTML, raw pages, `llms.txt`, library bundles, search data,
 and the static site. Doxygen has its own C++ symbol search; the VitePress search
 covers Markdown guides and project-system reference pages.
+
+## GitHub Pages deployment
+
+The `Documentation` workflow deploys the tagged documentation to GitHub Pages
+when a `v*` tag is pushed. As in the CLI release workflow, the tagged commit must
+be in `main`'s history and the tag must equal `v` followed by the version in both
+`Tools/NGIN.CLI/NGIN.CLI.nginproj` and the root `CMakeLists.txt`.
+Documentation and CLI publishing run independently; a CLI packaging failure
+does not prevent documentation deployment.
+
+Before the first deployment:
+
+1. In the repository's **Settings → Pages → Build and deployment**, select
+   **GitHub Actions** as the source.
+2. In **Settings → Environments → github-pages**, configure the deployment
+   branch and tag rules to allow tags matching `v*`. A rule allowing only `main`
+   does not permit tag deployments.
+
+See GitHub's [custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+for the repository setup and environment requirements.
+
+The workflow checks documentation, tests reference links, builds the site with
+the base path from the Pages configuration, and uploads
+`Documentation/.vitepress/dist` for deployment. The default project URL is
+`https://ngin-org.github.io/NGIN/`; each deployment replaces the current site.
+
+Pull requests build and check the site without deploying. To redeploy an existing
+release, manually run the `Documentation` workflow with that release tag selected.
+A manual run on a branch only checks and builds the documentation.
