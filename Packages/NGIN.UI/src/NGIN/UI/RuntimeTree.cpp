@@ -190,7 +190,7 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
     auto reset = editing->Reset(properties.value.Get());
     if (!reset) {
       node.textField = {};
-      report(reset.Error());
+      report(reset.error());
       return;
     }
     node.textField.editing = std::move(editing);
@@ -202,7 +202,7 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
       node.textField.editing->Value() != properties.value.Get()) {
     auto reset = node.textField.editing->Reset(properties.value.Get());
     if (!reset) {
-      report(reset.Error());
+      report(reset.error());
     }
   }
 }
@@ -230,11 +230,11 @@ void RuntimeTree::SynchronizeCustom(RuntimeNode &node, const F32 scaleFactor) {
     auto context = ContextFor(node, node.custom.scaleFactor);
     auto described = node.properties.custom.element->Semantics(context);
     if (!described) {
-      ReportCustomError(node, described.Error());
+      ReportCustomError(node, described.error());
       return;
     }
     node.custom.semantics =
-        MergeSemantics(described.Value(), node.properties.semantics);
+        MergeSemantics(described.value(), node.properties.semantics);
   } catch (const std::bad_alloc &) {
     ReportCustomError(node,
                       MakeUIError(UIErrorCode::OutOfMemory,

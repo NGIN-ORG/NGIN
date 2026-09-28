@@ -155,14 +155,14 @@ TEST_CASE("application publishes semantics and executes provider actions") {
       .renderer = std::make_unique<RecordingRenderBackend>(),
       .accessibility = std::move(backend),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"accessibility-test"},
       .title = NGIN::Text::String{"Accessible window"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   bool activated = false;
   window->SetContent([&](Composer &composer) {
     NodeProperties button{};
@@ -186,7 +186,7 @@ TEST_CASE("application publishes semantics and executes provider actions") {
         "content");
   });
 
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observer->attached.nativeWindow.kind == NativeWindowKind::Win32);
   REQUIRE(observer->snapshot.nodes.size() >= 2);
   const auto item = std::find_if(observer->snapshot.nodes.begin(),
@@ -211,13 +211,13 @@ TEST_CASE("application publishes semantics and executes provider actions") {
                           .action = SemanticActionKind::Activate,
                       },
               })
-              .HasValue());
+              .has_value());
   CHECK_FALSE(activated);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(activated);
 
   const auto platformWindow = window->PlatformHandle();
-  REQUIRE(application->CloseWindow(*window).HasValue());
+  REQUIRE(application->CloseWindow(*window).has_value());
   CHECK(observer->detached == platformWindow);
   CHECK(application->AccessibilityDiagnostics().attachedWindowCount == 0);
   REQUIRE(observer->sink
@@ -229,7 +229,7 @@ TEST_CASE("application publishes semantics and executes provider actions") {
                           .action = SemanticActionKind::Activate,
                       },
               })
-              .HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+              .has_value());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(application->AccessibilityDiagnostics().lastError.has_value());
 }

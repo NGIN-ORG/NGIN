@@ -147,9 +147,10 @@ public:
 
     if constexpr (requires(Factory &value) { value.operator bool(); }) {
       if (!factory.operator bool()) {
-        return MakeUIError(UIErrorCode::InvalidArgument,
-                           "Page registration has no ViewModel factory",
-                           "NGIN.UI", "PageRegistry::Register");
+        return std::unexpected(
+            MakeUIError(UIErrorCode::InvalidArgument,
+                        "Page registration has no ViewModel factory", "NGIN.UI",
+                        "PageRegistry::Register"));
       }
     }
 
@@ -160,30 +161,32 @@ public:
         -> UIResult<std::shared_ptr<detail::IPageInstance>> {
       const auto typed = std::static_pointer_cast<const Parameter>(parameter);
       if (!typed) {
-        return MakeUIError(UIErrorCode::InvalidArgument,
-                           "Page navigation parameter is missing", "NGIN.UI",
-                           "PageRegistry::Activate");
+        return std::unexpected(
+            MakeUIError(UIErrorCode::InvalidArgument,
+                        "Page navigation parameter is missing", "NGIN.UI",
+                        "PageRegistry::Activate"));
       }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       try {
 #endif
         auto lease = factory(context, *typed, entryKey);
         if (!lease) {
-          return NGIN::Utilities::Unexpected<UIError>(lease.Error());
+          return NGIN::Utilities::Unexpected<UIError>(lease.error());
         }
-        if (!lease.Value().viewModel) {
-          return MakeUIError(UIErrorCode::ResourceFailed,
-                             "Page ViewModel factory returned no value",
-                             "NGIN.UI", "PageRegistry::Activate");
+        if (!lease.value().viewModel) {
+          return std::unexpected(
+              MakeUIError(UIErrorCode::ResourceFailed,
+                          "Page ViewModel factory returned no value", "NGIN.UI",
+                          "PageRegistry::Activate"));
         }
         return std::static_pointer_cast<detail::IPageInstance>(
             std::make_shared<detail::TypedPageInstance<ViewModel, Parameter>>(
-                std::move(lease).Value(), typed, std::move(compose)));
+                std::move(lease).value(), typed, std::move(compose)));
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       } catch (...) {
-        return MakeUIError(UIErrorCode::ResourceFailed,
-                           "Page activation failed", "NGIN.UI",
-                           "PageRegistry::Activate");
+        return std::unexpected(MakeUIError(UIErrorCode::ResourceFailed,
+                                           "Page activation failed", "NGIN.UI",
+                                           "PageRegistry::Activate"));
       }
 #endif
     };

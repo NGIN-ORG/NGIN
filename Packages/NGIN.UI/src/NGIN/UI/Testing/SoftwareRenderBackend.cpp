@@ -24,11 +24,11 @@ namespace {
     -> UIResult<UIntSize> {
   const auto width = static_cast<UIntSize>(size.width);
   const auto height = static_cast<UIntSize>(size.height);
-  if (size.IsEmpty() ||
-      width > std::numeric_limits<UIntSize>::max() / height ||
+  if (size.IsEmpty() || width > std::numeric_limits<UIntSize>::max() / height ||
       width * height > std::numeric_limits<UIntSize>::max() / channels) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Pixel storage dimensions overflow", "Allocate");
+    return std::unexpected(SoftwareError(UIErrorCode::InvalidArgument,
+                                         "Pixel storage dimensions overflow",
+                                         "Allocate"));
   }
   return width * height * channels;
 }
@@ -168,14 +168,13 @@ struct SoftwareRenderBackend::Impl final {
           static_cast<UIntSize>(y * texture->info.size.width + x) *
           BytesPerPixel(texture->info.format);
       if (texture->info.format == TextureFormat::R8) {
-        const auto alpha = static_cast<F32>(
-                               static_cast<UInt8>(texture->bytes[offset])) /
-                           255.0F;
+        const auto alpha =
+            static_cast<F32>(static_cast<UInt8>(texture->bytes[offset])) /
+            255.0F;
         return Sample{alpha, alpha, alpha, alpha};
       }
       const auto first =
-          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset])) /
-          255.0F;
+          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset])) / 255.0F;
       const auto second =
           static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 1])) /
           255.0F;
@@ -208,16 +207,15 @@ struct SoftwareRenderBackend::Impl final {
     const auto top = static_cast<Int32>(std::floor(sourceY));
     const auto horizontal = sourceX - static_cast<F32>(left);
     const auto vertical = sourceY - static_cast<F32>(top);
-    return Lerp(Lerp(sampleAt(left, top), sampleAt(left + 1, top), horizontal),
-                Lerp(sampleAt(left, top + 1), sampleAt(left + 1, top + 1),
-                     horizontal),
-                vertical);
+    return Lerp(
+        Lerp(sampleAt(left, top), sampleAt(left + 1, top), horizontal),
+        Lerp(sampleAt(left, top + 1), sampleAt(left + 1, top + 1), horizontal),
+        vertical);
   }
 
   void BlendPixel(Surface &surface, const UInt32 x, const UInt32 y,
                   const Sample source, const BlendMode blendMode) noexcept {
-    const auto offset =
-        static_cast<UIntSize>(y * surface.size.width + x) * 4U;
+    const auto offset = static_cast<UIntSize>(y * surface.size.width + x) * 4U;
     if (blendMode == BlendMode::Opaque) {
       surface.rgba[offset] = static_cast<Byte>(ToByte(source.red));
       surface.rgba[offset + 1] = static_cast<Byte>(ToByte(source.green));
@@ -228,57 +226,53 @@ struct SoftwareRenderBackend::Impl final {
     const auto inverseAlpha = 1.0F - source.alpha;
     const auto destination = Sample{
         static_cast<F32>(static_cast<UInt8>(surface.rgba[offset])) / 255.0F,
-        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 1])) /
-            255.0F,
-        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 2])) /
-            255.0F,
-        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 3])) /
-            255.0F,
+        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 1])) / 255.0F,
+        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 2])) / 255.0F,
+        static_cast<F32>(static_cast<UInt8>(surface.rgba[offset + 3])) / 255.0F,
     };
     surface.rgba[offset] =
         static_cast<Byte>(ToByte(source.red + destination.red * inverseAlpha));
     surface.rgba[offset + 1] = static_cast<Byte>(
         ToByte(source.green + destination.green * inverseAlpha));
-    surface.rgba[offset + 2] =
-        static_cast<Byte>(ToByte(source.blue + destination.blue * inverseAlpha));
+    surface.rgba[offset + 2] = static_cast<Byte>(
+        ToByte(source.blue + destination.blue * inverseAlpha));
     surface.rgba[offset + 3] = static_cast<Byte>(
         ToByte(source.alpha + destination.alpha * inverseAlpha));
   }
 
   auto RasterizeTriangle(Surface &surface, const RenderBatch &batch,
-                         const RenderVertex &first,
-                         const RenderVertex &second,
+                         const RenderVertex &first, const RenderVertex &second,
                          const RenderVertex &third) noexcept -> UIResult<void> {
     const auto area = Edge(first, second, third.x, third.y);
     if (std::abs(area) <= 0.00001F) {
       return {};
     }
     if (batch.texture && FindTexture(batch.texture) == nullptr) {
-      return SoftwareError(UIErrorCode::RenderFailed,
-                           "Render batch references an unknown texture",
-                           "Render");
+      return std::unexpected(SoftwareError(
+          UIErrorCode::RenderFailed,
+          "Render batch references an unknown texture", "Render"));
     }
 
     const auto scissorLeft = std::max(0, batch.scissor.x);
     const auto scissorTop = std::max(0, batch.scissor.y);
-    const auto scissorRight = std::min(
-        static_cast<Int32>(surface.size.width),
-        batch.scissor.x + static_cast<Int32>(batch.scissor.width));
-    const auto scissorBottom = std::min(
-        static_cast<Int32>(surface.size.height),
-        batch.scissor.y + static_cast<Int32>(batch.scissor.height));
+    const auto scissorRight =
+        std::min(static_cast<Int32>(surface.size.width),
+                 batch.scissor.x + static_cast<Int32>(batch.scissor.width));
+    const auto scissorBottom =
+        std::min(static_cast<Int32>(surface.size.height),
+                 batch.scissor.y + static_cast<Int32>(batch.scissor.height));
     const auto left = std::max(
-        scissorLeft, static_cast<Int32>(std::floor(
-                          std::min({first.x, second.x, third.x}))));
+        scissorLeft,
+        static_cast<Int32>(std::floor(std::min({first.x, second.x, third.x}))));
     const auto top = std::max(
-        scissorTop, static_cast<Int32>(std::floor(
-                         std::min({first.y, second.y, third.y}))));
+        scissorTop,
+        static_cast<Int32>(std::floor(std::min({first.y, second.y, third.y}))));
     const auto right = std::min(
-        scissorRight, static_cast<Int32>(std::ceil(
-                           std::max({first.x, second.x, third.x}))));
+        scissorRight,
+        static_cast<Int32>(std::ceil(std::max({first.x, second.x, third.x}))));
     const auto bottom = std::min(
-        scissorBottom, static_cast<Int32>(std::ceil(
-                            std::max({first.y, second.y, third.y}))));
+        scissorBottom,
+        static_cast<Int32>(std::ceil(std::max({first.y, second.y, third.y}))));
     const auto sign = area < 0.0F ? -1.0F : 1.0F;
     const auto absoluteArea = std::abs(area);
     const auto firstEdgeTopLeft =
@@ -292,12 +286,9 @@ struct SoftwareRenderBackend::Impl final {
       for (auto x = left; x < right; ++x) {
         const auto sampleX = static_cast<F32>(x) + 0.5F;
         const auto sampleY = static_cast<F32>(y) + 0.5F;
-        const auto firstWeight =
-            Edge(second, third, sampleX, sampleY) * sign;
-        const auto secondWeight =
-            Edge(third, first, sampleX, sampleY) * sign;
-        const auto thirdWeight =
-            Edge(first, second, sampleX, sampleY) * sign;
+        const auto firstWeight = Edge(second, third, sampleX, sampleY) * sign;
+        const auto secondWeight = Edge(third, first, sampleX, sampleY) * sign;
+        const auto thirdWeight = Edge(first, second, sampleX, sampleY) * sign;
         if (!InsideEdge(firstWeight, firstEdgeTopLeft) ||
             !InsideEdge(secondWeight, secondEdgeTopLeft) ||
             !InsideEdge(thirdWeight, thirdEdgeTopLeft)) {
@@ -322,8 +313,7 @@ struct SoftwareRenderBackend::Impl final {
         };
         if (batch.texture) {
           const auto texture = SampleTexture(
-              batch.texture,
-              interpolate(first.u, second.u, third.u),
+              batch.texture, interpolate(first.u, second.u, third.u),
               interpolate(first.v, second.v, third.v));
           source.red *= texture.red;
           source.green *= texture.green;
@@ -359,8 +349,8 @@ auto CompareVisuals(const SoftwareSurfaceSnapshot &expected,
                     const VisualTolerance tolerance) noexcept
     -> VisualComparison {
   VisualComparison result{};
-  result.dimensionsMatch =
-      expected.size == actual.size && expected.rgba.size() == actual.rgba.size();
+  result.dimensionsMatch = expected.size == actual.size &&
+                           expected.rgba.size() == actual.rgba.size();
   if (!result.dimensionsMatch || expected.rgba.empty()) {
     return result;
   }
@@ -378,17 +368,15 @@ auto CompareVisuals(const SoftwareSurfaceSnapshot &expected,
           static_cast<Int32>(static_cast<UInt8>(actual.rgba[offset]));
       const auto delta = static_cast<UInt8>(std::abs(left - right));
       absoluteError += delta;
-      result.maximumChannelDelta =
-          std::max(result.maximumChannelDelta, delta);
+      result.maximumChannelDelta = std::max(result.maximumChannelDelta, delta);
       different = different || delta > tolerance.channelDelta;
     }
     if (different) {
       ++result.differentPixelCount;
     }
   }
-  result.differentPixelRatio =
-      static_cast<F64>(result.differentPixelCount) /
-      static_cast<F64>(pixelCount);
+  result.differentPixelRatio = static_cast<F64>(result.differentPixelCount) /
+                               static_cast<F64>(pixelCount);
   result.meanAbsoluteError =
       static_cast<F64>(absoluteError) / static_cast<F64>(pixelCount * 4U);
   result.passed =
@@ -419,17 +407,18 @@ auto SoftwareRenderBackend::Initialize(const RenderInitInfo &) noexcept
   return {};
 }
 
-auto SoftwareRenderBackend::CreateSurface(
-    const PlatformWindowHandle window,
-    const PixelSize initialSize) noexcept -> UIResult<RenderSurfaceHandle> {
+auto SoftwareRenderBackend::CreateSurface(const PlatformWindowHandle window,
+                                          const PixelSize initialSize) noexcept
+    -> UIResult<RenderSurfaceHandle> {
   if (!m_impl->initialized || !window) {
-    return SoftwareError(UIErrorCode::BackendUnavailable,
-                         "Renderer initialization and a live window are required",
-                         "CreateSurface");
+    return std::unexpected(
+        SoftwareError(UIErrorCode::BackendUnavailable,
+                      "Renderer initialization and a live window are required",
+                      "CreateSurface"));
   }
   auto byteCount = CheckedByteCount(initialSize, 4);
   if (!byteCount) {
-    return byteCount.Error();
+    return std::unexpected(byteCount.error());
   }
   try {
     const RenderSurfaceHandle handle{m_impl->nextSurface++, 1};
@@ -437,11 +426,12 @@ auto SoftwareRenderBackend::CreateSurface(
         handle.index,
         Impl::Surface{.window = window,
                       .size = initialSize,
-                      .rgba = std::vector<Byte>(byteCount.Value())});
+                      .rgba = std::vector<Byte>(byteCount.value())});
     return handle;
   } catch (...) {
-    return SoftwareError(UIErrorCode::OutOfMemory,
-                         "Software surface allocation failed", "CreateSurface");
+    return std::unexpected(SoftwareError(UIErrorCode::OutOfMemory,
+                                         "Software surface allocation failed",
+                                         "CreateSurface"));
   }
 }
 
@@ -449,8 +439,9 @@ auto SoftwareRenderBackend::DestroySurface(
     const RenderSurfaceHandle surface) noexcept -> UIResult<void> {
   auto *record = m_impl->FindSurface(surface);
   if (record == nullptr) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Unknown software surface", "DestroySurface");
+    return std::unexpected(SoftwareError(UIErrorCode::InvalidArgument,
+                                         "Unknown software surface",
+                                         "DestroySurface"));
   }
   record->live = false;
   record->rgba.clear();
@@ -463,40 +454,43 @@ auto SoftwareRenderBackend::ResizeSurface(const RenderSurfaceHandle surface,
   auto *record = m_impl->FindSurface(surface);
   auto byteCount = CheckedByteCount(size, 4);
   if (record == nullptr || !byteCount) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "A live surface and valid size are required",
-                         "ResizeSurface");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::InvalidArgument,
+        "A live surface and valid size are required", "ResizeSurface"));
   }
   try {
     record->size = size;
-    record->rgba.assign(byteCount.Value(), Byte{});
+    record->rgba.assign(byteCount.value(), Byte{});
     return {};
   } catch (...) {
-    return SoftwareError(UIErrorCode::OutOfMemory,
-                         "Software surface resize failed", "ResizeSurface");
+    return std::unexpected(SoftwareError(UIErrorCode::OutOfMemory,
+                                         "Software surface resize failed",
+                                         "ResizeSurface"));
   }
 }
 
 auto SoftwareRenderBackend::CreateTexture(
     const TextureCreateInfo &info) noexcept -> UIResult<TextureHandle> {
   if (!m_impl->initialized) {
-    return SoftwareError(UIErrorCode::BackendUnavailable,
-                         "Renderer is not initialized", "CreateTexture");
+    return std::unexpected(SoftwareError(UIErrorCode::BackendUnavailable,
+                                         "Renderer is not initialized",
+                                         "CreateTexture"));
   }
   auto byteCount = CheckedByteCount(info.size, BytesPerPixel(info.format));
   if (!byteCount) {
-    return byteCount.Error();
+    return std::unexpected(byteCount.error());
   }
   try {
     const TextureHandle handle{m_impl->nextTexture++, 1};
     m_impl->textures.emplace(
         handle.index,
         Impl::Texture{.info = info,
-                      .bytes = std::vector<Byte>(byteCount.Value())});
+                      .bytes = std::vector<Byte>(byteCount.value())});
     return handle;
   } catch (...) {
-    return SoftwareError(UIErrorCode::OutOfMemory,
-                         "Software texture allocation failed", "CreateTexture");
+    return std::unexpected(SoftwareError(UIErrorCode::OutOfMemory,
+                                         "Software texture allocation failed",
+                                         "CreateTexture"));
   }
 }
 
@@ -506,9 +500,9 @@ auto SoftwareRenderBackend::UpdateTexture(
   auto *record = m_impl->FindTexture(texture);
   if (record == nullptr || update.region.x < 0 || update.region.y < 0 ||
       update.region.width == 0 || update.region.height == 0) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Unknown texture or invalid update region",
-                         "UpdateTexture");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::InvalidArgument,
+        "Unknown texture or invalid update region", "UpdateTexture"));
   }
   const auto x = static_cast<UInt32>(update.region.x);
   const auto y = static_cast<UInt32>(update.region.y);
@@ -516,20 +510,19 @@ auto SoftwareRenderBackend::UpdateTexture(
       update.region.width > record->info.size.width - x ||
       y > record->info.size.height ||
       update.region.height > record->info.size.height - y) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Texture update exceeds its allocation",
-                         "UpdateTexture");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::InvalidArgument, "Texture update exceeds its allocation",
+        "UpdateTexture"));
   }
   const auto channels = BytesPerPixel(record->info.format);
-  const auto rowBytes =
-      static_cast<UIntSize>(update.region.width) * channels;
+  const auto rowBytes = static_cast<UIntSize>(update.region.width) * channels;
   const auto required =
       update.bytesPerRow * static_cast<UIntSize>(update.region.height - 1) +
       rowBytes;
   if (update.bytesPerRow < rowBytes || update.bytes.size() < required) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Texture update byte span is too small",
-                         "UpdateTexture");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::InvalidArgument, "Texture update byte span is too small",
+        "UpdateTexture"));
   }
   for (UInt32 row = 0; row < update.region.height; ++row) {
     const auto sourceOffset = static_cast<UIntSize>(row) * update.bytesPerRow;
@@ -539,18 +532,18 @@ auto SoftwareRenderBackend::UpdateTexture(
     std::copy_n(
         update.bytes.begin() + static_cast<std::ptrdiff_t>(sourceOffset),
         static_cast<std::ptrdiff_t>(rowBytes),
-        record->bytes.begin() +
-            static_cast<std::ptrdiff_t>(destinationOffset));
+        record->bytes.begin() + static_cast<std::ptrdiff_t>(destinationOffset));
   }
   return {};
 }
 
-auto SoftwareRenderBackend::DestroyTexture(
-    const TextureHandle texture) noexcept -> UIResult<void> {
+auto SoftwareRenderBackend::DestroyTexture(const TextureHandle texture) noexcept
+    -> UIResult<void> {
   auto *record = m_impl->FindTexture(texture);
   if (record == nullptr) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Unknown software texture", "DestroyTexture");
+    return std::unexpected(SoftwareError(UIErrorCode::InvalidArgument,
+                                         "Unknown software texture",
+                                         "DestroyTexture"));
   }
   record->live = false;
   record->bytes.clear();
@@ -562,22 +555,21 @@ auto SoftwareRenderBackend::Render(const RenderSurfaceHandle surface,
     -> UIResult<void> {
   auto *record = m_impl->FindSurface(surface);
   if (record == nullptr || packet.targetSize != record->size) {
-    return SoftwareError(UIErrorCode::RenderFailed,
-                         "A live surface matching the packet target is required",
-                         "Render");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::RenderFailed,
+        "A live surface matching the packet target is required", "Render"));
   }
   try {
     for (const auto &update : packet.textureUpdates) {
       auto updated = UpdateTexture(update.texture, update.update);
       if (!updated) {
-        return updated.Error();
+        return std::unexpected(updated.error());
       }
     }
     const auto clear = UnpackClear(packet.clearColor);
     for (UIntSize offset = 0; offset < record->rgba.size(); offset += 4U) {
       std::copy(clear.begin(), clear.end(),
-                record->rgba.begin() +
-                    static_cast<std::ptrdiff_t>(offset));
+                record->rgba.begin() + static_cast<std::ptrdiff_t>(offset));
     }
     for (const auto &batch : packet.batches) {
       const auto firstIndex = static_cast<UIntSize>(batch.firstIndex);
@@ -585,8 +577,9 @@ auto SoftwareRenderBackend::Render(const RenderSurfaceHandle surface,
       if (firstIndex > packet.indices.size() ||
           indexCount > packet.indices.size() - firstIndex ||
           batch.indexCount % 3U != 0U) {
-        return SoftwareError(UIErrorCode::RenderFailed,
-                             "Render batch index range is invalid", "Render");
+        return std::unexpected(
+            SoftwareError(UIErrorCode::RenderFailed,
+                          "Render batch index range is invalid", "Render"));
       }
       for (UIntSize index = firstIndex; index < firstIndex + indexCount;
            index += 3U) {
@@ -596,15 +589,15 @@ auto SoftwareRenderBackend::Render(const RenderSurfaceHandle surface,
         if (firstVertex >= packet.vertices.size() ||
             secondVertex >= packet.vertices.size() ||
             thirdVertex >= packet.vertices.size()) {
-          return SoftwareError(UIErrorCode::RenderFailed,
-                               "Render batch references an invalid vertex",
-                               "Render");
+          return std::unexpected(SoftwareError(
+              UIErrorCode::RenderFailed,
+              "Render batch references an invalid vertex", "Render"));
         }
         auto rasterized = m_impl->RasterizeTriangle(
             *record, batch, packet.vertices[firstVertex],
             packet.vertices[secondVertex], packet.vertices[thirdVertex]);
         if (!rasterized) {
-          return rasterized.Error();
+          return std::unexpected(rasterized.error());
         }
       }
     }
@@ -612,35 +605,36 @@ auto SoftwareRenderBackend::Render(const RenderSurfaceHandle surface,
     ++m_impl->renderCount;
     return {};
   } catch (...) {
-    return SoftwareError(UIErrorCode::OutOfMemory,
-                         "Software frame allocation failed", "Render");
+    return std::unexpected(SoftwareError(UIErrorCode::OutOfMemory,
+                                         "Software frame allocation failed",
+                                         "Render"));
   }
 }
 
 auto SoftwareRenderBackend::Present(const RenderSurfaceHandle surface) noexcept
     -> UIResult<void> {
   if (m_impl->FindSurface(surface) == nullptr) {
-    return SoftwareError(UIErrorCode::RenderFailed,
-                         "Unknown software surface", "Present");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::RenderFailed, "Unknown software surface", "Present"));
   }
   return {};
 }
 auto SoftwareRenderBackend::WaitIdle() noexcept -> UIResult<void> { return {}; }
 
-auto SoftwareRenderBackend::Snapshot(
-    const RenderSurfaceHandle surface) const noexcept
-    -> UIResult<SoftwareSurfaceSnapshot> {
+auto SoftwareRenderBackend::Snapshot(const RenderSurfaceHandle surface)
+    const noexcept -> UIResult<SoftwareSurfaceSnapshot> {
   const auto *record = m_impl->FindSurface(surface);
   if (record == nullptr) {
-    return SoftwareError(UIErrorCode::InvalidArgument,
-                         "Unknown software surface", "Snapshot");
+    return std::unexpected(SoftwareError(
+        UIErrorCode::InvalidArgument, "Unknown software surface", "Snapshot"));
   }
   try {
     return SoftwareSurfaceSnapshot{record->size, record->rgba,
                                    record->frameNumber};
   } catch (...) {
-    return SoftwareError(UIErrorCode::OutOfMemory,
-                         "Software snapshot allocation failed", "Snapshot");
+    return std::unexpected(SoftwareError(UIErrorCode::OutOfMemory,
+                                         "Software snapshot allocation failed",
+                                         "Snapshot"));
   }
 }
 
@@ -648,8 +642,8 @@ auto SoftwareRenderBackend::RenderCount() const noexcept -> UInt64 {
   return m_impl->renderCount;
 }
 auto SoftwareRenderBackend::LiveTextureCount() const noexcept -> UIntSize {
-  return static_cast<UIntSize>(std::count_if(
-      m_impl->textures.begin(), m_impl->textures.end(),
-      [](const auto &entry) { return entry.second.live; }));
+  return static_cast<UIntSize>(
+      std::count_if(m_impl->textures.begin(), m_impl->textures.end(),
+                    [](const auto &entry) { return entry.second.live; }));
 }
 } // namespace NGIN::UI::Testing

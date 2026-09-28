@@ -70,771 +70,787 @@ auto main() -> int {
       .enableRendererValidation = true,
   });
   if (!createdApplication) {
-    return Report("Application creation failed", createdApplication.Error());
+    return Report("Application creation failed", createdApplication.error());
   }
-  auto application = std::move(createdApplication).Value();
+  auto application = std::move(createdApplication).value();
 
   auto createdText = NativeTextSystem::Create(application->Renderer());
   if (!createdText) {
-    return Report("Native text creation failed", createdText.Error());
+    return Report("Native text creation failed", createdText.error());
   }
-  auto text = std::move(createdText).Value();
+  auto text = std::move(createdText).value();
 
   NGIN::UIGallery::GalleryViewModel model;
   auto createdWindow =
       NGIN::UIGallery::CreateMainWindow(*application, *text, model);
   if (!createdWindow) {
-    return Report("Gallery window creation failed", createdWindow.Error());
+    return Report("Gallery window creation failed", createdWindow.error());
   }
-  auto *window = createdWindow.Value();
+  auto *window = createdWindow.value();
 
-  platformObserver->InjectEvent(
-      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(window->PixelExtent() == PixelSize{1180, 760},
-             "resize updates the logical window") ||
-      !Check(!rendererObserver->Surfaces().empty() &&
-                 rendererObserver->Surfaces().front().size ==
-                     PixelSize{1180, 760},
-             "resize updates the render surface")) {
-    return 1;
-  }
-
-  const auto initialSidebar =
-      FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
-  const auto page =
-      FindByTypeAndKey(window->Tree(), ElementType::Column, "page");
-  const auto selectedOverview =
-      FindByTypeAndKey(window->Tree(), ElementType::Button, "0");
-  const auto *initialSidebarNode = window->Tree().Get(initialSidebar);
-  const auto *pageNode = window->Tree().Get(page);
-  const auto *selectedOverviewNode = window->Tree().Get(selectedOverview);
-  if (!Check(initialSidebarNode != nullptr &&
-                 initialSidebarNode->properties.layout.padding.left >= 20.0F,
-             "gallery navigation has a generous inner gutter") ||
-      !Check(pageNode != nullptr &&
-                 pageNode->properties.layout.padding.right >= 40.0F &&
-                 pageNode->properties.layout.padding.bottom >= 48.0F,
-             "gallery content keeps breathing room around each page") ||
-      !Check(
-          FindByTypeAndKey(window->Tree(), ElementType::Column, "brand-block")
-                  .IsValid() &&
-              FindByTypeAndKey(window->Tree(), ElementType::Column,
-                               "page-heading")
-                  .IsValid() &&
-              FindByTypeAndKey(window->Tree(), ElementType::Column,
-                               "gallery-page-content")
-                  .IsValid() &&
-              FindByTypeAndKey(window->Tree(), ElementType::Text,
-                               "page-section")
-                  .IsValid(),
-          "gallery exposes clear brand, section, and page hierarchy") ||
-      !Check(selectedOverviewNode != nullptr &&
-                 HasSemanticState(
-                     selectedOverviewNode->properties.semantics.states,
-                     SemanticStateFlags::Selected),
-             "current navigation page exposes its selected state")) {
-    return 1;
-  }
-
-  platformObserver->InjectEvent(
-      WindowResized{window->PlatformHandle(), PixelSize{1180, 660}});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  const auto sidebar =
-      FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
-  const auto *sidebarNode = window->Tree().Get(sidebar);
-  if (!Check(sidebar.IsValid(), "navigation is a clipped scroll view") ||
-      !Check(sidebarNode != nullptr &&
-                 sidebarNode->scroll.contentSize.height >
-                     sidebarNode->scroll.viewportSize.height,
-             "short windows keep navigation inside a scrollable sidebar")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(PointerWheelChanged{
-      .window = window->PlatformHandle(),
-      .pointerId = 1,
-      .delta = Point{0.0F, -1.0F},
-      .position = Center(sidebarNode->arrangedBounds),
-  });
-  if (!application->PumpOnce() ||
-      !Check(window->Tree().Get(sidebar)->scroll.offset.y > 0.0F,
-             "navigation scrolls when its buttons exceed the panel")) {
-    return 1;
-  }
-
-  platformObserver->InjectEvent(
-      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-
-  for (NGIN::UIntSize index = 0; index < NGIN::UIGallery::PageCount; ++index) {
-    const auto page = NGIN::UIGallery::PageAt(index);
-    model.SelectPage(page);
-    auto pumped = application->PumpOnce();
-    if (!pumped) {
-      return Report("Gallery page frame failed", pumped.Error());
+  const auto checkGallery = [&]() -> int {
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+    if (!application->PumpOnce()) {
+      return 1;
     }
-    if (!Check(model.CurrentPage() == page,
-               "page selection is deterministic") ||
-        !Check(!NGIN::UIGallery::PageName(page).empty(),
-               "every page has a name") ||
-        !Check(!NGIN::UIGallery::PageExample(page).empty(),
-               "every page has a public API example") ||
+    if (!Check(window->PixelExtent() == PixelSize{1180, 760},
+               "resize updates the logical window") ||
+        !Check(!rendererObserver->Surfaces().empty() &&
+                   rendererObserver->Surfaces().front().size ==
+                       PixelSize{1180, 760},
+               "resize updates the render surface")) {
+      return 1;
+    }
+
+    const auto initialSidebar =
+        FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
+    const auto page =
+        FindByTypeAndKey(window->Tree(), ElementType::Column, "page");
+    const auto selectedOverview =
+        FindByTypeAndKey(window->Tree(), ElementType::Button, "0");
+    const auto *initialSidebarNode = window->Tree().Get(initialSidebar);
+    const auto *pageNode = window->Tree().Get(page);
+    const auto *selectedOverviewNode = window->Tree().Get(selectedOverview);
+    if (!Check(initialSidebarNode != nullptr &&
+                   initialSidebarNode->properties.layout.padding.left >= 20.0F,
+               "gallery navigation has a generous inner gutter") ||
+        !Check(pageNode != nullptr &&
+                   pageNode->properties.layout.padding.right >= 40.0F &&
+                   pageNode->properties.layout.padding.bottom >= 48.0F,
+               "gallery content keeps breathing room around each page") ||
+        !Check(
+            FindByTypeAndKey(window->Tree(), ElementType::Column, "brand-block")
+                    .IsValid() &&
+                FindByTypeAndKey(window->Tree(), ElementType::Column,
+                                 "page-heading")
+                    .IsValid() &&
+                FindByTypeAndKey(window->Tree(), ElementType::Column,
+                                 "gallery-page-content")
+                    .IsValid() &&
+                FindByTypeAndKey(window->Tree(), ElementType::Text,
+                                 "page-section")
+                    .IsValid(),
+            "gallery exposes clear brand, section, and page hierarchy") ||
+        !Check(selectedOverviewNode != nullptr &&
+                   HasSemanticState(
+                       selectedOverviewNode->properties.semantics.states,
+                       SemanticStateFlags::Selected),
+               "current navigation page exposes its selected state")) {
+      return 1;
+    }
+
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{1180, 660}});
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    const auto sidebar =
+        FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
+    const auto *sidebarNode = window->Tree().Get(sidebar);
+    if (!Check(sidebar.IsValid(), "navigation is a clipped scroll view") ||
+        !Check(sidebarNode != nullptr &&
+                   sidebarNode->scroll.contentSize.height >
+                       sidebarNode->scroll.viewportSize.height,
+               "short windows keep navigation inside a scrollable sidebar")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(PointerWheelChanged{
+        .window = window->PlatformHandle(),
+        .pointerId = 1,
+        .delta = Point{0.0F, -1.0F},
+        .position = Center(sidebarNode->arrangedBounds),
+    });
+    if (!application->PumpOnce() ||
+        !Check(window->Tree().Get(sidebar)->scroll.offset.y > 0.0F,
+               "navigation scrolls when its buttons exceed the panel")) {
+      return 1;
+    }
+
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+
+    for (NGIN::UIntSize index = 0; index < NGIN::UIGallery::PageCount;
+         ++index) {
+      const auto page = NGIN::UIGallery::PageAt(index);
+      model.SelectPage(page);
+      auto pumped = application->PumpOnce();
+      if (!pumped) {
+        return Report("Gallery page frame failed", pumped.error());
+      }
+      if (!Check(model.CurrentPage() == page,
+                 "page selection is deterministic") ||
+          !Check(!NGIN::UIGallery::PageName(page).empty(),
+                 "every page has a name") ||
+          !Check(!NGIN::UIGallery::PageExample(page).empty(),
+                 "every page has a public API example") ||
+          !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                  "copy-example")
+                     .IsValid(),
+                 "every page exposes a copy-example action") ||
+          !Check(!window->Semantics().Nodes().empty(),
+                 "every page emits semantics")) {
+        return 1;
+      }
+      if (page == NGIN::UIGallery::Page::Overview) {
+        const auto progressRing = FindByTypeAndKey(
+            window->Tree(), ElementType::CustomElement, "progress-ring");
+        const auto chart = FindByTypeAndKey(
+            window->Tree(), ElementType::CustomElement, "bar-chart");
+        const auto *progressNode = window->Tree().Get(progressRing);
+        const auto *chartNode = window->Tree().Get(chart);
+        const auto *progressSemantics =
+            progressNode != nullptr
+                ? window->Semantics().FindByOwner(progressNode->id)
+                : nullptr;
+        const auto *chartSemantics =
+            chartNode != nullptr
+                ? window->Semantics().FindByOwner(chartNode->id)
+                : nullptr;
+        if (!Check(progressSemantics != nullptr &&
+                       progressSemantics->role == SemanticRole::ProgressBar &&
+                       HasSemanticAction(progressSemantics->actions,
+                                         SemanticActionFlags::Increment),
+                   "custom progress exposes an interactive value") ||
+            !Check(chartSemantics != nullptr &&
+                       chartSemantics->role == SemanticRole::Slider &&
+                       HasSemanticAction(chartSemantics->actions,
+                                         SemanticActionFlags::Increment),
+                   "custom chart exposes keyboard value navigation")) {
+          return 1;
+        }
+
+        const auto progressBefore = progressSemantics->value;
+        if (!Check(window->Focus(progressRing),
+                   "custom progress accepts keyboard focus")) {
+          return 1;
+        }
+        platformObserver->InjectEvent(KeyChanged{
+            .window = window->PlatformHandle(),
+            .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+            .state = KeyState::Pressed,
+        });
+        if (!application->PumpOnce()) {
+          return 1;
+        }
+        progressNode = window->Tree().Get(progressRing);
+        progressSemantics =
+            progressNode != nullptr
+                ? window->Semantics().FindByOwner(progressNode->id)
+                : nullptr;
+        if (!Check(progressSemantics != nullptr &&
+                       progressSemantics->value != progressBefore,
+                   "custom progress changes when activated")) {
+          return 1;
+        }
+
+        if (!Check(window->Focus(chart),
+                   "custom chart accepts keyboard focus")) {
+          return 1;
+        }
+        platformObserver->InjectEvent(KeyChanged{
+            .window = window->PlatformHandle(),
+            .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Right),
+            .state = KeyState::Pressed,
+        });
+        if (!application->PumpOnce()) {
+          return 1;
+        }
+        chartNode = window->Tree().Get(chart);
+        chartSemantics = chartNode != nullptr
+                             ? window->Semantics().FindByOwner(chartNode->id)
+                             : nullptr;
+        if (!Check(chartSemantics != nullptr &&
+                       chartSemantics->value !=
+                           NGIN::Text::String{"No bar selected"},
+                   "custom chart selection changes with the arrow keys")) {
+          return 1;
+        }
+      }
+      if (page == NGIN::UIGallery::Page::Inputs &&
+          (!Check(HasRole(window->Semantics(), SemanticRole::CheckBox),
+                  "inputs page exposes checkbox semantics") ||
+           !Check(HasRole(window->Semantics(), SemanticRole::RadioButton),
+                  "inputs page exposes radio semantics") ||
+           !Check(HasRole(window->Semantics(), SemanticRole::Switch),
+                  "inputs page exposes switch semantics") ||
+           !Check(HasRole(window->Semantics(), SemanticRole::Slider),
+                  "inputs page exposes slider semantics") ||
+           !Check(HasRole(window->Semantics(), SemanticRole::ProgressBar),
+                  "inputs page exposes progress semantics") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                   "validation-check")
+                      .IsValid(),
+                  "MVVM workflow exposes form validation") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                   "validation-save")
+                      .IsValid(),
+                  "MVVM workflow exposes command-bound Save") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                   "validation-fail")
+                      .IsValid(),
+                  "MVVM workflow exposes the error path") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                   "validation-cancel")
+                      .IsValid(),
+                  "MVVM workflow exposes cancellation"))) {
+        return 1;
+      }
+      if (page == NGIN::UIGallery::Page::Collections) {
+        const auto virtualList = FindByTypeAndKey(
+            window->Tree(), ElementType::ListView, "virtual-list-100000");
+        const auto virtualDiagnostics = std::find_if(
+            window->LastLayoutStats().virtualizedLists.begin(),
+            window->LastLayoutStats().virtualizedLists.end(),
+            [&](const auto &diagnostics) {
+              const auto *node = window->Tree().Get(virtualList);
+              return node != nullptr && diagnostics.element == node->id;
+            });
+        if (!Check(HasRole(window->Semantics(), SemanticRole::List),
+                   "collections page exposes list semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
+                   "collections page exposes list-item semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
+                   "collections page exposes combo-box semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::TabList),
+                   "collections page exposes tab-list semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::Tab),
+                   "collections page exposes tab semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
+                   "collections page exposes active tab-panel semantics") ||
+            !Check(virtualList.IsValid(),
+                   "collections page contains the 100,000-item list") ||
+            !Check(virtualDiagnostics !=
+                       window->LastLayoutStats().virtualizedLists.end(),
+                   "large-list realization is observable") ||
+            !Check(virtualDiagnostics->logicalItemCount == 100'000,
+                   "large list keeps 100,000 logical rows") ||
+            !Check(virtualDiagnostics->realizedNodeCount <= 16,
+                   "large list realizes only viewport rows") ||
+            !Check(window->Focus(virtualList),
+                   "large list accepts keyboard focus")) {
+          return 1;
+        }
+
+        platformObserver->InjectEvent(KeyChanged{
+            .window = window->PlatformHandle(),
+            .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::End),
+            .state = KeyState::Pressed,
+        });
+        if (!application->PumpOnce() ||
+            !Check(model.SelectedVirtualizedIndex() == 99'999,
+                   "End selects and reveals the last logical row") ||
+            !Check(window->FocusedElement() == virtualList,
+                   "large-list focus stays on its stable owner")) {
+          return 1;
+        }
+
+        const auto lastRange =
+            model.VirtualizedCollectionController().RealizedRange();
+        if (!Check(lastRange.End() == 100'000,
+                   "last logical row is realized after keyboard navigation")) {
+          return 1;
+        }
+        if (!application->PumpOnce() ||
+            !Check(FindByTypeAndKey(window->Tree(), ElementType::ListItem,
+                                    "item-99999")
+                       .IsValid(),
+                   "the last row replaces the previous realized range")) {
+          return 1;
+        }
+
+        model.PrependVirtualizedItems();
+        if (!application->PumpOnce() ||
+            !Check(model.VirtualizedCollectionSource().Count() == 100'250,
+                   "Gallery source adds a new incremental range") ||
+            !Check(model.SelectedVirtualizedIndex() == 100'249,
+                   "stable selection follows inserted rows") ||
+            !Check(
+                model.VirtualizedCollectionController().RealizedRange().End() ==
+                    100'250,
+                "scroll anchoring keeps the selected end row visible") ||
+            !Check(model.VirtualizedCollectionController()
+                           .Diagnostics()
+                           .rangeRequestCount >= 2,
+                   "Gallery reports incremental range loads")) {
+          return 1;
+        }
+      }
+      if (page == NGIN::UIGallery::Page::Motion) {
+        const auto sample = FindByTypeAndKey(
+            window->Tree(), ElementType::Border, "moving-sample");
+        const auto progress = FindByTypeAndKey(
+            window->Tree(), ElementType::CustomElement, "motion-progress");
+        const auto *sampleNode = window->Tree().Get(sample);
+        const auto *progressNode = window->Tree().Get(progress);
+        if (!Check(
+                sampleNode != nullptr &&
+                    sampleNode->properties.motion.opacity &&
+                    sampleNode->properties.motion.translation &&
+                    sampleNode->properties.motion.scale &&
+                    sampleNode->properties.motion.background,
+                "motion page uses public fade move scale and color targets") ||
+            !Check(progressNode != nullptr &&
+                       progressNode->properties.motion.value.has_value(),
+                   "motion page uses the public animated progress control") ||
+            !Check(window->HasActiveAnimations(),
+                   "indeterminate progress requests motion frames")) {
+          return 1;
+        }
+      }
+      if (page == NGIN::UIGallery::Page::TextArea &&
+          !Check(HasRole(window->Semantics(), SemanticRole::TextBox),
+                 "text-area page exposes editable text semantics")) {
+        return 1;
+      }
+      if (page == NGIN::UIGallery::Page::Layout &&
+          (!Check(FindByTypeAndKey(window->Tree(), ElementType::Grid,
+                                   "settings-grid")
+                      .IsValid(),
+                  "layout page uses the public grid primitive") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::WrapPanel,
+                                   "responsive-toolbar")
+                      .IsValid(),
+                  "layout page uses the public wrap-panel primitive") ||
+           !Check(FindByTypeAndKey(window->Tree(), ElementType::Canvas,
+                                   "diagram-canvas")
+                      .IsValid(),
+                  "layout page uses the public canvas primitive") ||
+           !Check(window->LastLayoutStats().grids.size() >= 3,
+                  "layout diagnostics expose resolved grid tracks") ||
+           !Check(!window->LastLayoutStats().wrapPanels.empty(),
+                  "layout diagnostics expose wrapped lines"))) {
+        return 1;
+      }
+      if (page == NGIN::UIGallery::Page::Typography) {
+        const auto fontDiagnostics = model.FontDiagnostics();
+        const auto usedFallback = std::any_of(
+            fontDiagnostics.faces.begin(), fontDiagnostics.faces.end(),
+            [](const auto &face) {
+              return face.fallback && face.resolvedCodePointCount > 0;
+            });
+        if (!Check(fontDiagnostics.missingCodePointCount == 0,
+                   "typography samples have complete packaged coverage") ||
+            !Check(fontDiagnostics.fallbackCodePointCount > 0,
+                   "typography samples exercise fallback fonts") ||
+            !Check(usedFallback,
+                   "typography diagnostics identify a used fallback face") ||
+            !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
+                                    "emoji-policy")
+                       .IsValid(),
+                   "typography states the color-emoji policy")) {
+          return 1;
+        }
+      }
+      if (page == NGIN::UIGallery::Page::Images &&
+          (!Check(HasRole(window->Semantics(), SemanticRole::Image),
+                  "images page exposes image semantics") ||
+           !Check(model.GalleryImage() &&
+                      model.GalleryImage()->State() == ImageLoadState::Ready,
+                  "images page decodes its staged PNG asset") ||
+           !Check(model.GalleryImage()->Size() == PixelSize{1536, 1024},
+                  "images page retains decoded PNG dimensions") ||
+           !Check(model.ImageDiagnostics().entryCount > 0,
+                  "image cache activity is observable"))) {
+        return 1;
+      }
+      if (page == NGIN::UIGallery::Page::Diagnostics) {
+        const auto navigation = model.PageNavigationDiagnostics();
+        if (!Check(navigation.region == "Gallery.Content",
+                   "Gallery uses the public named navigation region") ||
+            !Check(navigation.stack.size() == 1 &&
+                       navigation.stack.back().pageId == "diagnostics",
+                   "Gallery diagnostics reports the current registered page") ||
+            !Check(model.PageActivationCount() >= NGIN::UIGallery::PageCount,
+                   "Gallery reports page activations") ||
+            !Check(model.PageReleaseCount() + 1 == model.PageActivationCount(),
+                   "Gallery releases every replaced page") ||
+            !Check(FindByTypeAndKey(window->Tree(), ElementType::Border,
+                                    "navigation-diagnostics-card")
+                       .IsValid(),
+                   "Gallery shows page and ViewModel navigation diagnostics")) {
+          return 1;
+        }
+      }
+    }
+
+    auto navigationSearch = model.NavigationSearchBinding();
+    const auto accessibilityPageKey = std::to_string(
+        static_cast<NGIN::UIntSize>(NGIN::UIGallery::Page::Accessibility));
+    if (!navigationSearch.Set(NGIN::Text::String{"narrator"}) ||
+        !application->PumpOnce() ||
         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                "copy-example")
+                                accessibilityPageKey)
                    .IsValid(),
-               "every page exposes a copy-example action") ||
-        !Check(!window->Semantics().Nodes().empty(),
-               "every page emits semantics")) {
+               "navigation search finds pages by feature") ||
+        !Check(!FindByTypeAndKey(window->Tree(), ElementType::Button, "0")
+                    .IsValid(),
+               "navigation search hides unrelated pages")) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Overview) {
-      const auto progressRing = FindByTypeAndKey(
-          window->Tree(), ElementType::CustomElement, "progress-ring");
-      const auto chart = FindByTypeAndKey(
-          window->Tree(), ElementType::CustomElement, "bar-chart");
-      const auto *progressNode = window->Tree().Get(progressRing);
-      const auto *chartNode = window->Tree().Get(chart);
-      const auto *progressSemantics =
-          progressNode != nullptr
-              ? window->Semantics().FindByOwner(progressNode->id)
-              : nullptr;
-      const auto *chartSemantics =
-          chartNode != nullptr ? window->Semantics().FindByOwner(chartNode->id)
-                               : nullptr;
-      if (!Check(progressSemantics != nullptr &&
-                     progressSemantics->role == SemanticRole::ProgressBar &&
-                     HasSemanticAction(progressSemantics->actions,
-                                       SemanticActionFlags::Increment),
-                 "custom progress exposes an interactive value") ||
-          !Check(chartSemantics != nullptr &&
-                     chartSemantics->role == SemanticRole::Slider &&
-                     HasSemanticAction(chartSemantics->actions,
-                                       SemanticActionFlags::Increment),
-                 "custom chart exposes keyboard value navigation")) {
-        return 1;
-      }
-
-      const auto progressBefore = progressSemantics->value;
-      if (!Check(window->Focus(progressRing),
-                 "custom progress accepts keyboard focus")) {
-        return 1;
-      }
-      platformObserver->InjectEvent(KeyChanged{
-          .window = window->PlatformHandle(),
-          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
-          .state = KeyState::Pressed,
-      });
-      if (!application->PumpOnce()) {
-        return 1;
-      }
-      progressNode = window->Tree().Get(progressRing);
-      progressSemantics =
-          progressNode != nullptr
-              ? window->Semantics().FindByOwner(progressNode->id)
-              : nullptr;
-      if (!Check(progressSemantics != nullptr &&
-                     progressSemantics->value != progressBefore,
-                 "custom progress changes when activated")) {
-        return 1;
-      }
-
-      if (!Check(window->Focus(chart), "custom chart accepts keyboard focus")) {
-        return 1;
-      }
-      platformObserver->InjectEvent(KeyChanged{
-          .window = window->PlatformHandle(),
-          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Right),
-          .state = KeyState::Pressed,
-      });
-      if (!application->PumpOnce()) {
-        return 1;
-      }
-      chartNode = window->Tree().Get(chart);
-      chartSemantics = chartNode != nullptr
-                           ? window->Semantics().FindByOwner(chartNode->id)
-                           : nullptr;
-      if (!Check(chartSemantics != nullptr &&
-                     chartSemantics->value !=
-                         NGIN::Text::String{"No bar selected"},
-                 "custom chart selection changes with the arrow keys")) {
-        return 1;
-      }
-    }
-    if (page == NGIN::UIGallery::Page::Inputs &&
-        (!Check(HasRole(window->Semantics(), SemanticRole::CheckBox),
-                "inputs page exposes checkbox semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::RadioButton),
-                "inputs page exposes radio semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::Switch),
-                "inputs page exposes switch semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::Slider),
-                "inputs page exposes slider semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::ProgressBar),
-                "inputs page exposes progress semantics") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                 "validation-check")
-                    .IsValid(),
-                "MVVM workflow exposes form validation") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                 "validation-save")
-                    .IsValid(),
-                "MVVM workflow exposes command-bound Save") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                 "validation-fail")
-                    .IsValid(),
-                "MVVM workflow exposes the error path") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                 "validation-cancel")
-                    .IsValid(),
-                "MVVM workflow exposes cancellation"))) {
+    if (!navigationSearch.Set(NGIN::Text::String{"not-a-gallery-feature"}) ||
+        !application->PumpOnce() ||
+        !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
+                                "navigation-no-results")
+                   .IsValid(),
+               "navigation search explains an empty result")) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Collections) {
-      const auto virtualList = FindByTypeAndKey(
-          window->Tree(), ElementType::ListView, "virtual-list-100000");
-      const auto virtualDiagnostics = std::find_if(
-          window->LastLayoutStats().virtualizedLists.begin(),
-          window->LastLayoutStats().virtualizedLists.end(),
-          [&](const auto &diagnostics) {
-            const auto *node = window->Tree().Get(virtualList);
-            return node != nullptr && diagnostics.element == node->id;
-          });
-      if (!Check(HasRole(window->Semantics(), SemanticRole::List),
-                 "collections page exposes list semantics") ||
-          !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
-                 "collections page exposes list-item semantics") ||
-          !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
-                 "collections page exposes combo-box semantics") ||
-          !Check(HasRole(window->Semantics(), SemanticRole::TabList),
-                 "collections page exposes tab-list semantics") ||
-          !Check(HasRole(window->Semantics(), SemanticRole::Tab),
-                 "collections page exposes tab semantics") ||
-          !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
-                 "collections page exposes active tab-panel semantics") ||
-          !Check(virtualList.IsValid(),
-                 "collections page contains the 100,000-item list") ||
-          !Check(virtualDiagnostics !=
-                     window->LastLayoutStats().virtualizedLists.end(),
-                 "large-list realization is observable") ||
-          !Check(virtualDiagnostics->logicalItemCount == 100'000,
-                 "large list keeps 100,000 logical rows") ||
-          !Check(virtualDiagnostics->realizedNodeCount <= 16,
-                 "large list realizes only viewport rows") ||
-          !Check(window->Focus(virtualList),
-                 "large list accepts keyboard focus")) {
-        return 1;
-      }
-
-      platformObserver->InjectEvent(KeyChanged{
-          .window = window->PlatformHandle(),
-          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::End),
-          .state = KeyState::Pressed,
-      });
-      if (!application->PumpOnce() ||
-          !Check(model.SelectedVirtualizedIndex() == 99'999,
-                 "End selects and reveals the last logical row") ||
-          !Check(window->FocusedElement() == virtualList,
-                 "large-list focus stays on its stable owner")) {
-        return 1;
-      }
-
-      const auto lastRange =
-          model.VirtualizedCollectionController().RealizedRange();
-      if (!Check(lastRange.End() == 100'000,
-                 "last logical row is realized after keyboard navigation")) {
-        return 1;
-      }
-      if (!application->PumpOnce() ||
-          !Check(FindByTypeAndKey(window->Tree(), ElementType::ListItem,
-                                  "item-99999")
-                     .IsValid(),
-                 "the last row replaces the previous realized range")) {
-        return 1;
-      }
-
-      model.PrependVirtualizedItems();
-      if (!application->PumpOnce() ||
-          !Check(model.VirtualizedCollectionSource().Count() == 100'250,
-                 "Gallery source adds a new incremental range") ||
-          !Check(model.SelectedVirtualizedIndex() == 100'249,
-                 "stable selection follows inserted rows") ||
-          !Check(
-              model.VirtualizedCollectionController().RealizedRange().End() ==
-                  100'250,
-              "scroll anchoring keeps the selected end row visible") ||
-          !Check(model.VirtualizedCollectionController()
-                         .Diagnostics()
-                         .rangeRequestCount >= 2,
-                 "Gallery reports incremental range loads")) {
-        return 1;
-      }
-    }
-    if (page == NGIN::UIGallery::Page::Motion) {
-      const auto sample = FindByTypeAndKey(window->Tree(), ElementType::Border,
-                                           "moving-sample");
-      const auto progress = FindByTypeAndKey(
-          window->Tree(), ElementType::CustomElement, "motion-progress");
-      const auto *sampleNode = window->Tree().Get(sample);
-      const auto *progressNode = window->Tree().Get(progress);
-      if (!Check(sampleNode != nullptr &&
-                     sampleNode->properties.motion.opacity &&
-                     sampleNode->properties.motion.translation &&
-                     sampleNode->properties.motion.scale &&
-                     sampleNode->properties.motion.background,
-                 "motion page uses public fade move scale and color targets") ||
-          !Check(progressNode != nullptr &&
-                     progressNode->properties.motion.value.has_value(),
-                 "motion page uses the public animated progress control") ||
-          !Check(window->HasActiveAnimations(),
-                 "indeterminate progress requests motion frames")) {
-        return 1;
-      }
-    }
-    if (page == NGIN::UIGallery::Page::TextArea &&
-        !Check(HasRole(window->Semantics(), SemanticRole::TextBox),
-               "text-area page exposes editable text semantics")) {
+    if (!navigationSearch.Set(NGIN::Text::String{}) ||
+        !application->PumpOnce()) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Layout &&
-        (!Check(FindByTypeAndKey(window->Tree(), ElementType::Grid,
-                                 "settings-grid")
-                    .IsValid(),
-                "layout page uses the public grid primitive") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::WrapPanel,
-                                 "responsive-toolbar")
-                    .IsValid(),
-                "layout page uses the public wrap-panel primitive") ||
-         !Check(FindByTypeAndKey(window->Tree(), ElementType::Canvas,
-                                 "diagram-canvas")
-                    .IsValid(),
-                "layout page uses the public canvas primitive") ||
-         !Check(window->LastLayoutStats().grids.size() >= 3,
-                "layout diagnostics expose resolved grid tracks") ||
-         !Check(!window->LastLayoutStats().wrapPanels.empty(),
-                "layout diagnostics expose wrapped lines"))) {
+
+    model.SelectPage(NGIN::UIGallery::Page::Motion);
+    model.CopyExample(model.CurrentPage());
+    if (!Check(platformObserver->ClipboardText().View() ==
+                   NGIN::UIGallery::PageExample(NGIN::UIGallery::Page::Motion),
+               "copy example writes the shown public API to the clipboard")) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Typography) {
-      const auto fontDiagnostics = model.FontDiagnostics();
-      const auto usedFallback =
-          std::any_of(fontDiagnostics.faces.begin(),
-                      fontDiagnostics.faces.end(), [](const auto &face) {
-                        return face.fallback && face.resolvedCodePointCount > 0;
-                      });
-      if (!Check(fontDiagnostics.missingCodePointCount == 0,
-                 "typography samples have complete packaged coverage") ||
-          !Check(fontDiagnostics.fallbackCodePointCount > 0,
-                 "typography samples exercise fallback fonts") ||
-          !Check(usedFallback,
-                 "typography diagnostics identify a used fallback face") ||
-          !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
-                                  "emoji-policy")
-                     .IsValid(),
-                 "typography states the color-emoji policy")) {
-        return 1;
-      }
-    }
-    if (page == NGIN::UIGallery::Page::Images &&
-        (!Check(HasRole(window->Semantics(), SemanticRole::Image),
-                "images page exposes image semantics") ||
-         !Check(model.GalleryImage() &&
-                    model.GalleryImage()->State() == ImageLoadState::Ready,
-                "images page decodes its staged PNG asset") ||
-         !Check(model.GalleryImage()->Size() == PixelSize{1536, 1024},
-                "images page retains decoded PNG dimensions") ||
-         !Check(model.ImageDiagnostics().entryCount > 0,
-                "image cache activity is observable"))) {
+
+    if (!Check(rendererObserver->RenderPackets().size() >=
+                   NGIN::UIGallery::PageCount,
+               "every gallery page rendered")) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Diagnostics) {
-      const auto navigation = model.PageNavigationDiagnostics();
-      if (!Check(navigation.region == "Gallery.Content",
-                 "Gallery uses the public named navigation region") ||
-          !Check(navigation.stack.size() == 1 &&
-                     navigation.stack.back().pageId == "diagnostics",
-                 "Gallery diagnostics reports the current registered page") ||
-          !Check(model.PageActivationCount() >= NGIN::UIGallery::PageCount,
-                 "Gallery reports page activations") ||
-          !Check(model.PageReleaseCount() + 1 == model.PageActivationCount(),
-                 "Gallery releases every replaced page") ||
-          !Check(FindByTypeAndKey(window->Tree(), ElementType::Border,
-                                  "navigation-diagnostics-card")
-                     .IsValid(),
-                 "Gallery shows page and ViewModel navigation diagnostics")) {
-        return 1;
-      }
+
+    model.SelectPage(NGIN::UIGallery::Page::Layout);
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{680, 520}});
+    if (!application->PumpOnce()) {
+      return 1;
     }
-  }
+    const auto viewport = FindByTypeAndKey(
+        window->Tree(), ElementType::ScrollView, "catalogue-viewport");
+    const auto *viewportNode = window->Tree().Get(viewport);
+    const auto wrappedAtNarrowSize =
+        std::any_of(window->LastLayoutStats().wrapPanels.begin(),
+                    window->LastLayoutStats().wrapPanels.end(),
+                    [](const auto &panel) { return panel.lines.size() > 1; });
+    if (!Check(viewportNode != nullptr &&
+                   viewportNode->arrangedBounds.width >= 280.0F,
+               "gallery keeps a usable content area at its narrow size") ||
+        !Check(wrappedAtNarrowSize,
+               "toolbar wraps actions when the gallery becomes narrow")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+    if (!application->PumpOnce()) {
+      return 1;
+    }
 
-  auto navigationSearch = model.NavigationSearchBinding();
-  const auto accessibilityPageKey = std::to_string(
-      static_cast<NGIN::UIntSize>(NGIN::UIGallery::Page::Accessibility));
-  if (!navigationSearch.Set(NGIN::Text::String{"narrator"}) ||
-      !application->PumpOnce() ||
-      !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                              accessibilityPageKey)
-                 .IsValid(),
-             "navigation search finds pages by feature") ||
-      !Check(
-          !FindByTypeAndKey(window->Tree(), ElementType::Button, "0").IsValid(),
-          "navigation search hides unrelated pages")) {
-    return 1;
-  }
-  if (!navigationSearch.Set(NGIN::Text::String{"not-a-gallery-feature"}) ||
-      !application->PumpOnce() ||
-      !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
-                              "navigation-no-results")
-                 .IsValid(),
-             "navigation search explains an empty result")) {
-    return 1;
-  }
-  if (!navigationSearch.Set(NGIN::Text::String{}) || !application->PumpOnce()) {
-    return 1;
-  }
+    const auto wasLight = model.IsLightTheme();
+    model.ToggleTheme();
+    model.Activate();
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.IsLightTheme() != wasLight,
+               "theme switching is stateful") ||
+        !Check(model.ActivationCount() == 1,
+               "control activation state is retained")) {
+      return 1;
+    }
 
-  model.SelectPage(NGIN::UIGallery::Page::Motion);
-  model.CopyExample(model.CurrentPage());
-  if (!Check(platformObserver->ClipboardText().View() ==
-                 NGIN::UIGallery::PageExample(NGIN::UIGallery::Page::Motion),
-             "copy example writes the shown public API to the clipboard")) {
-    return 1;
-  }
+    model.SelectPage(NGIN::UIGallery::Page::Inputs);
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    const auto checkHandle = window->Tree().FindBySemanticIdentifier(
+        NGIN::Text::String{"settings-check"});
+    const auto *checkNode = window->Tree().Get(checkHandle);
+    if (!Check(checkNode != nullptr,
+               "checkbox has a stable semantic identity")) {
+      return 1;
+    }
+    const auto checkCenter = Center(checkNode->arrangedBounds);
+    const auto beforePointer = model.CheckBinding().Get();
+    platformObserver->InjectEvent(PointerMoved{
+        .window = window->PlatformHandle(),
+        .pointerId = 1,
+        .position = checkCenter,
+    });
+    platformObserver->InjectEvent(PointerButtonChanged{
+        .window = window->PlatformHandle(),
+        .pointerId = 1,
+        .button = PointerButton::Primary,
+        .state = ButtonState::Pressed,
+        .position = checkCenter,
+    });
+    platformObserver->InjectEvent(PointerButtonChanged{
+        .window = window->PlatformHandle(),
+        .pointerId = 1,
+        .button = PointerButton::Primary,
+        .state = ButtonState::Released,
+        .position = checkCenter,
+    });
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.CheckBinding().Get() != beforePointer,
+               "pointer activation changes a gallery control")) {
+      return 1;
+    }
 
-  if (!Check(rendererObserver->RenderPackets().size() >=
-                 NGIN::UIGallery::PageCount,
-             "every gallery page rendered")) {
-    return 1;
-  }
+    const auto beforeKeyboard = model.CheckBinding().Get();
+    const auto keyboardCheckHandle = window->Tree().FindBySemanticIdentifier(
+        NGIN::Text::String{"settings-check"});
+    if (!Check(window->FocusedElement() == keyboardCheckHandle ||
+                   window->Focus(keyboardCheckHandle),
+               "keyboard target accepts focus")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(KeyChanged{
+        .window = window->PlatformHandle(),
+        .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+        .state = KeyState::Pressed,
+    });
+    platformObserver->InjectEvent(KeyChanged{
+        .window = window->PlatformHandle(),
+        .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+        .state = KeyState::Released,
+    });
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.CheckBinding().Get() != beforeKeyboard,
+               "keyboard activation changes a gallery control")) {
+      return 1;
+    }
 
-  model.SelectPage(NGIN::UIGallery::Page::Layout);
-  platformObserver->InjectEvent(
-      WindowResized{window->PlatformHandle(), PixelSize{680, 520}});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  const auto viewport = FindByTypeAndKey(
-      window->Tree(), ElementType::ScrollView, "catalogue-viewport");
-  const auto *viewportNode = window->Tree().Get(viewport);
-  const auto wrappedAtNarrowSize =
-      std::any_of(window->LastLayoutStats().wrapPanels.begin(),
-                  window->LastLayoutStats().wrapPanels.end(),
-                  [](const auto &panel) { return panel.lines.size() > 1; });
-  if (!Check(viewportNode != nullptr &&
-                 viewportNode->arrangedBounds.width >= 280.0F,
-             "gallery keeps a usable content area at its narrow size") ||
-      !Check(wrappedAtNarrowSize,
-             "toolbar wraps actions when the gallery becomes narrow")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(
-      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
+    model.SelectPage(NGIN::UIGallery::Page::Motion);
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    model.ToggleMotionTarget();
+    if (!application->PumpOnce() ||
+        !Check(window->HasActiveAnimations(),
+               "motion target changes start an animation")) {
+      return 1;
+    }
+    platformObserver->AdvanceTime(std::chrono::milliseconds{120});
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    model.ToggleMotionTarget();
+    if (!application->PumpOnce() ||
+        !Check(window->HasActiveAnimations(),
+               "motion can reverse before it finishes")) {
+      return 1;
+    }
+    model.StartMotionRepeat();
+    if (!application->PumpOnce() ||
+        !Check(model.MotionRepeatRunning(),
+               "bounded repeating motion starts from the Gallery") ||
+        !Check(model.MotionRepeatHandle() != nullptr,
+               "repeating motion exposes a cancellation handle")) {
+      return 1;
+    }
+    model.CancelMotionRepeat();
+    if (!application->PumpOnce() || !Check(!model.MotionRepeatRunning(),
+                                           "repeating motion cancels safely")) {
+      return 1;
+    }
+    model.ToggleMotionPreviewReduced();
+    if (!application->PumpOnce() ||
+        !Check(model.MotionPreviewReduced(),
+               "Gallery can preview the reduced-motion behavior") ||
+        !Check(!window->HasActiveAnimations(),
+               "reduced motion settles every active target")) {
+      return 1;
+    }
+    model.ToggleMotionPreviewReduced();
+    if (!application->PumpOnce() ||
+        !Check(!model.MotionPreviewReduced(),
+               "Gallery restores normal motion after the preview")) {
+      return 1;
+    }
+    model.MotionPopup().Open();
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    const auto motionPopup =
+        FindByTypeAndKey(window->Tree(), ElementType::Popup, "popup");
+    const auto *motionPopupNode = window->Tree().Get(motionPopup);
+    const auto popupCard =
+        FindByTypeAndKey(window->Tree(), ElementType::Column, "popup-card");
+    if (!Check(motionPopupNode != nullptr,
+               "motion example opens a retained popup") ||
+        !Check(!motionPopupNode->properties.visual.base.background.has_value(),
+               "popup viewport does not cover the Gallery") ||
+        !Check(motionPopupNode->properties.motion.opacity.has_value() &&
+                   motionPopupNode->properties.motion.translation.has_value() &&
+                   motionPopupNode->properties.motion.translation->Initial() ==
+                       std::optional<Point>{Point{0.0F, 36.0F}} &&
+                   std::holds_alternative<TweenTiming>(
+                       motionPopupNode->properties.motion.translation->Spec()
+                           .timing) &&
+                   std::get<TweenTiming>(
+                       motionPopupNode->properties.motion.translation->Spec()
+                           .timing)
+                           .duration >= std::chrono::milliseconds{500},
+               "popup demo uses an obvious rise and fade") ||
+        !Check(popupCard.IsValid(), "popup presents a visible card") ||
+        !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&
+                   motionPopupNode->popup.contentBounds.height <= 170.0F,
+               "popup content stays a small anchored panel")) {
+      return 1;
+    }
+    model.MotionPopup().Close();
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    platformObserver->AdvanceTime(std::chrono::milliseconds{520});
+    if (!application->PumpOnce() || !application->PumpOnce()) {
+      return 1;
+    }
+    model.SelectPage(NGIN::UIGallery::Page::Inputs);
+    if (!application->PumpOnce()) {
+      return 1;
+    }
 
-  const auto wasLight = model.IsLightTheme();
-  model.ToggleTheme();
-  model.Activate();
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.IsLightTheme() != wasLight, "theme switching is stateful") ||
-      !Check(model.ActivationCount() == 1,
-             "control activation state is retained")) {
-    return 1;
-  }
+    const auto editor =
+        FindByTypeAndKey(window->Tree(), ElementType::TextField, "editable");
+    if (!Check(editor.IsValid() && window->Focus(editor),
+               "editable field accepts focus")) {
+      return 1;
+    }
+    if (!platformObserver->SetClipboardText(NGIN::Text::String{" clipboard"})
+             .has_value()) {
+      return 1;
+    }
+    platformObserver->InjectEvent(KeyChanged{
+        .window = window->PlatformHandle(),
+        .logicalKey = static_cast<NGIN::UInt32>('V'),
+        .state = KeyState::Pressed,
+        .modifiers = static_cast<NGIN::UInt32>(KeyModifierFlags::Control),
+    });
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.Name().View().find("clipboard") != std::string_view::npos,
+               "clipboard paste commits through the focused binding")) {
+      return 1;
+    }
+    const auto beforeComposition = model.Name();
+    platformObserver->InjectEvent(TextComposition{
+        .window = window->PlatformHandle(),
+        .text = NGIN::Text::String{"\xC3\xA5"},
+        .selectionStart = 0,
+        .selectionLength = 2,
+    });
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.Name() == beforeComposition,
+               "IME pre-edit remains transient")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(TextInput{
+        .window = window->PlatformHandle(),
+        .text = NGIN::Text::String{"\xC3\xA5"},
+    });
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.Name() != beforeComposition,
+               "IME commit updates the focused binding")) {
+      return 1;
+    }
 
-  model.SelectPage(NGIN::UIGallery::Page::Inputs);
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  const auto checkHandle = window->Tree().FindBySemanticIdentifier(
-      NGIN::Text::String{"settings-check"});
-  const auto *checkNode = window->Tree().Get(checkHandle);
-  if (!Check(checkNode != nullptr, "checkbox has a stable semantic identity")) {
-    return 1;
-  }
-  const auto checkCenter = Center(checkNode->arrangedBounds);
-  const auto beforePointer = model.CheckBinding().Get();
-  platformObserver->InjectEvent(PointerMoved{
-      .window = window->PlatformHandle(),
-      .pointerId = 1,
-      .position = checkCenter,
-  });
-  platformObserver->InjectEvent(PointerButtonChanged{
-      .window = window->PlatformHandle(),
-      .pointerId = 1,
-      .button = PointerButton::Primary,
-      .state = ButtonState::Pressed,
-      .position = checkCenter,
-  });
-  platformObserver->InjectEvent(PointerButtonChanged{
-      .window = window->PlatformHandle(),
-      .pointerId = 1,
-      .button = PointerButton::Primary,
-      .state = ButtonState::Released,
-      .position = checkCenter,
-  });
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.CheckBinding().Get() != beforePointer,
-             "pointer activation changes a gallery control")) {
-    return 1;
-  }
+    auto checkChanged = model.CheckBinding().Set(CheckState::Indeterminate);
+    auto toggleChanged = model.ToggleBinding().Set(false);
+    auto sliderChanged = model.SliderBinding().Set(0.8F);
+    auto radioChanged =
+        model.DensityBinding().Set(NGIN::UIGallery::Density::Spacious);
+    if (!Check(checkChanged.has_value(), "checkbox binding is writable") ||
+        !Check(toggleChanged.has_value(), "toggle binding is writable") ||
+        !Check(sliderChanged.has_value(), "slider binding is writable") ||
+        !Check(radioChanged.has_value(), "typed radio binding is writable") ||
+        !Check(model.SliderValue() == 0.8F,
+               "range state is retained by the gallery model")) {
+      return 1;
+    }
 
-  const auto beforeKeyboard = model.CheckBinding().Get();
-  const auto keyboardCheckHandle = window->Tree().FindBySemanticIdentifier(
-      NGIN::Text::String{"settings-check"});
-  if (!Check(window->FocusedElement() == keyboardCheckHandle ||
-                 window->Focus(keyboardCheckHandle),
-             "keyboard target accepts focus")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(KeyChanged{
-      .window = window->PlatformHandle(),
-      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
-      .state = KeyState::Pressed,
-  });
-  platformObserver->InjectEvent(KeyChanged{
-      .window = window->PlatformHandle(),
-      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
-      .state = KeyState::Released,
-  });
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.CheckBinding().Get() != beforeKeyboard,
-             "keyboard activation changes a gallery control")) {
-    return 1;
-  }
+    model.SelectPage(NGIN::UIGallery::Page::Overlays);
+    model.SetPopupOpen(true);
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(model.IsPopupOpen(), "popup state is controllable") ||
+        !Check(window->Diagnostics().semanticNodeCount > 0,
+               "popup frame updates diagnostics")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(KeyChanged{
+        .window = window->PlatformHandle(),
+        .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Escape),
+        .state = KeyState::Pressed,
+    });
+    if (!application->PumpOnce() ||
+        !Check(!model.IsPopupOpen(), "Escape dismisses the popup")) {
+      return 1;
+    }
 
-  model.SelectPage(NGIN::UIGallery::Page::Motion);
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  model.ToggleMotionTarget();
-  if (!application->PumpOnce() ||
-      !Check(window->HasActiveAnimations(),
-             "motion target changes start an animation")) {
-    return 1;
-  }
-  platformObserver->AdvanceTime(std::chrono::milliseconds{120});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  model.ToggleMotionTarget();
-  if (!application->PumpOnce() ||
-      !Check(window->HasActiveAnimations(),
-             "motion can reverse before it finishes")) {
-    return 1;
-  }
-  model.StartMotionRepeat();
-  if (!application->PumpOnce() ||
-      !Check(model.MotionRepeatRunning(),
-             "bounded repeating motion starts from the Gallery") ||
-      !Check(model.MotionRepeatHandle() != nullptr,
-             "repeating motion exposes a cancellation handle")) {
-    return 1;
-  }
-  model.CancelMotionRepeat();
-  if (!application->PumpOnce() ||
-      !Check(!model.MotionRepeatRunning(), "repeating motion cancels safely")) {
-    return 1;
-  }
-  model.ToggleMotionPreviewReduced();
-  if (!application->PumpOnce() ||
-      !Check(model.MotionPreviewReduced(),
-             "Gallery can preview the reduced-motion behavior") ||
-      !Check(!window->HasActiveAnimations(),
-             "reduced motion settles every active target")) {
-    return 1;
-  }
-  model.ToggleMotionPreviewReduced();
-  if (!application->PumpOnce() ||
-      !Check(!model.MotionPreviewReduced(),
-             "Gallery restores normal motion after the preview")) {
-    return 1;
-  }
-  model.MotionPopup().Open();
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  const auto motionPopup =
-      FindByTypeAndKey(window->Tree(), ElementType::Popup, "popup");
-  const auto *motionPopupNode = window->Tree().Get(motionPopup);
-  const auto popupCard =
-      FindByTypeAndKey(window->Tree(), ElementType::Column, "popup-card");
-  if (!Check(motionPopupNode != nullptr,
-             "motion example opens a retained popup") ||
-      !Check(!motionPopupNode->properties.visual.base.background.has_value(),
-             "popup viewport does not cover the Gallery") ||
-      !Check(
-          motionPopupNode->properties.motion.opacity.has_value() &&
-              motionPopupNode->properties.motion.translation.has_value() &&
-              motionPopupNode->properties.motion.translation->Initial() ==
-                  std::optional<Point>{Point{0.0F, 36.0F}} &&
-              std::holds_alternative<TweenTiming>(
-                  motionPopupNode->properties.motion.translation->Spec()
-                      .timing) &&
-              std::get<TweenTiming>(
-                  motionPopupNode->properties.motion.translation->Spec().timing)
-                      .duration >= std::chrono::milliseconds{500},
-          "popup demo uses an obvious rise and fade") ||
-      !Check(popupCard.IsValid(), "popup presents a visible card") ||
-      !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&
-                 motionPopupNode->popup.contentBounds.height <= 170.0F,
-             "popup content stays a small anchored panel")) {
-    return 1;
-  }
-  model.MotionPopup().Close();
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  platformObserver->AdvanceTime(std::chrono::milliseconds{520});
-  if (!application->PumpOnce() || !application->PumpOnce()) {
-    return 1;
-  }
-  model.SelectPage(NGIN::UIGallery::Page::Inputs);
-  if (!application->PumpOnce()) {
-    return 1;
-  }
+    model.ToggleInspector();
+    if (!Check(model.IsInspectorEnabled(), "inspector state is retained") ||
+        !Check(window->InspectorOverlay().enabled,
+               "inspector overlay follows the model")) {
+      return 1;
+    }
 
-  const auto editor =
-      FindByTypeAndKey(window->Tree(), ElementType::TextField, "editable");
-  if (!Check(editor.IsValid() && window->Focus(editor),
-             "editable field accepts focus")) {
-    return 1;
-  }
-  if (!platformObserver->SetClipboardText(NGIN::Text::String{" clipboard"})
-           .HasValue()) {
-    return 1;
-  }
-  platformObserver->InjectEvent(KeyChanged{
-      .window = window->PlatformHandle(),
-      .logicalKey = static_cast<NGIN::UInt32>('V'),
-      .state = KeyState::Pressed,
-      .modifiers = static_cast<NGIN::UInt32>(KeyModifierFlags::Control),
-  });
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.Name().View().find("clipboard") != std::string_view::npos,
-             "clipboard paste commits through the focused binding")) {
-    return 1;
-  }
-  const auto beforeComposition = model.Name();
-  platformObserver->InjectEvent(TextComposition{
-      .window = window->PlatformHandle(),
-      .text = NGIN::Text::String{"\xC3\xA5"},
-      .selectionStart = 0,
-      .selectionLength = 2,
-  });
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.Name() == beforeComposition,
-             "IME pre-edit remains transient")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(TextInput{
-      .window = window->PlatformHandle(),
-      .text = NGIN::Text::String{"\xC3\xA5"},
-  });
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.Name() != beforeComposition,
-             "IME commit updates the focused binding")) {
-    return 1;
-  }
+    auto openedWindow = model.OpenAuxiliaryWindow(false);
+    if (!openedWindow) {
+      return Report("Auxiliary window creation failed", openedWindow.error());
+    }
+    auto openedDialog = model.OpenAuxiliaryWindow(true);
+    if (!openedDialog) {
+      return Report("Dialog creation failed", openedDialog.error());
+    }
+    auto pumpedWindows = application->PumpOnce();
+    if (!pumpedWindows) {
+      return Report("Multiple-window frame failed", pumpedWindows.error());
+    }
+    if (!Check(application->ActiveWindowCount() == 3,
+               "gallery creates independent and modal windows") ||
+        !Check(window->ActiveModalDialog() != nullptr,
+               "modal ownership is established")) {
+      return 1;
+    }
 
-  auto checkChanged = model.CheckBinding().Set(CheckState::Indeterminate);
-  auto toggleChanged = model.ToggleBinding().Set(false);
-  auto sliderChanged = model.SliderBinding().Set(0.8F);
-  auto radioChanged =
-      model.DensityBinding().Set(NGIN::UIGallery::Density::Spacious);
-  if (!Check(checkChanged.HasValue(), "checkbox binding is writable") ||
-      !Check(toggleChanged.HasValue(), "toggle binding is writable") ||
-      !Check(sliderChanged.HasValue(), "slider binding is writable") ||
-      !Check(radioChanged.HasValue(), "typed radio binding is writable") ||
-      !Check(model.SliderValue() == 0.8F,
-             "range state is retained by the gallery model")) {
-    return 1;
-  }
+    const auto dialogRecord = std::find_if(
+        platformObserver->Windows().begin(), platformObserver->Windows().end(),
+        [](const TestWindowRecord &record) {
+          return !record.destroyed && record.info.kind == WindowKind::Dialog;
+        });
+    if (!Check(dialogRecord != platformObserver->Windows().end(),
+               "test platform records the modal dialog")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(WindowCloseRequested{dialogRecord->handle});
+    if (!application->PumpOnce()) {
+      return 1;
+    }
+    if (!Check(application->ActiveWindowCount() == 2,
+               "dialog close updates multiple-window ownership") ||
+        !Check(window->ActiveModalDialog() == nullptr,
+               "dialog close restores the owner modal state")) {
+      return 1;
+    }
 
-  model.SelectPage(NGIN::UIGallery::Page::Overlays);
-  model.SetPopupOpen(true);
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(model.IsPopupOpen(), "popup state is controllable") ||
-      !Check(window->Diagnostics().semanticNodeCount > 0,
-             "popup frame updates diagnostics")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(KeyChanged{
-      .window = window->PlatformHandle(),
-      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Escape),
-      .state = KeyState::Pressed,
-  });
-  if (!application->PumpOnce() ||
-      !Check(!model.IsPopupOpen(), "Escape dismisses the popup")) {
-    return 1;
-  }
-
-  model.ToggleInspector();
-  if (!Check(model.IsInspectorEnabled(), "inspector state is retained") ||
-      !Check(window->InspectorOverlay().enabled,
-             "inspector overlay follows the model")) {
-    return 1;
-  }
-
-  auto openedWindow = model.OpenAuxiliaryWindow(false);
-  if (!openedWindow) {
-    return Report("Auxiliary window creation failed", openedWindow.Error());
-  }
-  auto openedDialog = model.OpenAuxiliaryWindow(true);
-  if (!openedDialog) {
-    return Report("Dialog creation failed", openedDialog.Error());
-  }
-  auto pumpedWindows = application->PumpOnce();
-  if (!pumpedWindows) {
-    return Report("Multiple-window frame failed", pumpedWindows.Error());
-  }
-  if (!Check(application->ActiveWindowCount() == 3,
-             "gallery creates independent and modal windows") ||
-      !Check(window->ActiveModalDialog() != nullptr,
-             "modal ownership is established")) {
-    return 1;
-  }
-
-  const auto dialogRecord = std::find_if(
-      platformObserver->Windows().begin(), platformObserver->Windows().end(),
-      [](const TestWindowRecord &record) {
-        return !record.destroyed && record.info.kind == WindowKind::Dialog;
-      });
-  if (!Check(dialogRecord != platformObserver->Windows().end(),
-             "test platform records the modal dialog")) {
-    return 1;
-  }
-  platformObserver->InjectEvent(WindowCloseRequested{dialogRecord->handle});
-  if (!application->PumpOnce()) {
-    return 1;
-  }
-  if (!Check(application->ActiveWindowCount() == 2,
-             "dialog close updates multiple-window ownership") ||
-      !Check(window->ActiveModalDialog() == nullptr,
-             "dialog close restores the owner modal state")) {
-    return 1;
-  }
-
+    return 0;
+  };
+  const auto status = checkGallery();
+  auto shutdown = application->ShutdownTasks();
+  if (!shutdown)
+    return Report("Gallery shutdown failed", shutdown.error());
+  if (status != 0)
+    return status;
   std::cout << "NGIN.UI gallery headless checks passed\n";
   return 0;
 }

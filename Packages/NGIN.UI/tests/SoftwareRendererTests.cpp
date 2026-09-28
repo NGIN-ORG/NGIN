@@ -49,10 +49,10 @@ TEST_CASE("software renderer matches a tolerant visual baseline") {
   using namespace NGIN::UI::Testing;
 
   SoftwareRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   const auto surface =
       renderer.CreateSurface(PlatformWindowHandle{1, 1}, PixelSize{8, 8});
-  REQUIRE(surface.HasValue());
+  REQUIRE(surface.has_value());
 
   const std::array vertices{
       RenderVertex{2.0F, 2.0F, 0.0F, 0.0F, 0xFF2040C0U},
@@ -70,7 +70,7 @@ TEST_CASE("software renderer matches a tolerant visual baseline") {
       },
   };
   REQUIRE(renderer
-              .Render(surface.Value(),
+              .Render(surface.value(),
                       RenderPacket{
                           .vertices = vertices,
                           .indices = indices,
@@ -79,14 +79,14 @@ TEST_CASE("software renderer matches a tolerant visual baseline") {
                           .clearColor = {16.0F / 255.0F, 32.0F / 255.0F,
                                          48.0F / 255.0F, 1.0F},
                       })
-              .HasValue());
+              .has_value());
 
-  const auto actual = renderer.Snapshot(surface.Value());
-  REQUIRE(actual.HasValue());
+  const auto actual = renderer.Snapshot(surface.value());
+  REQUIRE(actual.has_value());
   const auto expected =
       LoadP3(NGIN_UI_TEST_SOURCE_DIR "/baselines/software-reference.ppm");
   const auto comparison =
-      CompareVisuals(expected, actual.Value(),
+      CompareVisuals(expected, actual.value(),
                      VisualTolerance{.channelDelta = 1,
                                      .maximumDifferentPixelRatio = 0.0,
                                      .maximumMeanAbsoluteError = 0.1});
@@ -118,22 +118,22 @@ TEST_CASE("software renderer samples textures and clips batches") {
   using namespace NGIN::UI::Testing;
 
   SoftwareRenderBackend renderer;
-  REQUIRE(renderer.Initialize({.enableValidation = true}).HasValue());
+  REQUIRE(renderer.Initialize({.enableValidation = true}).has_value());
   const auto surface =
       renderer.CreateSurface(PlatformWindowHandle{2, 1}, PixelSize{4, 4});
-  REQUIRE(surface.HasValue());
+  REQUIRE(surface.has_value());
   const auto texture = renderer.CreateTexture(
       TextureCreateInfo{.size = {1, 1}, .format = TextureFormat::RGBA8});
-  REQUIRE(texture.HasValue());
+  REQUIRE(texture.has_value());
   const std::array<Byte, 4> blue{static_cast<Byte>(0), static_cast<Byte>(0),
                                  static_cast<Byte>(255),
                                  static_cast<Byte>(255)};
   REQUIRE(renderer
-              .UpdateTexture(texture.Value(),
+              .UpdateTexture(texture.value(),
                              TextureUpdateInfo{.region = {0, 0, 1, 1},
                                                .bytesPerRow = 4,
                                                .bytes = blue})
-              .HasValue());
+              .has_value());
 
   const std::array vertices{
       RenderVertex{0.0F, 0.0F, 0.0F, 0.0F, 0xFFFFFFFFU},
@@ -144,26 +144,26 @@ TEST_CASE("software renderer samples textures and clips batches") {
   const std::array<UInt32, 6> indices{0, 1, 2, 0, 2, 3};
   const std::array batches{
       RenderBatch{
-          .texture = texture.Value(),
+          .texture = texture.value(),
           .scissor = {1, 1, 2, 2},
           .indexCount = 6,
           .blendMode = BlendMode::Opaque,
       },
   };
   REQUIRE(renderer
-              .Render(surface.Value(),
+              .Render(surface.value(),
                       RenderPacket{.vertices = vertices,
                                    .indices = indices,
                                    .batches = batches,
                                    .targetSize = {4, 4},
                                    .clearColor = {0.0F, 0.0F, 0.0F, 1.0F}})
-              .HasValue());
-  const auto snapshot = renderer.Snapshot(surface.Value());
-  REQUIRE(snapshot.HasValue());
-  CHECK(snapshot.Value().Pixel(0, 0).blue == 0);
-  CHECK(snapshot.Value().Pixel(1, 1).blue == 255);
-  CHECK(snapshot.Value().Pixel(2, 2).blue == 255);
-  CHECK(snapshot.Value().Pixel(3, 3).blue == 0);
+              .has_value());
+  const auto snapshot = renderer.Snapshot(surface.value());
+  REQUIRE(snapshot.has_value());
+  CHECK(snapshot.value().Pixel(0, 0).blue == 0);
+  CHECK(snapshot.value().Pixel(1, 1).blue == 255);
+  CHECK(snapshot.value().Pixel(2, 2).blue == 255);
+  CHECK(snapshot.value().Pixel(3, 3).blue == 0);
   CHECK(renderer.RenderCount() == 1);
   CHECK(renderer.LiveTextureCount() == 1);
 }
@@ -173,7 +173,7 @@ TEST_CASE("software renderer honors nearest and linear texture filters") {
   using namespace NGIN::UI::Testing;
 
   SoftwareRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   constexpr std::array pixels{
       Byte{0},   Byte{0},   Byte{0},   Byte{255},
       Byte{255}, Byte{255}, Byte{255}, Byte{255},
@@ -187,35 +187,34 @@ TEST_CASE("software renderer honors nearest and linear texture filters") {
   constexpr std::array<UInt32, 6> indices{0, 1, 2, 0, 2, 3};
 
   UInt32 windowIndex = 20;
-  for (const auto filter :
-       {TextureFilter::Nearest, TextureFilter::Linear}) {
+  for (const auto filter : {TextureFilter::Nearest, TextureFilter::Linear}) {
     const auto surface = renderer.CreateSurface(
         PlatformWindowHandle{windowIndex++, 1}, PixelSize{4, 1});
-    REQUIRE(surface.HasValue());
+    REQUIRE(surface.has_value());
     const auto texture = renderer.CreateTexture(TextureCreateInfo{
         .size = {2, 1},
         .format = TextureFormat::RGBA8,
         .filter = filter,
     });
-    REQUIRE(texture.HasValue());
+    REQUIRE(texture.has_value());
     REQUIRE(renderer
-                .UpdateTexture(texture.Value(),
+                .UpdateTexture(texture.value(),
                                TextureUpdateInfo{
                                    .region = {0, 0, 2, 1},
                                    .bytesPerRow = 8,
                                    .bytes = pixels,
                                })
-                .HasValue());
+                .has_value());
     const std::array batches{
         RenderBatch{
-            .texture = texture.Value(),
+            .texture = texture.value(),
             .scissor = {0, 0, 4, 1},
             .indexCount = 6,
             .blendMode = BlendMode::Opaque,
         },
     };
     REQUIRE(renderer
-                .Render(surface.Value(),
+                .Render(surface.value(),
                         RenderPacket{
                             .vertices = vertices,
                             .indices = indices,
@@ -223,19 +222,19 @@ TEST_CASE("software renderer honors nearest and linear texture filters") {
                             .targetSize = {4, 1},
                             .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
                         })
-                .HasValue());
-    const auto snapshot = renderer.Snapshot(surface.Value());
-    REQUIRE(snapshot.HasValue());
-    CHECK(snapshot.Value().Pixel(0, 0).red == 0);
-    CHECK(snapshot.Value().Pixel(3, 0).red == 255);
+                .has_value());
+    const auto snapshot = renderer.Snapshot(surface.value());
+    REQUIRE(snapshot.has_value());
+    CHECK(snapshot.value().Pixel(0, 0).red == 0);
+    CHECK(snapshot.value().Pixel(3, 0).red == 255);
     if (filter == TextureFilter::Nearest) {
-      CHECK(snapshot.Value().Pixel(1, 0).red == 0);
-      CHECK(snapshot.Value().Pixel(2, 0).red == 255);
+      CHECK(snapshot.value().Pixel(1, 0).red == 0);
+      CHECK(snapshot.value().Pixel(2, 0).red == 255);
     } else {
-      CHECK(snapshot.Value().Pixel(1, 0).red >= 63);
-      CHECK(snapshot.Value().Pixel(1, 0).red <= 65);
-      CHECK(snapshot.Value().Pixel(2, 0).red >= 190);
-      CHECK(snapshot.Value().Pixel(2, 0).red <= 192);
+      CHECK(snapshot.value().Pixel(1, 0).red >= 63);
+      CHECK(snapshot.value().Pixel(1, 0).red <= 65);
+      CHECK(snapshot.value().Pixel(2, 0).red >= 190);
+      CHECK(snapshot.value().Pixel(2, 0).red <= 192);
     }
   }
 }
@@ -257,12 +256,12 @@ TEST_CASE("shared shape geometry renders smooth edges at every scale") {
   };
 
   SoftwareRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   UInt32 windowIndex = 10;
   for (const auto &test : cases) {
     const auto surface = renderer.CreateSurface(
         PlatformWindowHandle{windowIndex++, 1}, test.targetSize);
-    REQUIRE(surface.HasValue());
+    REQUIRE(surface.has_value());
     const DisplayList displayList{
         FillRoundedRect{
             Rect{1.0F, 1.0F, 6.0F, 6.0F},
@@ -279,16 +278,16 @@ TEST_CASE("shared shape geometry renders smooth edges at every scale") {
     const auto packet =
         UIRenderer{}.Build(displayList, test.targetSize, test.scaleFactor,
                            Color{0.0F, 0.0F, 0.0F, 1.0F});
-    REQUIRE(renderer.Render(surface.Value(), packet.View()).HasValue());
-    const auto snapshot = renderer.Snapshot(surface.Value());
-    REQUIRE(snapshot.HasValue());
-    CHECK(snapshot.Value().Pixel(test.fillCenter, test.fillCenter).red == 255);
-    CHECK(snapshot.Value().Pixel(test.strokeCenter, test.fillCenter).red == 0);
+    REQUIRE(renderer.Render(surface.value(), packet.View()).has_value());
+    const auto snapshot = renderer.Snapshot(surface.value());
+    REQUIRE(snapshot.has_value());
+    CHECK(snapshot.value().Pixel(test.fillCenter, test.fillCenter).red == 255);
+    CHECK(snapshot.value().Pixel(test.strokeCenter, test.fillCenter).red == 0);
 
     bool strokeHasPartialCoverage = false;
     for (UInt32 y = 0; y < test.targetSize.height; ++y) {
       for (UInt32 x = test.strokeStart; x < test.targetSize.width; ++x) {
-        const auto coverage = snapshot.Value().Pixel(x, y).red;
+        const auto coverage = snapshot.value().Pixel(x, y).red;
         strokeHasPartialCoverage =
             strokeHasPartialCoverage || (coverage > 0 && coverage < 255);
       }

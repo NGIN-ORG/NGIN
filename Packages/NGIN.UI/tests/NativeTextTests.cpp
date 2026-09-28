@@ -22,13 +22,13 @@ namespace {
 [[nodiscard]] auto
 CreateTextSystem(NGIN::UI::Testing::RecordingRenderBackend &renderer)
     -> std::unique_ptr<NGIN::UI::NativeTextSystem> {
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   auto created = NGIN::UI::NativeTextSystem::Create(
       renderer, NGIN::UI::NativeTextCreateInfo{
                     .atlasSize = NGIN::UI::PixelSize{256, 256},
                 });
-  REQUIRE(created.HasValue());
-  return std::move(created).Value();
+  REQUIRE(created.has_value());
+  return std::move(created).value();
 }
 } // namespace
 
@@ -42,16 +42,16 @@ TEST_CASE("native text segments extended UTF-8 grapheme clusters") {
                                  "\xF0\x9F\x87\xB8\xF0\x9F\x87\xAA"};
 
   auto segmented = text->Segment(value);
-  REQUIRE(segmented.HasValue());
-  REQUIRE(segmented.Value().size() == 4);
-  REQUIRE(segmented.Value()[1].byteOffset == 1);
-  REQUIRE(segmented.Value()[1].byteLength == 3);
-  REQUIRE(segmented.Value()[2].byteLength == 11);
-  REQUIRE(segmented.Value()[3].byteLength == 8);
+  REQUIRE(segmented.has_value());
+  REQUIRE(segmented.value().size() == 4);
+  REQUIRE(segmented.value()[1].byteOffset == 1);
+  REQUIRE(segmented.value()[1].byteLength == 3);
+  REQUIRE(segmented.value()[2].byteLength == 11);
+  REQUIRE(segmented.value()[3].byteLength == 8);
 
   auto malformed = text->Segment(NGIN::Text::String{"\xF0\x28\x8C\x28"});
-  REQUIRE_FALSE(malformed.HasValue());
-  REQUIRE(malformed.Error().code == UIErrorCode::TextShapingFailed);
+  REQUIRE_FALSE(malformed.has_value());
+  REQUIRE(malformed.error().code == UIErrorCode::TextShapingFailed);
 }
 
 TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
@@ -63,24 +63,24 @@ TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
       "NotoSans-Variable.ttf"));
 
   auto face = text->ResolveFont(FontRequest{});
-  REQUIRE(face.HasValue());
-  auto metrics = text->Metrics(face.Value(), 18.0F);
-  REQUIRE(metrics.HasValue());
-  REQUIRE(metrics.Value().ascender > 0.0F);
-  REQUIRE(metrics.Value().descender >= 0.0F);
+  REQUIRE(face.has_value());
+  auto metrics = text->Metrics(face.value(), 18.0F);
+  REQUIRE(metrics.has_value());
+  REQUIRE(metrics.value().ascender > 0.0F);
+  REQUIRE(metrics.value().descender >= 0.0F);
 
   auto shaped = text->Shape(
       TextRun{
           .text = NGIN::Text::String{"office"},
           .fontSize = 18.0F,
       },
-      face.Value());
-  REQUIRE(shaped.HasValue());
-  REQUIRE_FALSE(shaped.Value().glyphs.empty());
-  REQUIRE(shaped.Value().glyphs.size() <= 6);
-  REQUIRE(shaped.Value().size.width > 0.0F);
-  REQUIRE(shaped.Value().direction == TextDirection::LeftToRight);
-  REQUIRE(shaped.Value().graphemeClusters.size() == 6);
+      face.value());
+  REQUIRE(shaped.has_value());
+  REQUIRE_FALSE(shaped.value().glyphs.empty());
+  REQUIRE(shaped.value().glyphs.size() <= 6);
+  REQUIRE(shaped.value().size.width > 0.0F);
+  REQUIRE(shaped.value().direction == TextDirection::LeftToRight);
+  REQUIRE(shaped.value().graphemeClusters.size() == 6);
 
   auto rightToLeft = text->LayoutParagraph(ParagraphRequest{
       .runs =
@@ -94,14 +94,14 @@ TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
       .maximumWidth = 200.0F,
       .wrapping = TextWrapping::NoWrap,
   });
-  REQUIRE(rightToLeft.HasValue());
-  REQUIRE(rightToLeft.Value().runs.front().run.direction ==
+  REQUIRE(rightToLeft.has_value());
+  REQUIRE(rightToLeft.value().runs.front().run.direction ==
           TextDirection::RightToLeft);
-  auto rtlStart = text->CaretRect(rightToLeft.Value(), 0);
-  auto rtlEnd = text->CaretRect(rightToLeft.Value(), 8);
-  REQUIRE(rtlStart.HasValue());
-  REQUIRE(rtlEnd.HasValue());
-  REQUIRE(rtlStart.Value().x > rtlEnd.Value().x);
+  auto rtlStart = text->CaretRect(rightToLeft.value(), 0);
+  auto rtlEnd = text->CaretRect(rightToLeft.value(), 8);
+  REQUIRE(rtlStart.has_value());
+  REQUIRE(rtlEnd.has_value());
+  REQUIRE(rtlStart.value().x > rtlEnd.value().x);
 
   auto paragraph = text->LayoutParagraph(ParagraphRequest{
       .runs =
@@ -114,19 +114,19 @@ TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
       .maximumWidth = 200.0F,
       .wrapping = TextWrapping::NoWrap,
   });
-  REQUIRE(paragraph.HasValue());
-  REQUIRE(paragraph.Value().runs.size() == 1);
-  REQUIRE(paragraph.Value().lines.size() == 1);
-  REQUIRE(paragraph.Value().size.width > 0.0F);
-  REQUIRE(paragraph.Value().size.height > 0.0F);
+  REQUIRE(paragraph.has_value());
+  REQUIRE(paragraph.value().runs.size() == 1);
+  REQUIRE(paragraph.value().lines.size() == 1);
+  REQUIRE(paragraph.value().size.width > 0.0F);
+  REQUIRE(paragraph.value().size.height > 0.0F);
 
-  auto caret = text->CaretRect(paragraph.Value(), 3);
-  REQUIRE(caret.HasValue());
-  REQUIRE(caret.Value().height > 0.0F);
-  auto selection = text->RangeRects(paragraph.Value(), 1, 3);
-  REQUIRE(selection.HasValue());
-  REQUIRE(selection.Value().size() == 1);
-  REQUIRE(selection.Value().front().width > 0.0F);
+  auto caret = text->CaretRect(paragraph.value(), 3);
+  REQUIRE(caret.has_value());
+  REQUIRE(caret.value().height > 0.0F);
+  auto selection = text->RangeRects(paragraph.value(), 1, 3);
+  REQUIRE(selection.has_value());
+  REQUIRE(selection.value().size() == 1);
+  REQUIRE(selection.value().front().width > 0.0F);
 }
 
 TEST_CASE("bundled fallback fonts cover the gallery language contract") {
@@ -149,13 +149,12 @@ TEST_CASE("bundled fallback fonts cover the gallery language contract") {
           },
       .maximumWidth = 800.0F,
   });
-  REQUIRE(paragraph.HasValue());
-  REQUIRE_FALSE(paragraph.Value().runs.empty());
-  for (const auto &run : paragraph.Value().runs) {
-    CHECK(std::all_of(run.run.glyphs.begin(), run.run.glyphs.end(),
-                      [](const ShapedGlyph &glyph) {
-                        return glyph.glyphIndex != 0;
-                      }));
+  REQUIRE(paragraph.has_value());
+  REQUIRE_FALSE(paragraph.value().runs.empty());
+  for (const auto &run : paragraph.value().runs) {
+    CHECK(std::all_of(
+        run.run.glyphs.begin(), run.run.glyphs.end(),
+        [](const ShapedGlyph &glyph) { return glyph.glyphIndex != 0; }));
   }
 
   const auto diagnostics = text->CoverageDiagnostics();
@@ -193,7 +192,7 @@ TEST_CASE("font coverage diagnostics report unsupported color emoji") {
               },
           },
   });
-  REQUIRE(paragraph.HasValue());
+  REQUIRE(paragraph.has_value());
   const auto diagnostics = text->CoverageDiagnostics();
   REQUIRE(diagnostics.missingCodePointCount == 1);
   REQUIRE(diagnostics.missingCodePoints.size() == 1);
@@ -205,11 +204,11 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
 
   Testing::RecordingRenderBackend renderer;
   auto text = CreateTextSystem(renderer);
-  const auto face = text->ResolveFont(FontRequest{}).Value();
+  const auto face = text->ResolveFont(FontRequest{}).value();
   const auto shaped =
       text->Shape(TextRun{.text = NGIN::Text::String{"A"}, .fontSize = 20.0F},
                   face)
-          .Value();
+          .value();
   REQUIRE(shaped.glyphs.size() == 1);
 
   const GlyphAtlasRequest request{
@@ -219,9 +218,9 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
       .scaleFactor = 2.0F,
   };
   auto first = text->ResolveGlyph(request);
-  REQUIRE(first.HasValue());
-  REQUIRE(first.Value().texture);
-  REQUIRE(first.Value().size.width > 0.0F);
+  REQUIRE(first.has_value());
+  REQUIRE(first.value().texture);
+  REQUIRE(first.value().size.width > 0.0F);
   REQUIRE(renderer.Textures().size() == 1);
   CHECK(renderer.Textures().front().info.format == TextureFormat::R8);
   CHECK(renderer.Textures().front().info.filter == TextureFilter::Nearest);
@@ -235,46 +234,48 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   CHECK(text->AtlasDiagnostics().atlasSize == PixelSize{256, 256});
 
   auto cached = text->ResolveGlyph(request);
-  REQUIRE(cached.HasValue());
-  REQUIRE(cached.Value().textureCoordinates ==
-          first.Value().textureCoordinates);
+  REQUIRE(cached.has_value());
+  REQUIRE(cached.value().textureCoordinates ==
+          first.value().textureCoordinates);
   REQUIRE(renderer.TextureUpdates().size() == 1);
   CHECK(text->AtlasDiagnostics().hitCount == 1);
 
   const auto whitespace =
       text->Shape(TextRun{.text = NGIN::Text::String{" "}, .fontSize = 20.0F},
                   face)
-          .Value();
+          .value();
   auto invisible = text->ResolveGlyph(GlyphAtlasRequest{
       .fontFace = face,
       .glyphIndex = whitespace.glyphs.front().glyphIndex,
       .fontSize = 20.0F,
   });
-  REQUIRE(invisible.HasValue());
-  REQUIRE_FALSE(invisible.Value().texture);
-  REQUIRE(invisible.Value().size == Size{});
+  REQUIRE(invisible.has_value());
+  REQUIRE_FALSE(invisible.value().texture);
+  REQUIRE(invisible.value().size == Size{});
   CHECK(text->AtlasDiagnostics().missCount == 2);
   CHECK(text->AtlasDiagnostics().entryCount == 1);
 }
 
-TEST_CASE("native text recycles bounded atlas pages after glyphs are released") {
+TEST_CASE(
+    "native text recycles bounded atlas pages after glyphs are released") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
-  auto created = NativeTextSystem::Create(
-      renderer, NativeTextCreateInfo{
-                    .atlasSize = PixelSize{32, 32},
-                    .maximumAtlasPages = 2,
-                });
-  REQUIRE(created.HasValue());
-  auto text = std::move(created).Value();
-  const auto face = text->ResolveFont(FontRequest{}).Value();
+  REQUIRE(renderer.Initialize({}).has_value());
+  auto created =
+      NativeTextSystem::Create(renderer, NativeTextCreateInfo{
+                                             .atlasSize = PixelSize{32, 32},
+                                             .maximumAtlasPages = 2,
+                                         });
+  REQUIRE(created.has_value());
+  auto text = std::move(created).value();
+  const auto face = text->ResolveFont(FontRequest{}).value();
   const auto shaped =
-      text->Shape(TextRun{.text = NGIN::Text::String{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
-                          .fontSize = 16.0F},
-                  face)
-          .Value();
+      text->Shape(
+              TextRun{.text = NGIN::Text::String{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+                      .fontSize = 16.0F},
+              face)
+          .value();
 
   for (NGIN::UInt32 round = 0; round < 8; ++round) {
     for (const auto &glyph : shaped.glyphs) {
@@ -284,7 +285,7 @@ TEST_CASE("native text recycles bounded atlas pages after glyphs are released") 
           .fontSize = 12.0F + static_cast<NGIN::F32>(round % 4U) * 3.0F,
           .scaleFactor = 1.0F,
       });
-      REQUIRE(resolved.HasValue());
+      REQUIRE(resolved.has_value());
     }
   }
 
@@ -303,38 +304,39 @@ TEST_CASE("native text recycles bounded atlas pages after glyphs are released") 
   CHECK(diagnostics.usedPixelArea <= diagnostics.capacityPixelArea);
   CHECK(diagnostics.pixelSizeCount <= 4);
   CHECK(diagnostics.pixelSizes.size() == diagnostics.pixelSizeCount);
-  CHECK(std::is_sorted(
-      diagnostics.pixelSizes.begin(), diagnostics.pixelSizes.end(),
-      [](const auto &left, const auto &right) {
-        return left.pixelSize < right.pixelSize;
-      }));
+  CHECK(std::is_sorted(diagnostics.pixelSizes.begin(),
+                       diagnostics.pixelSizes.end(),
+                       [](const auto &left, const auto &right) {
+                         return left.pixelSize < right.pixelSize;
+                       }));
 }
 
 TEST_CASE("native text does not recycle atlas pages used by display data") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
-  auto created = NativeTextSystem::Create(
-      renderer, NativeTextCreateInfo{
-                    .atlasSize = PixelSize{32, 32},
-                    .maximumAtlasPages = 1,
-                });
-  REQUIRE(created.HasValue());
-  auto text = std::move(created).Value();
-  const auto face = text->ResolveFont(FontRequest{}).Value();
+  REQUIRE(renderer.Initialize({}).has_value());
+  auto created =
+      NativeTextSystem::Create(renderer, NativeTextCreateInfo{
+                                             .atlasSize = PixelSize{32, 32},
+                                             .maximumAtlasPages = 1,
+                                         });
+  REQUIRE(created.has_value());
+  auto text = std::move(created).value();
+  const auto face = text->ResolveFont(FontRequest{}).value();
   const auto shaped =
-      text->Shape(TextRun{.text = NGIN::Text::String{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
-                          .fontSize = 18.0F},
-                  face)
-          .Value();
+      text->Shape(
+              TextRun{.text = NGIN::Text::String{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+                      .fontSize = 18.0F},
+              face)
+          .value();
   auto held = text->ResolveGlyph(GlyphAtlasRequest{
       .fontFace = face,
       .glyphIndex = shaped.glyphs.front().glyphIndex,
       .fontSize = 18.0F,
   });
-  REQUIRE(held.HasValue());
-  REQUIRE(held.Value().lease);
+  REQUIRE(held.has_value());
+  REQUIRE(held.value().lease);
 
   GlyphAtlasRequest failedRequest{};
   bool capacityReached = false;
@@ -358,9 +360,9 @@ TEST_CASE("native text does not recycle atlas pages used by display data") {
   CHECK(text->AtlasDiagnostics().pageRecycleCount == 0);
   CHECK(text->AtlasDiagnostics().allocationFailureCount == 1);
 
-  held.Value().lease.reset();
+  held.value().lease.reset();
   auto recovered = text->ResolveGlyph(failedRequest);
-  REQUIRE(recovered.HasValue());
+  REQUIRE(recovered.has_value());
   CHECK(text->AtlasDiagnostics().pageRecycleCount == 1);
 }
 
@@ -369,20 +371,19 @@ TEST_CASE("native text rebuilds atlas pages after device restoration") {
 
   Testing::RecordingRenderBackend renderer;
   auto text = CreateTextSystem(renderer);
-  const auto face = text->ResolveFont(FontRequest{}).Value();
-  const auto shaped =
-      text->Shape(TextRun{.text = NGIN::Text::String{"device"},
-                          .fontSize = 18.0F},
-                  face)
-          .Value();
+  const auto face = text->ResolveFont(FontRequest{}).value();
+  const auto shaped = text->Shape(TextRun{.text = NGIN::Text::String{"device"},
+                                          .fontSize = 18.0F},
+                                  face)
+                          .value();
   const GlyphAtlasRequest request{
       .fontFace = face,
       .glyphIndex = shaped.glyphs.front().glyphIndex,
       .fontSize = 18.0F,
   };
   const auto first = text->ResolveGlyph(request);
-  REQUIRE(first.HasValue());
-  const auto oldTexture = first.Value().texture;
+  REQUIRE(first.has_value());
+  const auto oldTexture = first.value().texture;
   NGIN::UInt32 invalidationCount = 0;
   text->SetResourcesInvalidatedCallback(
       [&invalidationCount] { ++invalidationCount; });
@@ -391,8 +392,8 @@ TEST_CASE("native text rebuilds atlas pages after device restoration") {
   CHECK(invalidationCount == 1);
   CHECK(text->AtlasDiagnostics().pageCount == 0);
   const auto unavailable = text->ResolveGlyph(request);
-  REQUIRE_FALSE(unavailable.HasValue());
-  CHECK(unavailable.Error().code == UIErrorCode::InvalidState);
+  REQUIRE_FALSE(unavailable.has_value());
+  CHECK(unavailable.error().code == UIErrorCode::InvalidState);
   const auto oldRecord =
       std::find_if(renderer.Textures().begin(), renderer.Textures().end(),
                    [oldTexture](const auto &texture) {
@@ -401,14 +402,14 @@ TEST_CASE("native text rebuilds atlas pages after device restoration") {
   REQUIRE(oldRecord != renderer.Textures().end());
   CHECK(oldRecord->destroyed);
 
-  REQUIRE(text->OnDeviceRestored(renderer).HasValue());
+  REQUIRE(text->OnDeviceRestored(renderer).has_value());
   CHECK(invalidationCount == 2);
   CHECK(text->AtlasDiagnostics().restorationCount == 1);
   CHECK(text->AtlasDiagnostics().pageCount == 1);
   CHECK(text->AtlasDiagnostics().entryCount == 0);
   const auto restored = text->ResolveGlyph(request);
-  REQUIRE(restored.HasValue());
-  CHECK(restored.Value().texture != oldTexture);
+  REQUIRE(restored.has_value());
+  CHECK(restored.value().texture != oldTexture);
 }
 
 TEST_CASE("native text drives retained Text layout and glyph display lists") {
@@ -471,9 +472,9 @@ TEST_CASE("native centered text stays pixel aligned at common DPI scales") {
     Reconciler reconciler{tree};
     static_cast<void>(reconciler.Reconcile(composer.Declarations()));
     LayoutEngine layout{tree};
-    static_cast<void>(layout.Perform(
-        SizeConstraints{.maximum = Size{200.0F, 48.0F}},
-        Rect{0.0F, 0.0F, 200.0F, 48.0F}, scale));
+    static_cast<void>(
+        layout.Perform(SizeConstraints{.maximum = Size{200.0F, 48.0F}},
+                       Rect{0.0F, 0.0F, 200.0F, 48.0F}, scale));
 
     const auto target = PixelSize{
         static_cast<NGIN::UInt32>(std::lround(200.0F * scale)),
@@ -494,20 +495,21 @@ TEST_CASE("native centered text stays pixel aligned at common DPI scales") {
   }
 }
 
-TEST_CASE("native text captures preserve antialiasing descenders and clipping") {
+TEST_CASE(
+    "native text captures preserve antialiasing descenders and clipping") {
   using namespace NGIN::UI;
 
   constexpr std::array scales{1.0F, 1.25F, 1.5F, 2.0F};
   for (const auto scale : scales) {
     Testing::SoftwareRenderBackend renderer;
-    REQUIRE(renderer.Initialize({}).HasValue());
-    auto created = NativeTextSystem::Create(
-        renderer, NativeTextCreateInfo{
-                      .atlasSize = PixelSize{256, 256},
-                      .maximumAtlasPages = 2,
-                  });
-    REQUIRE(created.HasValue());
-    auto text = std::move(created).Value();
+    REQUIRE(renderer.Initialize({}).has_value());
+    auto created =
+        NativeTextSystem::Create(renderer, NativeTextCreateInfo{
+                                               .atlasSize = PixelSize{256, 256},
+                                               .maximumAtlasPages = 2,
+                                           });
+    REQUIRE(created.has_value());
+    auto text = std::move(created).value();
 
     NodeProperties properties{};
     properties.layout.preferredSize = Size{200.0F, 64.0F};
@@ -527,23 +529,22 @@ TEST_CASE("native text captures preserve antialiasing descenders and clipping") 
     Reconciler reconciler{tree};
     static_cast<void>(reconciler.Reconcile(composer.Declarations()));
     LayoutEngine layout{tree};
-    static_cast<void>(layout.Perform(
-        SizeConstraints{.maximum = Size{200.0F, 64.0F}},
-        Rect{0.0F, 0.0F, 200.0F, 64.0F}, scale));
+    static_cast<void>(
+        layout.Perform(SizeConstraints{.maximum = Size{200.0F, 64.0F}},
+                       Rect{0.0F, 0.0F, 200.0F, 64.0F}, scale));
 
     const PixelSize target{
         static_cast<NGIN::UInt32>(std::lround(200.0F * scale)),
         static_cast<NGIN::UInt32>(std::lround(64.0F * scale)),
     };
-    auto surface =
-        renderer.CreateSurface(PlatformWindowHandle{1, 1}, target);
-    REQUIRE(surface.HasValue());
+    auto surface = renderer.CreateSurface(PlatformWindowHandle{1, 1}, target);
+    REQUIRE(surface.has_value());
     const auto displayList = BuildDisplayList(tree);
-    const auto packet = UIRenderer{}.Build(
-        displayList, target, scale, Color{0.0F, 0.0F, 0.0F, 1.0F});
-    REQUIRE(renderer.Render(surface.Value(), packet.View()).HasValue());
-    const auto snapshot = renderer.Snapshot(surface.Value());
-    REQUIRE(snapshot.HasValue());
+    const auto packet = UIRenderer{}.Build(displayList, target, scale,
+                                           Color{0.0F, 0.0F, 0.0F, 1.0F});
+    REQUIRE(renderer.Render(surface.value(), packet.View()).has_value());
+    const auto snapshot = renderer.Snapshot(surface.value());
+    REQUIRE(snapshot.has_value());
 
     NGIN::UInt32 minimumY = target.height;
     NGIN::UInt32 maximumY = 0;
@@ -551,7 +552,7 @@ TEST_CASE("native text captures preserve antialiasing descenders and clipping") 
     bool hasAntialiasedEdge = false;
     for (NGIN::UInt32 y = 0; y < target.height; ++y) {
       for (NGIN::UInt32 x = 0; x < target.width; ++x) {
-        const auto pixel = snapshot.Value().Pixel(x, y);
+        const auto pixel = snapshot.value().Pixel(x, y);
         if (pixel.red == 0) {
           continue;
         }
@@ -590,37 +591,37 @@ TEST_CASE("native text lays out explicit and Unicode wrap opportunities") {
       .alignment = TextAlignment::Center,
       .wrapping = TextWrapping::Wrap,
   });
-  REQUIRE(paragraph.HasValue());
-  REQUIRE(paragraph.Value().lines.size() >= 3);
-  REQUIRE(paragraph.Value().lines.front().byteOffset == 0);
-  REQUIRE(paragraph.Value().lines[1].byteOffset > 0);
-  REQUIRE(paragraph.Value().size.height >
-          paragraph.Value().lines.front().bounds.height);
-  REQUIRE(std::all_of(paragraph.Value().runs.begin(),
-                      paragraph.Value().runs.end(),
+  REQUIRE(paragraph.has_value());
+  REQUIRE(paragraph.value().lines.size() >= 3);
+  REQUIRE(paragraph.value().lines.front().byteOffset == 0);
+  REQUIRE(paragraph.value().lines[1].byteOffset > 0);
+  REQUIRE(paragraph.value().size.height >
+          paragraph.value().lines.front().bounds.height);
+  REQUIRE(std::all_of(paragraph.value().runs.begin(),
+                      paragraph.value().runs.end(),
                       [](const PositionedShapedRun &run) {
                         return run.run.fontFace.IsValid();
                       }));
 
   const auto first = text->CaretRect(
-      paragraph.Value(), paragraph.Value().lines.front().byteOffset);
+      paragraph.value(), paragraph.value().lines.front().byteOffset);
   const auto second =
-      text->CaretRect(paragraph.Value(), paragraph.Value().lines[1].byteOffset);
-  REQUIRE(first.HasValue());
-  REQUIRE(second.HasValue());
-  REQUIRE(second.Value().y > first.Value().y);
+      text->CaretRect(paragraph.value(), paragraph.value().lines[1].byteOffset);
+  REQUIRE(first.has_value());
+  REQUIRE(second.has_value());
+  REQUIRE(second.value().y > first.value().y);
 
   const auto selection =
-      text->RangeRects(paragraph.Value(), 0, paragraph.Value().byteLength);
-  REQUIRE(selection.HasValue());
-  REQUIRE(selection.Value().size() >= 2);
+      text->RangeRects(paragraph.value(), 0, paragraph.value().byteLength);
+  REQUIRE(selection.has_value());
+  REQUIRE(selection.value().size() >= 2);
 }
 
 TEST_CASE("native text accepts configured fallback faces") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   auto created = NativeTextSystem::Create(
       renderer,
       NativeTextCreateInfo{
@@ -630,8 +631,8 @@ TEST_CASE("native text accepts configured fallback faces") {
               },
           .atlasSize = PixelSize{256, 256},
       });
-  REQUIRE(created.HasValue());
-  auto paragraph = created.Value()->LayoutParagraph(ParagraphRequest{
+  REQUIRE(created.has_value());
+  auto paragraph = created.value()->LayoutParagraph(ParagraphRequest{
       .runs =
           {
               TextRun{
@@ -641,8 +642,8 @@ TEST_CASE("native text accepts configured fallback faces") {
           },
       .maximumWidth = 80.0F,
   });
-  REQUIRE(paragraph.HasValue());
-  REQUIRE_FALSE(paragraph.Value().runs.empty());
+  REQUIRE(paragraph.has_value());
+  REQUIRE_FALSE(paragraph.value().runs.empty());
 }
 
 TEST_CASE("TextArea edits lines navigates vertically and scrolls its caret") {

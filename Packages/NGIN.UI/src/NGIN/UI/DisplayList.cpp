@@ -16,9 +16,9 @@ void DisplayListBuilder::PushClip(const Rect rect) {
 
 auto DisplayListBuilder::PopClip() noexcept -> UIResult<void> {
   if (m_clipDepth == 0) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Display-list clip stack underflow", "NGIN.UI",
-                       "PopClip");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Display-list clip stack underflow",
+                                       "NGIN.UI", "PopClip"));
   }
   m_commands.emplace_back(NGIN::UI::PopClip{});
   --m_clipDepth;
@@ -30,8 +30,8 @@ void DisplayListBuilder::PushTranslation(const F32 x, const F32 y) {
 }
 
 void DisplayListBuilder::PushTransform(const F32 translateX,
-                                       const F32 translateY,
-                                       const F32 scaleX, const F32 scaleY) {
+                                       const F32 translateY, const F32 scaleX,
+                                       const F32 scaleY) {
   m_commands.emplace_back(NGIN::UI::PushTransform{
       .translateX = translateX,
       .translateY = translateY,
@@ -43,9 +43,9 @@ void DisplayListBuilder::PushTransform(const F32 translateX,
 
 auto DisplayListBuilder::PopTransform() noexcept -> UIResult<void> {
   if (m_transformDepth == 0) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Display-list transform stack underflow", "NGIN.UI",
-                       "PopTransform");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Display-list transform stack underflow",
+                                       "NGIN.UI", "PopTransform"));
   }
   m_commands.emplace_back(NGIN::UI::PopTransform{});
   --m_transformDepth;
@@ -98,9 +98,9 @@ void DisplayListBuilder::BeginOpacity(const F32 opacity) {
 
 auto DisplayListBuilder::EndOpacity() noexcept -> UIResult<void> {
   if (m_opacityDepth == 0) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Display-list opacity stack underflow", "NGIN.UI",
-                       "EndOpacity");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Display-list opacity stack underflow",
+                                       "NGIN.UI", "EndOpacity"));
   }
   m_commands.emplace_back(EndOpacityLayer{});
   --m_opacityDepth;
@@ -109,9 +109,9 @@ auto DisplayListBuilder::EndOpacity() noexcept -> UIResult<void> {
 
 auto DisplayListBuilder::Finish() && noexcept -> UIResult<DisplayList> {
   if (m_clipDepth != 0 || m_transformDepth != 0 || m_opacityDepth != 0) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Display-list scopes are not balanced", "NGIN.UI",
-                       "FinishDisplayList");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Display-list scopes are not balanced",
+                                       "NGIN.UI", "FinishDisplayList"));
   }
   return std::move(m_commands);
 }
@@ -200,7 +200,7 @@ void PaintCustom(const RuntimeNode &node, DisplayListBuilder &builder) {
     };
     auto painted = node.properties.custom.element->Paint(context, paint);
     if (!painted) {
-      ReportCustomError(node, painted.Error());
+      ReportCustomError(node, painted.error());
     }
   } catch (const std::bad_alloc &) {
     ReportCustomError(node, MakeUIError(UIErrorCode::OutOfMemory,
@@ -287,12 +287,10 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
   }
 
   const auto &focus = node.properties.visual.focus;
-  const auto focusOpacity = node.motion
-                                ? motion.focusOpacity
-                                : (HasVisualState(state,
-                                                  VisualStateFlags::Focused)
-                                       ? 1.0F
-                                       : 0.0F);
+  const auto focusOpacity =
+      node.motion
+          ? motion.focusOpacity
+          : (HasVisualState(state, VisualStateFlags::Focused) ? 1.0F : 0.0F);
   if (focusOpacity > 0.0F && focus.enabled && focus.color &&
       focus.thickness > 0.0F) {
     auto focusColor = *focus.color;
@@ -334,9 +332,9 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   }
   const auto motion = Detail::SnapshotFor(*node);
   const auto transform = Detail::TransformFor(*node);
-  const auto hasTransform = node->motion &&
-                            (transform.translation != Point{} ||
-                             transform.scale != Point{1.0F, 1.0F});
+  const auto hasTransform =
+      node->motion && (transform.translation != Point{} ||
+                       transform.scale != Point{1.0F, 1.0F});
   const auto hasOpacity = node->motion && motion.opacity < 0.9999F;
   if (hasTransform) {
     builder.PushTransform(transform.translation.x, transform.translation.y,
@@ -486,6 +484,6 @@ auto BuildDisplayList(const RuntimeTree &tree) -> DisplayList {
     PaintNode(tree, popup, builder, popup);
   }
   auto finished = std::move(builder).Finish();
-  return finished ? std::move(finished).Value() : DisplayList{};
+  return finished ? std::move(finished).value() : DisplayList{};
 }
 } // namespace NGIN::UI

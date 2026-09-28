@@ -54,12 +54,14 @@ struct ViewModelTaskScope::Run final {
 };
 
 struct ViewModelTaskScope::Storage final {
-  Storage(NGIN::Async::TaskContext taskContext, InvalidationScheduler scheduler)
-      : context(std::move(taskContext)),
+  Storage(NGIN::Async::TaskSupervisor<> &taskOwner,
+          NGIN::Async::TaskContext taskContext, InvalidationScheduler scheduler)
+      : owner(taskOwner), context(std::move(taskContext)),
         status(ViewModelTaskStatus{}, std::move(scheduler)) {
     context.BindLinkedCancellationToken(cancellation.GetToken());
   }
 
+  NGIN::Async::TaskSupervisor<> &owner;
   NGIN::Async::TaskContext context;
   NGIN::Async::CancellationSource cancellation{};
   State<ViewModelTaskStatus> status;
@@ -70,9 +72,10 @@ struct ViewModelTaskScope::Storage final {
   bool acceptsWork{true};
 };
 
-ViewModelTaskScope::ViewModelTaskScope(NGIN::Async::TaskContext context,
+ViewModelTaskScope::ViewModelTaskScope(NGIN::Async::TaskSupervisor<> &owner,
+                                       NGIN::Async::TaskContext context,
                                        InvalidationScheduler scheduler)
-    : m_storage(std::make_shared<Storage>(std::move(context),
+    : m_storage(std::make_shared<Storage>(owner, std::move(context),
                                           std::move(scheduler))) {}
 
 ViewModelTaskScope::~ViewModelTaskScope() {
@@ -103,6 +106,9 @@ auto ViewModelTaskScope::StartStorage(const std::shared_ptr<Storage> &storage,
   auto run = std::make_shared<Run>(id, std::move(context), std::move(work),
                                    std::move(observer));
   run->context.BindLinkedCancellationToken(run->cancellation.GetToken());
+  run->context.BindLinkedCancellationToken(
+      storage->owner.GetCancellationToken());
+  auto task = ObserveRun(storage, run);
   storage->runs.push_back(run);
 
   auto status = storage->status.Get();
@@ -111,7 +117,29 @@ auto ViewModelTaskScope::StartStorage(const std::shared_ptr<Storage> &storage,
   status.lastOutcome = {};
   static_cast<void>(storage->status.Set(std::move(status)));
 
-  NGIN::Async::Detach(run->context, ObserveRun(storage, run));
+  auto admitted = storage->owner.SpawnOn(
+      run->context.GetExecutor(),
+      [run, task = std::move(task)](NGIN::Async::TaskContext &context) mutable {
+        context.BindCancellationToken(run->context.GetCancellationToken());
+        return std::move(task);
+      });
+  if (!admitted) {
+    FinishRun(
+        storage, run,
+        ViewModelTaskOutcome{
+            .taskId = id,
+            .kind = ViewModelTaskOutcomeKind::Fault,
+            .error =
+                CommandError{
+                    .kind = CommandErrorKind::Fault,
+                    .code = NGIN::Text::String{"task-admission-rejected"},
+                    .message =
+                        NGIN::Text::String{
+                            "Background task owner rejected ViewModel work"},
+                },
+        });
+    return {};
+  }
   const auto weak = std::weak_ptr<Run>{run};
   return ViewModelTaskHandle{
       id,
@@ -130,6 +158,13 @@ auto ViewModelTaskScope::StartStorage(const std::shared_ptr<Storage> &storage,
 auto ViewModelTaskScope::ObserveRun(std::shared_ptr<Storage> storage,
                                     std::shared_ptr<Run> run)
     -> NGIN::Async::Task<void> {
+  if (run->context.IsCancellationRequested()) {
+    FinishRun(storage, run,
+              ViewModelTaskOutcome{.taskId = run->id,
+                                   .kind = ViewModelTaskOutcomeKind::Canceled});
+    co_return;
+  }
+  std::optional<NGIN::Async::AsyncFault> fault;
   auto outcome = ViewModelTaskOutcome{
       .taskId = run->id,
       .kind = ViewModelTaskOutcomeKind::Succeeded,
@@ -137,24 +172,39 @@ auto ViewModelTaskScope::ObserveRun(std::shared_ptr<Storage> storage,
 #if NGIN_ASYNC_HAS_EXCEPTIONS
   try {
 #endif
-    auto operation = NGIN::Async::Spawn(run->context, run->work(run->context));
-    auto completion = co_await operation;
-    if (completion.IsDomainError()) {
+    auto completion = co_await run->work(run->context).AsCompletion();
+    if ((completion.HasError() && completion.Error().IsDomainError())) {
       outcome.kind = ViewModelTaskOutcomeKind::DomainError;
-      outcome.error = std::move(completion).DomainError();
-    } else if (completion.IsCanceled()) {
+      outcome.error = std::move(completion).Error().DomainError();
+    } else if (completion.IsStopped()) {
       outcome.kind = ViewModelTaskOutcomeKind::Canceled;
-    } else if (completion.IsFault()) {
+    } else if ((completion.HasError() && completion.Error().IsFault())) {
       outcome.kind = ViewModelTaskOutcomeKind::Fault;
-      outcome.error = FaultError(completion.Fault());
+      fault = completion.Error().Fault();
+      outcome.error = FaultError(*fault);
     }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
   } catch (...) {
     outcome.kind = ViewModelTaskOutcomeKind::Fault;
     outcome.error = ExceptionError();
+    fault = NGIN::Async::MakeAsyncFault(
+        NGIN::Async::AsyncFaultCode::UnhandledException);
+#if NGIN_ASYNC_CAPTURE_EXCEPTIONS
+    fault->capturedException = std::current_exception();
+#endif
   }
 #endif
+  const bool unobserved = (!storage->alive) && outcome.error.has_value();
+  if (unobserved && !fault) {
+    fault = NGIN::Async::MakeAsyncFault(
+        NGIN::Async::AsyncFaultCode::UnknownRuntimeFailure,
+        outcome.error->nativeCode,
+        std::string(outcome.error->code.View()) + ": " +
+            std::string(outcome.error->message.View()));
+  }
   FinishRun(storage, run, std::move(outcome));
+  if (unobserved)
+    co_await NGIN::Async::Faulted(std::move(*fault));
 }
 
 void ViewModelTaskScope::FinishRun(const std::shared_ptr<Storage> &storage,

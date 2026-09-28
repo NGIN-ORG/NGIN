@@ -87,7 +87,7 @@ provides the ordered issues to display. Asynchronous validators use a
 
 ```cpp
 save = std::make_unique<NGIN::UI::AsyncCommand>(
-    application.CreateTaskContext(window),
+    application.BackgroundTasks(), application.CreateTaskContext(window),
     [this](NGIN::Async::TaskContext& context) ->
         NGIN::Async::Task<void, NGIN::UI::CommandError> {
       co_await context.YieldNow();

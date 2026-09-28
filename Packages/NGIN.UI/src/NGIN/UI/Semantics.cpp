@@ -121,11 +121,11 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
         .description = properties.description,
         .range = properties.range,
         .collectionItem = properties.collectionItem,
-        .bounds = Detail::TransformedBoundsFor(
-            runtimeTree, runtimeHandle,
-            runtimeNode->type == ElementType::Popup
-                ? runtimeNode->popup.contentBounds
-                : runtimeNode->arrangedBounds),
+        .bounds =
+            Detail::TransformedBoundsFor(runtimeTree, runtimeHandle,
+                                         runtimeNode->type == ElementType::Popup
+                                             ? runtimeNode->popup.contentBounds
+                                             : runtimeNode->arrangedBounds),
         .states = states,
         .actions = properties.actions == SemanticActionFlags::None
                        ? DefaultActions(role)
@@ -162,7 +162,7 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
           .id = id,
           .parent = nextParent,
           .role = SemanticRole::ListItem,
-          .label = label ? std::move(label).Value()
+          .label = label ? std::move(label).value()
                          : NGIN::Text::String{"Virtualized item"},
           .collectionItem =
               SemanticCollectionItem{

@@ -100,11 +100,11 @@ void ComposeDemoSurface(Composer &composer, NativeTextSystem &text,
                                    const F32 initial) -> UIResult<void> {
   auto progress = context.State<F32>("progress", initial);
   if (!progress) {
-    return progress.Error();
+    return std::unexpected(progress.error());
   }
   constexpr auto Step = 0.12F;
-  *progress.Value() =
-      *progress.Value() + Step > 1.0F ? Step : *progress.Value() + Step;
+  *progress.value() =
+      *progress.value() + Step > 1.0F ? Step : *progress.value() + Step;
   return {};
 }
 
@@ -113,19 +113,19 @@ void ComposeDemoSurface(Composer &composer, NativeTextSystem &text,
                                  const bool forward) -> UIResult<void> {
   auto selection = context.State<NGIN::UIntSize>("selected-bar", NoSelection);
   if (!selection) {
-    return selection.Error();
+    return std::unexpected(selection.error());
   }
   if (itemCount == 0) {
-    *selection.Value() = NoSelection;
+    *selection.value() = NoSelection;
     return {};
   }
-  if (*selection.Value() >= itemCount) {
-    *selection.Value() = forward ? 0 : itemCount - 1;
+  if (*selection.value() >= itemCount) {
+    *selection.value() = forward ? 0 : itemCount - 1;
   } else if (forward) {
-    *selection.Value() = (*selection.Value() + 1) % itemCount;
+    *selection.value() = (*selection.value() + 1) % itemCount;
   } else {
-    *selection.Value() =
-        *selection.Value() == 0 ? itemCount - 1 : *selection.Value() - 1;
+    *selection.value() =
+        *selection.value() == 0 ? itemCount - 1 : *selection.value() - 1;
   }
   return {};
 }
@@ -172,7 +172,7 @@ auto ProgressRingElement::Measure(CustomElementContext &context,
     -> UIResult<Size> {
   auto progress = context.State<F32>("progress", m_progress);
   if (!progress) {
-    return progress.Error();
+    return std::unexpected(progress.error());
   }
   return constraints.Constrain(Size{88.0F, 88.0F});
 }
@@ -233,7 +233,7 @@ auto ProgressRingElement::PointerEvent(CustomElementContext &context,
   }
   auto advanced = AdvanceProgress(context, m_progress);
   if (!advanced) {
-    return advanced.Error();
+    return std::unexpected(advanced.error());
   }
   event.Handle();
   return CustomControlInvalidation;
@@ -249,7 +249,7 @@ auto ProgressRingElement::KeyEvent(CustomElementContext &context,
   }
   auto advanced = AdvanceProgress(context, m_progress);
   if (!advanced) {
-    return advanced.Error();
+    return std::unexpected(advanced.error());
   }
   event.Handle();
   return CustomControlInvalidation;
@@ -264,7 +264,7 @@ auto ProgressRingElement::SemanticAction(CustomElementContext &context,
   }
   auto advanced = AdvanceProgress(context, m_progress);
   if (!advanced) {
-    return advanced.Error();
+    return std::unexpected(advanced.error());
   }
   return CustomControlInvalidation;
 }
@@ -283,7 +283,7 @@ auto BarChartElement::Measure(CustomElementContext &context,
     -> UIResult<Size> {
   auto selection = context.State<NGIN::UIntSize>("selected-bar", NoSelection);
   if (!selection) {
-    return selection.Error();
+    return std::unexpected(selection.error());
   }
   return constraints.Constrain(Size{244.0F, 112.0F});
 }
@@ -381,9 +381,9 @@ auto BarChartElement::PointerEvent(CustomElementContext &context,
                m_values.size() - 1);
   auto state = context.State<NGIN::UIntSize>("selected-bar", NoSelection);
   if (!state) {
-    return state.Error();
+    return std::unexpected(state.error());
   }
-  *state.Value() = selected;
+  *state.value() = selected;
   event.Handle();
   return CustomControlInvalidation;
 }
@@ -402,7 +402,7 @@ auto BarChartElement::KeyEvent(CustomElementContext &context,
                        event.logicalKey == LogicalKey::Down;
   auto moved = MoveSelection(context, m_values.size(), forward);
   if (!moved) {
-    return moved.Error();
+    return std::unexpected(moved.error());
   }
   event.Handle();
   return CustomControlInvalidation;
@@ -418,7 +418,7 @@ auto BarChartElement::SemanticAction(CustomElementContext &context,
   auto moved = MoveSelection(context, m_values.size(),
                              request.action == SemanticActionKind::Increment);
   if (!moved) {
-    return moved.Error();
+    return std::unexpected(moved.error());
   }
   return CustomControlInvalidation;
 }

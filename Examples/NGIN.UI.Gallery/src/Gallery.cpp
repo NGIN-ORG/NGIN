@@ -29,20 +29,20 @@ public:
       -> UI::UIResult<NGIN::UIntSize> override {
     if (index >= Count() || !m_loadedRange || index < m_loadedRange->first ||
         index >= m_loadedRange->End()) {
-      return UI::MakeUIError(UI::UIErrorCode::ResourceFailed,
-                             "The Gallery row has not been loaded",
-                             "NGIN.UI.Gallery",
-                             "GalleryVirtualizedSource::ItemAt");
+      return std::unexpected(UI::MakeUIError(
+          UI::UIErrorCode::ResourceFailed,
+          "The Gallery row has not been loaded", "NGIN.UI.Gallery",
+          "GalleryVirtualizedSource::ItemAt"));
     }
     return LogicalValue(index);
   }
   auto RequestRange(const UI::IncrementalRange range)
       -> UI::UIResult<void> override {
     if (range.first > Count() || range.count > Count() - range.first) {
-      return UI::MakeUIError(UI::UIErrorCode::InvalidArgument,
-                             "The requested Gallery range is out of bounds",
-                             "NGIN.UI.Gallery",
-                             "GalleryVirtualizedSource::RequestRange");
+      return std::unexpected(UI::MakeUIError(
+          UI::UIErrorCode::InvalidArgument,
+          "The requested Gallery range is out of bounds", "NGIN.UI.Gallery",
+          "GalleryVirtualizedSource::RequestRange"));
     }
     m_loadedRange = range;
     return {};
@@ -51,9 +51,9 @@ public:
   [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
       -> UI::UIResult<Text::String> override {
     if (index >= Count()) {
-      return UI::MakeUIError(
+      return std::unexpected(UI::MakeUIError(
           UI::UIErrorCode::InvalidArgument, "The Gallery key is out of bounds",
-          "NGIN.UI.Gallery", "GalleryVirtualizedSource::KeyAt");
+          "NGIN.UI.Gallery", "GalleryVirtualizedSource::KeyAt"));
     }
     const auto value = LogicalValue(index);
     const auto key =
@@ -64,10 +64,10 @@ public:
   [[nodiscard]] auto LabelAt(const NGIN::UIntSize index) const
       -> UI::UIResult<Text::String> override {
     if (index >= Count()) {
-      return UI::MakeUIError(UI::UIErrorCode::InvalidArgument,
-                             "The Gallery label is out of bounds",
-                             "NGIN.UI.Gallery",
-                             "GalleryVirtualizedSource::LabelAt");
+      return std::unexpected(UI::MakeUIError(
+          UI::UIErrorCode::InvalidArgument,
+          "The Gallery label is out of bounds", "NGIN.UI.Gallery",
+          "GalleryVirtualizedSource::LabelAt"));
     }
     const auto value = LogicalValue(index);
     const auto label =
@@ -2072,7 +2072,7 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                       const NGIN::UIntSize index) {
                     auto label = source.LabelAt(index);
                     ComposeText(composer, text,
-                                label ? std::move(label).Value()
+                                label ? std::move(label).value()
                                       : String{"Loading row"},
                                 theme.typography.body,
                                 model.SelectedVirtualizedIndex() == index
@@ -3170,7 +3170,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                   [&model] {
                     auto opened = model.OpenAuxiliaryWindow(false);
                     if (!opened) {
-                      model.Report(opened.Error());
+                      model.Report(opened.error());
                     }
                   },
                   "open-window", 240.0F);
@@ -3179,7 +3179,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                   [&model] {
                     auto opened = model.OpenAuxiliaryWindow(true);
                     if (!opened) {
-                      model.Report(opened.Error());
+                      model.Report(opened.error());
                     }
                   },
                   "open-dialog", 240.0F);
@@ -4049,27 +4049,28 @@ void GalleryViewModel::AttachRuntime(Application &application,
   m_window = &window;
   m_asyncMotion = std::make_shared<GalleryMotionDemo>(application, window);
   m_commandDemo = std::make_unique<AsyncCommand>(
-      application.CreateTaskContext(window),
+      application.BackgroundTasks(), application.CreateTaskContext(window),
       [this](NGIN::Async::TaskContext &context) {
         return RunCommandDemo(context);
       },
       true, CommandConcurrencyPolicy::Reject, 1,
       [this](const InvalidationKind kind) { Invalidate(kind); });
   m_formSave = std::make_unique<AsyncCommand>(
-      application.CreateTaskContext(window),
+      application.BackgroundTasks(), application.CreateTaskContext(window),
       [this](NGIN::Async::TaskContext &context) {
         return RunFormSave(context);
       },
       true, CommandConcurrencyPolicy::Reject, 1,
       [this](const InvalidationKind kind) { Invalidate(kind); });
   m_formSave->BindEnabled(m_validationForm->IsValid());
-  m_nameValidation->SetAsyncValidator(application.CreateTaskContext(window),
+  m_nameValidation->SetAsyncValidator(application.BackgroundTasks(),
+                                      application.CreateTaskContext(window),
                                       ValidateDisplayName);
   const auto asyncScheduler = [this](const InvalidationKind kind) {
     Invalidate(kind);
   };
   m_asyncHost = std::make_unique<KeyedViewModelHost<GalleryAsyncViewModel>>(
-      application.CreateTaskContext(window),
+      application.BackgroundTasks(), application.CreateTaskContext(window),
       [asyncScheduler](const String &key, const ViewModelServiceResolver &) {
         return std::make_shared<GalleryAsyncViewModel>(key, asyncScheduler);
       },
@@ -4091,7 +4092,7 @@ void GalleryViewModel::AttachRuntime(Application &application,
       window, String{"Appears after 500 ms without moving keyboard focus."});
   auto navigation = InitializePageNavigation();
   if (!navigation) {
-    Report(std::move(navigation).Error());
+    Report(std::move(navigation).error());
   }
 }
 
@@ -4119,7 +4120,7 @@ auto GalleryViewModel::InitializePageNavigation() -> UIResult<void> {
   const auto pageIndex = static_cast<NGIN::UIntSize>(m_page.Get());
   auto started = GalleryPageStarters[pageIndex](*m_navigation);
   if (!started) {
-    return std::move(started).Error();
+    return std::unexpected(std::move(started).error());
   }
   ++m_pageActivations;
   return {};
@@ -4156,7 +4157,7 @@ void GalleryViewModel::SelectPage(const Page page) {
   if (page == Page::AsyncData && m_asyncHost && !m_asyncHost->IsMounted()) {
     auto shown = m_asyncHost->Show(String{"inbox"});
     if (!shown) {
-      Report(std::move(shown).Error());
+      Report(std::move(shown).error());
     }
   }
 }
@@ -4210,7 +4211,7 @@ void GalleryViewModel::CopyExample(const Page page) {
   auto copied = m_application->Platform().SetClipboardText(
       String{PageExample(page).data()});
   if (!copied) {
-    Report(std::move(copied).Error());
+    Report(std::move(copied).error());
     return;
   }
   String status{"Copied the "};
@@ -4367,7 +4368,7 @@ void GalleryViewModel::SelectAsyncDemo(const char *key) {
   }
   auto shown = m_asyncHost->Show(String{key});
   if (!shown) {
-    Report(std::move(shown).Error());
+    Report(std::move(shown).error());
   }
 }
 
@@ -4633,9 +4634,9 @@ auto GalleryViewModel::SelectVirtualizedItem(const NGIN::UIntSize index)
     -> UIResult<void> {
   auto key = m_virtualizedSource->KeyAt(index);
   if (!key) {
-    return std::move(key).Error();
+    return std::unexpected(std::move(key).error());
   }
-  static_cast<void>(m_virtualizedSelection.Set(std::move(key).Value()));
+  static_cast<void>(m_virtualizedSelection.Set(std::move(key).value()));
   return {};
 }
 
@@ -4736,19 +4737,23 @@ auto GalleryViewModel::AsyncMotionStatus() const noexcept -> const String & {
 }
 
 void GalleryViewModel::StartAsyncMotionSequence() {
-  if (!m_asyncMotion || !m_asyncMotion->context) {
+  if (!m_asyncMotion || !m_asyncMotion->context || m_application == nullptr) {
     return;
   }
-  NGIN::Async::Detach(*m_asyncMotion->context,
-                      SequenceMotion(*m_asyncMotion->context, m_asyncMotion));
+  if (!m_application->BackgroundTasks().Transfer(
+          SequenceMotion(*m_asyncMotion->context, m_asyncMotion))) {
+    m_asyncMotion->SetStatus("Motion could not start");
+  }
 }
 
 void GalleryViewModel::StartParallelMotion() {
-  if (!m_asyncMotion || !m_asyncMotion->context) {
+  if (!m_asyncMotion || !m_asyncMotion->context || m_application == nullptr) {
     return;
   }
-  NGIN::Async::Detach(*m_asyncMotion->context,
-                      ParallelMotion(*m_asyncMotion->context, m_asyncMotion));
+  if (!m_application->BackgroundTasks().Transfer(
+          ParallelMotion(*m_asyncMotion->context, m_asyncMotion))) {
+    m_asyncMotion->SetStatus("Motion could not start");
+  }
 }
 
 void GalleryViewModel::StartCancelableMotion() {
@@ -4762,18 +4767,22 @@ void GalleryViewModel::StartCancelableMotion() {
       std::make_shared<NGIN::Async::CancellationSource>();
   auto run = std::make_shared<GalleryCancelableRun>(
       *m_application, m_asyncMotion->cancellation->GetToken());
-  NGIN::Async::Detach(run->context, CancelableMotion(run, m_asyncMotion));
+  if (!m_application->BackgroundTasks().Transfer(
+          CancelableMotion(run, m_asyncMotion))) {
+    m_asyncMotion->SetStatus("Motion could not start");
+  }
 }
 
 void GalleryViewModel::InterruptAsyncMotion() {
-  if (!m_asyncMotion || !m_asyncMotion->context) {
+  if (!m_asyncMotion || !m_asyncMotion->context || m_application == nullptr) {
     return;
   }
   const auto target = m_asyncMotion->interruptForward ? 430.0F : 0.0F;
   m_asyncMotion->interruptForward = !m_asyncMotion->interruptForward;
-  NGIN::Async::Detach(
-      *m_asyncMotion->context,
-      InterruptMotion(*m_asyncMotion->context, m_asyncMotion, target));
+  if (!m_application->BackgroundTasks().Transfer(
+          InterruptMotion(*m_asyncMotion->context, m_asyncMotion, target))) {
+    m_asyncMotion->SetStatus("Motion could not start");
+  }
 }
 
 void GalleryViewModel::CancelAsyncMotion() {
@@ -4831,9 +4840,9 @@ void GalleryViewModel::ToggleInspector() {
 auto GalleryViewModel::OpenAuxiliaryWindow(const bool modal) noexcept
     -> UIResult<void> {
   if (m_application == nullptr || m_text == nullptr || m_window == nullptr) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Gallery runtime is not attached", "NGIN.UI.Gallery",
-                       "OpenAuxiliaryWindow");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "Gallery runtime is not attached",
+        "NGIN.UI.Gallery", "OpenAuxiliaryWindow"));
   }
 
   ++m_auxiliaryWindowId;
@@ -4850,9 +4859,9 @@ auto GalleryViewModel::OpenAuxiliaryWindow(const bool modal) noexcept
                        .minimumSize = PixelSize{420, 240},
                    });
     if (!result) {
-      return std::move(result).Error();
+      return std::unexpected(std::move(result).error());
     }
-    created = result.Value();
+    created = result.value();
   } else {
     auto result = m_application->CreateWindow(WindowCreateInfo{
         .id = id,
@@ -4861,9 +4870,9 @@ auto GalleryViewModel::OpenAuxiliaryWindow(const bool modal) noexcept
         .minimumSize = PixelSize{420, 240},
     });
     if (!result) {
-      return std::move(result).Error();
+      return std::unexpected(std::move(result).error());
     }
-    created = result.Value();
+    created = result.value();
   }
 
   created->SetContent([this, modal](Composer &composer) {
@@ -5130,12 +5139,12 @@ auto CreateMainWindow(Application &application, NativeTextSystem &text,
       .minimumSize = PixelSize{680, 520},
   });
   if (!window) {
-    return std::move(window).Error();
+    return std::unexpected(std::move(window).error());
   }
-  model.AttachRuntime(application, text, *window.Value());
-  window.Value()->SetContent([&text, &model](Composer &composer) {
+  model.AttachRuntime(application, text, *window.value());
+  window.value()->SetContent([&text, &model](Composer &composer) {
     ComposeMainView(composer, text, model);
   });
-  return window.Value();
+  return window.value();
 }
 } // namespace NGIN::UIGallery

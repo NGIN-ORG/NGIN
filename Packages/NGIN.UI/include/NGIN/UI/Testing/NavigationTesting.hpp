@@ -26,9 +26,10 @@ public:
   [[nodiscard]] auto ResolveRequired() const -> UIResult<std::shared_ptr<T>> {
     const auto found = m_services.find(std::type_index{typeid(T)});
     if (found == m_services.end()) {
-      return MakeUIError(UIErrorCode::ResourceFailed,
-                         "Required page test service is not registered",
-                         "NGIN.UI.Testing", "PageTestContext::ResolveRequired");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::ResourceFailed,
+                      "Required page test service is not registered",
+                      "NGIN.UI.Testing", "PageTestContext::ResolveRequired"));
     }
     return std::static_pointer_cast<T>(found->second);
   }
@@ -66,9 +67,9 @@ public:
   /// @brief Fails when a headless page scope remains active.
   [[nodiscard]] auto AssertNoScopeLeaks() const -> UIResult<void> {
     if (m_state->active != 0 || m_state->created != m_state->released) {
-      return MakeUIError(
+      return std::unexpected(MakeUIError(
           UIErrorCode::InvalidState, "Headless page leases are still active",
-          "NGIN.UI.Testing", "PageTestContext::AssertNoScopeLeaks");
+          "NGIN.UI.Testing", "PageTestContext::AssertNoScopeLeaks"));
     }
     return {};
   }
@@ -110,15 +111,15 @@ public:
       -> UIResult<void> {
     const auto snapshot = m_navigation->Snapshot();
     if (snapshot.stack.size() != expected.size()) {
-      return MakeUIError(
+      return std::unexpected(MakeUIError(
           UIErrorCode::InvalidState, "Navigation stack depth does not match",
-          "NGIN.UI.Testing", "NavigationTestDriver::AssertStack");
+          "NGIN.UI.Testing", "NavigationTestDriver::AssertStack"));
     }
     for (UIntSize index = 0; index < expected.size(); ++index) {
       if (snapshot.stack[index].pageId != expected[index]) {
-        return MakeUIError(
+        return std::unexpected(MakeUIError(
             UIErrorCode::InvalidState, "Navigation stack page does not match",
-            "NGIN.UI.Testing", "NavigationTestDriver::AssertStack");
+            "NGIN.UI.Testing", "NavigationTestDriver::AssertStack"));
       }
     }
     return {};

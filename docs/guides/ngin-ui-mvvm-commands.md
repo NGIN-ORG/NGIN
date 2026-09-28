@@ -40,7 +40,7 @@ class EditorViewModel final {
 public:
   EditorViewModel(Application &application, Window &window)
       : save(
-            application.CreateTaskContext(window),
+            application.BackgroundTasks(), application.CreateTaskContext(window),
             [this](NGIN::Async::TaskContext &context) {
               return SaveAsync(context);
             },

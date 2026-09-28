@@ -42,7 +42,9 @@ use lazy workers.
 `BackgroundEntry` creates a runner before starting tasks. Main may block in
 SyncWait because the runner independently drives the required loop. It also
 starts an accept with no incoming client, calls RequestStop from a task, and
-joins that accept through its already reserved continuation while stopping.
+joins that accept through an explicit TaskScope and its already reserved
+continuation while stopping. Sequential operations use direct Task awaits or
+AsCompletion when the example checks all terminal outcomes.
 New tasks and I/O are rejected after stop; existing joins continue.
 
 `ExternalEntry` supplies a task-pool executor to TaskContext while sockets and

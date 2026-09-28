@@ -1,3 +1,4 @@
+#include "TaskOwnerFixture.hpp"
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/Async/Completion.hpp>
@@ -89,10 +90,12 @@ TEST_CASE("stale asynchronous validation cannot replace newer input") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   State<NGIN::Text::String> name{NGIN::Text::String{"taken"}};
   ValidationField field{name.AsReadOnly(), ValidationTrigger::Immediate};
-  field.SetAsyncValidator(context, ValidateNameAsync);
+  field.SetAsyncValidator(owner, context, ValidateNameAsync);
 
   REQUIRE(field.IsValidating().Get());
   static_cast<void>(name.Set(NGIN::Text::String{"available"}));
@@ -107,10 +110,12 @@ TEST_CASE("canceling asynchronous validation keeps the field unavailable") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   State<NGIN::Text::String> name{NGIN::Text::String{"available"}};
   ValidationField field{name.AsReadOnly(), ValidationTrigger::Immediate};
-  field.SetAsyncValidator(context, ValidateNameAsync);
+  field.SetAsyncValidator(owner, context, ValidateNameAsync);
 
   REQUIRE(field.IsValidating().Get());
   field.Cancel();
@@ -171,12 +176,14 @@ TEST_CASE("destroying validation ignores late asynchronous completion") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   State<NGIN::Text::String> name{NGIN::Text::String{"taken"}};
   auto observed = std::vector<ValidationIssue>{};
   {
     ValidationField field{name.AsReadOnly(), ValidationTrigger::Immediate};
-    field.SetAsyncValidator(context, ValidateNameAsync);
+    field.SetAsyncValidator(owner, context, ValidateNameAsync);
     observed = field.Issues().Get();
   }
   scheduler.RunUntilIdle();

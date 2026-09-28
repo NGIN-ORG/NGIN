@@ -101,25 +101,25 @@ TEST_CASE("bindings provide typed state access subscription and validation") {
   int observed = 0;
   auto subscription =
       binding.Subscribe([&](const int &value) { observed = value; });
-  REQUIRE(binding.Set(8).HasValue());
+  REQUIRE(binding.Set(8).has_value());
   REQUIRE(binding.Get() == 8);
   REQUIRE(observed == 8);
 
   auto positive =
       binding.WithValidation([](const int &value) -> UIResult<void> {
         if (value <= 0) {
-          return MakeUIError(UIErrorCode::InvalidArgument,
-                             "Value must be positive", "NGIN.UI.Tests",
-                             "Validate");
+          return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                             "Value must be positive",
+                                             "NGIN.UI.Tests", "Validate"));
         }
         return {};
       });
 
   auto rejected = positive.Set(-1);
-  REQUIRE_FALSE(rejected.HasValue());
-  REQUIRE(rejected.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE_FALSE(rejected.has_value());
+  REQUIRE(rejected.error().code == UIErrorCode::InvalidArgument);
   REQUIRE(binding.Get() == 8);
-  REQUIRE(positive.Set(12).HasValue());
+  REQUIRE(positive.Set(12).has_value());
   REQUIRE(binding.Get() == 12);
 }
 
@@ -139,7 +139,7 @@ TEST_CASE("custom bindings can wrap model properties") {
   };
 
   REQUIRE(binding.Get() == 3);
-  REQUIRE(binding.Set(7).HasValue());
+  REQUIRE(binding.Set(7).has_value());
   REQUIRE(model.value == 7);
   REQUIRE_FALSE(binding.Subscribe([](const int &) {}));
 }
@@ -229,8 +229,8 @@ TEST_CASE("computed dependency graphs reject cycles and retain old wiring") {
   REQUIRE(second.Get() == 3);
 
   auto cycle = first.SetDependencies({DependOn(second.AsReadOnly())});
-  REQUIRE_FALSE(cycle.HasValue());
-  REQUIRE(cycle.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE_FALSE(cycle.has_value());
+  REQUIRE(cycle.error().code == UIErrorCode::InvalidArgument);
 
   REQUIRE(source.Set(4));
   REQUIRE(first.Get() == 5);

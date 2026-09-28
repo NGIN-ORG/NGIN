@@ -1,3 +1,4 @@
+#include "TaskOwnerFixture.hpp"
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/Async/Completion.hpp>
@@ -55,11 +56,11 @@ TEST_CASE("synchronous command domain errors and exceptions are observable") {
   using namespace NGIN::UI;
 
   Command rejected{Command::Action{[]() -> CommandResult<void> {
-    return CommandError{
+    return std::unexpected(CommandError{
         .kind = CommandErrorKind::Domain,
         .code = NGIN::Text::String{"invalid"},
         .message = NGIN::Text::String{"Input is invalid"},
-    };
+    });
   }}};
   REQUIRE(rejected.Execute() == CommandInvocation::Started);
   REQUIRE(rejected.Status().lastOutcome.kind ==
@@ -110,9 +111,12 @@ TEST_CASE("async commands complete on their task context and publish state") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   int executions = 0;
   AsyncCommand command{
+      owner,
       context,
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, executions);
@@ -135,8 +139,10 @@ TEST_CASE("async command exposes domain failure and cancellation") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
-  AsyncCommand rejected{context, FailWithDomainError};
+  AsyncCommand rejected{owner, context, FailWithDomainError};
   REQUIRE(rejected.Execute() == CommandInvocation::Started);
   scheduler.RunUntilIdle();
   REQUIRE(rejected.Status().lastOutcome.kind ==
@@ -147,6 +153,7 @@ TEST_CASE("async command exposes domain failure and cancellation") {
 
   int executions = 0;
   AsyncCommand canceled{
+      owner,
       context,
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, executions);
@@ -163,9 +170,12 @@ TEST_CASE("async command concurrency policies are deterministic") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   int rejectedExecutions = 0;
   AsyncCommand reject{
+      owner,
       context,
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, rejectedExecutions);
@@ -178,6 +188,7 @@ TEST_CASE("async command concurrency policies are deterministic") {
 
   int queuedExecutions = 0;
   AsyncCommand queue{
+      owner,
       context,
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, queuedExecutions);
@@ -196,6 +207,7 @@ TEST_CASE("async command concurrency policies are deterministic") {
 
   int replacementExecutions = 0;
   AsyncCommand replace{
+      owner,
       context,
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, replacementExecutions);
@@ -214,11 +226,14 @@ TEST_CASE("destroying an async command expires bindings and cancels work") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   int executions = 0;
   CommandBinding binding;
   {
     AsyncCommand command{
+        owner,
         context,
         [&](NGIN::Async::TaskContext &runContext) {
           return CompleteAfterYield(runContext, executions);
@@ -242,25 +257,25 @@ TEST_CASE("window and application lifetime cancel asynchronous commands") {
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"CommandLifetime"},
       .title = NGIN::Text::String{"Command lifetime"},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
   int executions = 0;
   auto command = std::make_unique<AsyncCommand>(
-      application->CreateTaskContext(*window),
+      application->BackgroundTasks(), application->CreateTaskContext(*window),
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, executions);
       });
 
   REQUIRE(command->Execute() == CommandInvocation::Started);
-  REQUIRE(application->CloseWindow(*window).HasValue());
+  REQUIRE(application->CloseWindow(*window).has_value());
   for (auto index = 0; index < 8 && command->Status().isRunning; ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   REQUIRE(executions == 0);
   REQUIRE(command->Status().lastOutcome.kind == CommandOutcomeKind::Canceled);
@@ -269,9 +284,10 @@ TEST_CASE("window and application lifetime cancel asynchronous commands") {
       .id = NGIN::Text::String{"ApplicationLifetime"},
       .title = NGIN::Text::String{"Application lifetime"},
   });
-  REQUIRE(secondWindow.HasValue());
+  REQUIRE(secondWindow.has_value());
   command = std::make_unique<AsyncCommand>(
-      application->CreateTaskContext(*secondWindow.Value()),
+      application->BackgroundTasks(),
+      application->CreateTaskContext(*secondWindow.value()),
       [&](NGIN::Async::TaskContext &runContext) {
         return CompleteAfterYield(runContext, executions);
       });

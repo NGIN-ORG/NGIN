@@ -10,3 +10,6 @@ ngin test --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginpro
 ```
 
 The interactive companion is the [NGIN.UI Gallery](../NGIN.UI.Gallery).
+
+The test joins application background work before releasing its model and text
+resources, including when a gallery assertion fails.

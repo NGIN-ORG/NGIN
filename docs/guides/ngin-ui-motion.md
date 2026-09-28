@@ -189,14 +189,17 @@ window.SetContent([&](Composer& composer) {
 });
 ```
 
-Create a UI task context from the application. Start a task with the normal
-NGIN async API:
+Start motion through the application's background owner. Keep the controller
+alive until its work joins:
 
 ```cpp
-auto uiContext = application.CreateTaskContext();
-auto fade = NGIN::Async::Spawn(
-    uiContext,
-    cardMotion.FadeToAsync(uiContext, 0.25F, transition));
+auto fade = application.BackgroundTasks().Spawn(
+    [&cardMotion, transition](NGIN::Async::TaskContext& context) {
+      return cardMotion.FadeToAsync(context, 0.25F, transition);
+    });
+if (!fade) {
+  throw std::runtime_error{"Motion admission failed"};
+}
 ```
 
 `AnimateToAsync` works with every `AnimationProperty<T>` accepted by the
@@ -221,10 +224,14 @@ auto results = co_await NGIN::Async::WhenAll(
     motion.FadeToAsync(context, 1.0F, transition),
     motion.ScaleToAsync(context, Point{1.0F, 1.0F}, transition));
 
-auto first = co_await NGIN::Async::WhenAny(
+auto first = co_await NGIN::Async::Race(
     context,
-    left.TranslateToAsync(context, Point{240.0F, 0.0F}, transition),
-    right.TranslateToAsync(context, Point{240.0F, 0.0F}, transition));
+    [&left, transition](NGIN::Async::TaskContext& child) {
+      return left.TranslateToAsync(child, Point{240.0F, 0.0F}, transition);
+    },
+    [&right, transition](NGIN::Async::TaskContext& child) {
+      return right.TranslateToAsync(child, Point{240.0F, 0.0F}, transition);
+    });
 ```
 
 An awaited operation returns `MotionOutcome::Completed`, `Canceled`,
@@ -232,7 +239,14 @@ An awaited operation returns `MotionOutcome::Completed`, `Canceled`,
 interrupts the older waiter. A cancellation token passed to
 `Application::CreateTaskContext` stops its active motion. Removing the element,
 closing its window, or shutting down the application releases its waiter.
-Continuations always run through the UI scheduler, never inside painting.
+Motion reserves its completion delivery and cancellation observation before
+publishing an animation entry. Reservation or registration rejection becomes a
+fault without starting or replacing an animation. Admitted waiters retain delivery
+after ordinary executor admission closes. Cancellation targets that particular
+operation; an already-canceled request leaves an existing animation unchanged.
+Continuations run through the context executor, never inside painting. Application
+contexts use the UI scheduler. `Application::Run` joins transferred work;
+manually pumped applications call `ShutdownTasks` before releasing controllers.
 
 Declarative targets own a property when both APIs name it. The controller
 operation reports `Interrupted`; this prevents two writers from silently
@@ -255,7 +269,7 @@ by `propertyConflictCount`.
 ```cpp
 auto *clock = platform.get();
 clock->AdvanceTime(90ms);
-REQUIRE(application->PumpOnce().HasValue());
+REQUIRE(application->PumpOnce().has_value());
 ```
 
 Tests can also inspect `Window::HasActiveAnimations()` and

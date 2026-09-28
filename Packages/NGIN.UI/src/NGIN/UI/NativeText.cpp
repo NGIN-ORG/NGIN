@@ -90,21 +90,21 @@ struct DecodedCodePoint final {
         length = 4;
         value = first & 0x07U;
       } else {
-        return NativeTextError(UIErrorCode::TextShapingFailed,
-                               "Text contains malformed UTF-8",
-                               "SegmentGraphemes");
+        return std::unexpected(NativeTextError(UIErrorCode::TextShapingFailed,
+                                               "Text contains malformed UTF-8",
+                                               "SegmentGraphemes"));
       }
       if (offset + length > text.Size()) {
-        return NativeTextError(UIErrorCode::TextShapingFailed,
-                               "Text contains truncated UTF-8",
-                               "SegmentGraphemes");
+        return std::unexpected(NativeTextError(UIErrorCode::TextShapingFailed,
+                                               "Text contains truncated UTF-8",
+                                               "SegmentGraphemes"));
       }
       for (UIntSize index = 1; index < length; ++index) {
         const auto continuation = static_cast<UInt8>(text[offset + index]);
         if ((continuation & 0xC0U) != 0x80U) {
-          return NativeTextError(UIErrorCode::TextShapingFailed,
-                                 "Text contains malformed UTF-8",
-                                 "SegmentGraphemes");
+          return std::unexpected(NativeTextError(
+              UIErrorCode::TextShapingFailed, "Text contains malformed UTF-8",
+              "SegmentGraphemes"));
         }
         value = (value << 6U) | (continuation & 0x3FU);
       }
@@ -114,18 +114,18 @@ struct DecodedCodePoint final {
               : (length == 2 ? 0x80U : (length == 3 ? 0x800U : 0x10000U));
       if (value < minimum || value > 0x10FFFFU ||
           (value >= 0xD800U && value <= 0xDFFFU)) {
-        return NativeTextError(UIErrorCode::TextShapingFailed,
-                               "Text contains non-canonical UTF-8",
-                               "SegmentGraphemes");
+        return std::unexpected(NativeTextError(
+            UIErrorCode::TextShapingFailed, "Text contains non-canonical UTF-8",
+            "SegmentGraphemes"));
       }
       decoded.push_back({value, offset, length});
       offset += length;
     }
     return decoded;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate grapheme metadata",
-                           "SegmentGraphemes");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to allocate grapheme metadata",
+        "SegmentGraphemes"));
   }
 }
 
@@ -225,9 +225,9 @@ SegmentDecoded(const std::vector<DecodedCodePoint> &decoded) noexcept
     }
     return clusters;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate grapheme clusters",
-                           "SegmentGraphemes");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to allocate grapheme clusters",
+        "SegmentGraphemes"));
   }
 }
 
@@ -344,10 +344,10 @@ struct NativeTextSystem::Impl final {
 
   [[nodiscard]] auto CreateAtlasTexture() noexcept -> UIResult<TextureHandle> {
     if (renderer == nullptr) {
-      return NativeTextError(
+      return std::unexpected(NativeTextError(
           UIErrorCode::InvalidState,
           "Glyph textures are unavailable while the render device is lost",
-          "CreateGlyphAtlasPage");
+          "CreateGlyphAtlasPage"));
     }
     return renderer->CreateTexture(TextureCreateInfo{
         .size = atlasSize,
@@ -359,12 +359,12 @@ struct NativeTextSystem::Impl final {
   [[nodiscard]] auto AddPage() -> UIResult<UInt32> {
     auto texture = CreateAtlasTexture();
     if (!texture) {
-      return std::move(texture).Error();
+      return std::unexpected(std::move(texture).error());
     }
     try {
       const auto index = static_cast<UInt32>(pages.size());
       pages.push_back(AtlasPage{
-          .texture = texture.Value(),
+          .texture = texture.value(),
           .lastUse = ++useClock,
       });
       ++diagnostics.pageAllocationCount;
@@ -372,7 +372,7 @@ struct NativeTextSystem::Impl final {
           std::max(diagnostics.peakPageCount, pages.size());
       return index;
     } catch (...) {
-      static_cast<void>(renderer->DestroyTexture(texture.Value()));
+      static_cast<void>(renderer->DestroyTexture(texture.value()));
       throw;
     }
   }
@@ -391,12 +391,11 @@ struct NativeTextSystem::Impl final {
 
   [[nodiscard]] auto PageIsUnused(const AtlasPage &page) const noexcept
       -> bool {
-    return std::all_of(page.keys.begin(), page.keys.end(),
-                       [this](const GlyphKey &key) {
-                         const auto found = glyphs.find(key);
-                         return found == glyphs.end() ||
-                                found->second.lease.expired();
-                       });
+    return std::all_of(
+        page.keys.begin(), page.keys.end(), [this](const GlyphKey &key) {
+          const auto found = glyphs.find(key);
+          return found == glyphs.end() || found->second.lease.expired();
+        });
   }
 
   [[nodiscard]] auto RecyclePage(const UInt32 pageIndex) -> UIResult<void> {
@@ -423,10 +422,10 @@ struct NativeTextSystem::Impl final {
       -> UIResult<UInt32> {
     if (width + 2U > atlasSize.width || height + 2U > atlasSize.height) {
       ++diagnostics.allocationFailureCount;
-      return NativeTextError(
+      return std::unexpected(NativeTextError(
           UIErrorCode::InvalidArgument,
           "A rasterized glyph is larger than one glyph atlas page",
-          "ResolveGlyph");
+          "ResolveGlyph"));
     }
     for (UInt32 index = 0; index < pages.size(); ++index) {
       if (CanPlace(pages[index], width, height)) {
@@ -449,16 +448,16 @@ struct NativeTextSystem::Impl final {
       auto recycled = RecyclePage(candidate);
       if (!recycled) {
         ++diagnostics.allocationFailureCount;
-        return std::move(recycled).Error();
+        return std::unexpected(std::move(recycled).error());
       }
       return candidate;
     }
 
     ++diagnostics.allocationFailureCount;
-    return NativeTextError(
-        UIErrorCode::OutOfMemory,
-        "All glyph atlas pages are still used by visible text",
-        "ResolveGlyph");
+    return std::unexpected(
+        NativeTextError(UIErrorCode::OutOfMemory,
+                        "All glyph atlas pages are still used by visible text",
+                        "ResolveGlyph"));
   }
 
   void Place(AtlasPage &page, const UInt32 width) noexcept {
@@ -506,9 +505,9 @@ struct NativeTextSystem::Impl final {
                                   const char *operation) -> UIResult<void> {
     const auto error = FT_Set_Pixel_Sizes(face.value, 0, std::max(1U, size));
     if (error != 0) {
-      return NativeTextError(UIErrorCode::TextShapingFailed,
-                             "FreeType could not set the requested font size",
-                             operation, error);
+      return std::unexpected(NativeTextError(
+          UIErrorCode::TextShapingFailed,
+          "FreeType could not set the requested font size", operation, error));
     }
     hb_ft_font_changed(face.font);
     return {};
@@ -520,7 +519,7 @@ struct NativeTextSystem::Impl final {
         face, static_cast<UInt32>(std::max(1.0F, std::round(size))),
         "FontMetrics");
     if (!sized) {
-      return sized.Error();
+      return std::unexpected(sized.error());
     }
     const auto scale = 1.0F / 64.0F;
     const auto ascender =
@@ -557,9 +556,10 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
     if (info.atlasSize.IsEmpty() || info.maximumAtlasPages == 0) {
-      return NativeTextError(UIErrorCode::InvalidArgument,
-                             "Glyph atlas dimensions and page count must be non-zero",
-                             "CreateTextSystem");
+      return std::unexpected(NativeTextError(
+          UIErrorCode::InvalidArgument,
+          "Glyph atlas dimensions and page count must be non-zero",
+          "CreateTextSystem"));
     }
     auto implementation = std::make_unique<Impl>();
     implementation->renderer = &renderer;
@@ -569,9 +569,9 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     implementation->diagnostics.maximumPageCount = info.maximumAtlasPages;
     auto error = FT_Init_FreeType(&implementation->library);
     if (error != 0) {
-      return NativeTextError(UIErrorCode::ResourceFailed,
-                             "FreeType initialization failed",
-                             "CreateTextSystem", error);
+      return std::unexpected(NativeTextError(UIErrorCode::ResourceFailed,
+                                             "FreeType initialization failed",
+                                             "CreateTextSystem", error));
     }
     const auto loadFace =
         [&implementation](const NGIN::Text::String &path,
@@ -580,16 +580,17 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
       const auto loadError =
           FT_New_Face(implementation->library, path.CStr(), 0, &face.value);
       if (loadError != 0) {
-        return NativeTextError(UIErrorCode::ResourceFailed,
-                               "A configured font could not be loaded",
-                               "CreateTextSystem", loadError);
+        return std::unexpected(
+            NativeTextError(UIErrorCode::ResourceFailed,
+                            "A configured font could not be loaded",
+                            "CreateTextSystem", loadError));
       }
       face.font = hb_ft_font_create_referenced(face.value);
       if (face.font == nullptr) {
         static_cast<void>(FT_Done_Face(face.value));
-        return NativeTextError(UIErrorCode::OutOfMemory,
-                               "HarfBuzz font creation failed",
-                               "CreateTextSystem");
+        return std::unexpected(NativeTextError(UIErrorCode::OutOfMemory,
+                                               "HarfBuzz font creation failed",
+                                               "CreateTextSystem"));
       }
       face.path = path;
       face.fallback = fallback;
@@ -601,9 +602,8 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     const auto loadUnique =
         [&loadFace, &loadedPaths](const NGIN::Text::String &path,
                                   const bool fallback) -> UIResult<void> {
-      if (path.Empty() ||
-          std::find(loadedPaths.begin(), loadedPaths.end(), path) !=
-              loadedPaths.end()) {
+      if (path.Empty() || std::find(loadedPaths.begin(), loadedPaths.end(),
+                                    path) != loadedPaths.end()) {
         return {};
       }
       auto loaded = loadFace(path, fallback);
@@ -613,19 +613,18 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
       return loaded;
     };
 
-    const auto primary =
-        info.fontPath.Empty()
-            ? ResolveBundledFontPath("NotoSans-Variable.ttf",
-                                     NGIN_UI_BUNDLED_FONT_PATH)
-            : info.fontPath;
+    const auto primary = info.fontPath.Empty()
+                             ? ResolveBundledFontPath("NotoSans-Variable.ttf",
+                                                      NGIN_UI_BUNDLED_FONT_PATH)
+                             : info.fontPath;
     auto loaded = loadUnique(primary, false);
     if (!loaded) {
-      return loaded.Error();
+      return std::unexpected(loaded.error());
     }
     for (const auto &fallback : info.fallbackFontPaths) {
       loaded = loadUnique(fallback, true);
       if (!loaded) {
-        return loaded.Error();
+        return std::unexpected(loaded.error());
       }
     }
     if (info.includeBundledFallbacks) {
@@ -636,28 +635,27 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
                     NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH},
       };
       for (const auto &[fileName, sourcePath] : bundledFallbacks) {
-        loaded =
-            loadUnique(ResolveBundledFontPath(fileName, sourcePath), true);
+        loaded = loadUnique(ResolveBundledFontPath(fileName, sourcePath), true);
         if (!loaded) {
-          return loaded.Error();
+          return std::unexpected(loaded.error());
         }
       }
     }
     auto page = implementation->AddPage();
     if (!page) {
-      return page.Error();
+      return std::unexpected(page.error());
     }
     return std::unique_ptr<NativeTextSystem>{
         new NativeTextSystem{std::move(implementation)}};
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Native text service allocation failed",
-                           "CreateTextSystem");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Native text service allocation failed",
+        "CreateTextSystem"));
   }
 #else
   static_cast<void>(renderer);
   static_cast<void>(info);
-  return Unavailable("CreateTextSystem");
+  return std::unexpected(Unavailable("CreateTextSystem"));
 #endif
 }
 
@@ -675,7 +673,7 @@ auto NativeTextSystem::ResolveFont(const FontRequest &request) noexcept
   return FontFaceHandle{0, 1};
 #else
   static_cast<void>(request);
-  return Unavailable("ResolveFont");
+  return std::unexpected(Unavailable("ResolveFont"));
 #endif
 }
 
@@ -685,15 +683,15 @@ auto NativeTextSystem::Metrics(const FontFaceHandle face,
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   auto *resolved = m_impl->FaceFor(face);
   if (resolved == nullptr || !std::isfinite(fontSize) || fontSize <= 0.0F) {
-    return NativeTextError(UIErrorCode::InvalidArgument,
-                           "A live font face and positive size are required",
-                           "FontMetrics");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::InvalidArgument,
+        "A live font face and positive size are required", "FontMetrics"));
   }
   return m_impl->MetricsForSize(*resolved, fontSize);
 #else
   static_cast<void>(face);
   static_cast<void>(fontSize);
-  return Unavailable("FontMetrics");
+  return std::unexpected(Unavailable("FontMetrics"));
 #endif
 }
 
@@ -701,9 +699,9 @@ auto NativeTextSystem::Segment(const NGIN::Text::String &text) noexcept
     -> UIResult<std::vector<GraphemeCluster>> {
   auto decoded = DecodeUtf8(text);
   if (!decoded) {
-    return decoded.Error();
+    return std::unexpected(decoded.error());
   }
-  return SegmentDecoded(decoded.Value());
+  return SegmentDecoded(decoded.value());
 }
 
 auto NativeTextSystem::Shape(const TextRun &run,
@@ -714,23 +712,24 @@ auto NativeTextSystem::Shape(const TextRun &run,
     auto *resolved = m_impl->FaceFor(face);
     if (resolved == nullptr || !std::isfinite(run.fontSize) ||
         run.fontSize <= 0.0F) {
-      return NativeTextError(UIErrorCode::InvalidArgument,
-                             "A live font face and positive size are required",
-                             "ShapeText");
+      return std::unexpected(NativeTextError(
+          UIErrorCode::InvalidArgument,
+          "A live font face and positive size are required", "ShapeText"));
     }
     auto graphemes = Segment(run.text);
     if (!graphemes) {
-      return graphemes.Error();
+      return std::unexpected(graphemes.error());
     }
     auto metrics = m_impl->MetricsForSize(*resolved, run.fontSize);
     if (!metrics) {
-      return metrics.Error();
+      return std::unexpected(metrics.error());
     }
 
     auto *buffer = hb_buffer_create();
     if (buffer == nullptr) {
-      return NativeTextError(UIErrorCode::OutOfMemory,
-                             "HarfBuzz buffer creation failed", "ShapeText");
+      return std::unexpected(NativeTextError(UIErrorCode::OutOfMemory,
+                                             "HarfBuzz buffer creation failed",
+                                             "ShapeText"));
     }
     struct BufferGuard final {
       hb_buffer_t *value;
@@ -769,8 +768,8 @@ auto NativeTextSystem::Shape(const TextRun &run,
         .direction = hb_buffer_get_direction(buffer) == HB_DIRECTION_RTL
                          ? TextDirection::RightToLeft
                          : TextDirection::LeftToRight,
-        .metrics = metrics.Value(),
-        .graphemeClusters = std::move(graphemes).Value(),
+        .metrics = metrics.value(),
+        .graphemeClusters = std::move(graphemes).value(),
     };
     shaped.glyphs.reserve(glyphCount);
     F32 width = 0.0F;
@@ -798,13 +797,14 @@ auto NativeTextSystem::Shape(const TextRun &run,
                         shaped.metrics.lineGap};
     return shaped;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate shaped glyph data", "ShapeText");
+    return std::unexpected(
+        NativeTextError(UIErrorCode::OutOfMemory,
+                        "Unable to allocate shaped glyph data", "ShapeText"));
   }
 #else
   static_cast<void>(run);
   static_cast<void>(face);
-  return Unavailable("ShapeText");
+  return std::unexpected(Unavailable("ShapeText"));
 #endif
 }
 
@@ -816,10 +816,10 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
          request.maximumWidth != std::numeric_limits<F32>::infinity()) ||
         request.maximumWidth < 0.0F || !std::isfinite(request.lineHeight) ||
         request.lineHeight < 0.0F) {
-      return NativeTextError(
+      return std::unexpected(NativeTextError(
           UIErrorCode::InvalidArgument,
           "Paragraph dimensions must be finite and non-negative",
-          "LayoutParagraph");
+          "LayoutParagraph"));
     }
 
     struct Token final {
@@ -859,11 +859,11 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
     for (const auto &sourceRun : request.runs) {
       auto decoded = DecodeUtf8(sourceRun.text);
       if (!decoded) {
-        return decoded.Error();
+        return std::unexpected(decoded.error());
       }
-      auto clusters = SegmentDecoded(decoded.Value());
+      auto clusters = SegmentDecoded(decoded.value());
       if (!clusters) {
-        return clusters.Error();
+        return std::unexpected(clusters.error());
       }
       UIntSize tokenStart = 0;
       UIntSize tokenLength = 0;
@@ -879,14 +879,14 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         });
         tokenLength = 0;
       };
-      for (const auto &cluster : clusters.Value()) {
+      for (const auto &cluster : clusters.value()) {
         const auto decodedPoint =
-            std::find_if(decoded.Value().begin(), decoded.Value().end(),
+            std::find_if(decoded.value().begin(), decoded.value().end(),
                          [&cluster](const DecodedCodePoint &point) {
                            return point.byteOffset == cluster.byteOffset;
                          });
         const auto value =
-            decodedPoint == decoded.Value().end() ? 0U : decodedPoint->value;
+            decodedPoint == decoded.value().end() ? 0U : decodedPoint->value;
         if (value == 0x000AU || value == 0x000DU) {
           flushToken();
           auto newlineLength = cluster.byteLength;
@@ -924,7 +924,7 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         return preferred;
       }
       const auto supports = [&decoded](const Impl::Face &face) {
-        for (const auto &point : decoded.Value()) {
+        for (const auto &point : decoded.value()) {
           if (IsControl(point.value) || point.value == 0x200DU ||
               point.value == 0xFE0FU) {
             continue;
@@ -935,9 +935,9 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         }
         return true;
       };
-      const auto recordResolved =
-          [this, &decoded, preferred](const UInt32 faceIndex) {
-        for (const auto &point : decoded.Value()) {
+      const auto recordResolved = [this, &decoded,
+                                   preferred](const UInt32 faceIndex) {
+        for (const auto &point : decoded.value()) {
           if (IsControl(point.value) || point.value == 0x200DU ||
               point.value == 0xFE0FU) {
             continue;
@@ -959,7 +959,7 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
           return FontFaceHandle{index, 1};
         }
       }
-      for (const auto &point : decoded.Value()) {
+      for (const auto &point : decoded.value()) {
         if (!IsControl(point.value) && point.value != 0x200DU &&
             point.value != 0xFE0FU) {
           m_impl->missingCodePoints.insert(point.value);
@@ -973,15 +973,15 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
       ShapedToken shapedToken;
       auto preferred = ResolveFont(token.style.font);
       if (!preferred) {
-        return preferred.Error();
+        return std::unexpected(preferred.error());
       }
       auto clusters = Segment(token.text);
       if (!clusters) {
-        return clusters.Error();
+        return std::unexpected(clusters.error());
       }
       UIntSize spanStart = 0;
       UIntSize spanLength = 0;
-      auto spanFace = preferred.Value();
+      auto spanFace = preferred.value();
       const auto flushSpan = [&]() -> UIResult<void> {
         if (spanLength == 0) {
           return {};
@@ -990,29 +990,29 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         span.text = token.text.Substr(spanStart, spanLength);
         auto shaped = Shape(span, spanFace);
         if (!shaped) {
-          return shaped.Error();
+          return std::unexpected(shaped.error());
         }
-        shapedToken.width += shaped.Value().size.width;
+        shapedToken.width += shaped.value().size.width;
         shapedToken.ascender =
-            std::max(shapedToken.ascender, shaped.Value().metrics.ascender);
+            std::max(shapedToken.ascender, shaped.value().metrics.ascender);
         shapedToken.descender =
-            std::max(shapedToken.descender, shaped.Value().metrics.descender +
-                                                shaped.Value().metrics.lineGap);
+            std::max(shapedToken.descender, shaped.value().metrics.descender +
+                                                shaped.value().metrics.lineGap);
         shapedToken.runs.push_back(PositionedShapedRun{
-            .run = std::move(shaped).Value(),
+            .run = std::move(shaped).value(),
             .fontSize = span.fontSize,
             .byteOffset = token.byteOffset + spanStart,
         });
         spanLength = 0;
         return {};
       };
-      for (const auto &cluster : clusters.Value()) {
+      for (const auto &cluster : clusters.value()) {
         const auto face =
-            faceForCluster(token.text, cluster, preferred.Value());
+            faceForCluster(token.text, cluster, preferred.value());
         if (spanLength != 0 && face != spanFace) {
           auto flushed = flushSpan();
           if (!flushed) {
-            return flushed.Error();
+            return std::unexpected(flushed.error());
           }
         }
         if (spanLength == 0) {
@@ -1023,7 +1023,7 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
       }
       auto flushed = flushSpan();
       if (!flushed) {
-        return flushed.Error();
+        return std::unexpected(flushed.error());
       }
       return shapedToken;
     };
@@ -1043,9 +1043,9 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
       if (!request.runs.empty()) {
         auto face = ResolveFont(request.runs.front().font);
         if (face) {
-          auto metrics = Metrics(face.Value(), request.runs.front().fontSize);
+          auto metrics = Metrics(face.value(), request.runs.front().fontSize);
           if (metrics) {
-            return metrics.Value();
+            return metrics.value();
           }
         }
       }
@@ -1121,15 +1121,15 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
       }
       auto shaped = shapeToken(token);
       if (!shaped) {
-        return shaped.Error();
+        return std::unexpected(shaped.error());
       }
       if (request.wrapping == TextWrapping::Wrap && finiteMaximum &&
-          shaped.Value().width > request.maximumWidth) {
+          shaped.value().width > request.maximumWidth) {
         auto clusters = Segment(token.text);
         if (!clusters) {
-          return clusters.Error();
+          return std::unexpected(clusters.error());
         }
-        for (const auto &cluster : clusters.Value()) {
+        for (const auto &cluster : clusters.value()) {
           Token part{
               .style = token.style,
               .text = token.text.Substr(cluster.byteOffset, cluster.byteLength),
@@ -1138,12 +1138,12 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
           };
           auto shapedPart = shapeToken(part);
           if (!shapedPart) {
-            return shapedPart.Error();
+            return std::unexpected(shapedPart.error());
           }
-          appendToken(part, std::move(shapedPart).Value());
+          appendToken(part, std::move(shapedPart).value());
         }
       } else {
-        appendToken(token, std::move(shaped).Value());
+        appendToken(token, std::move(shaped).value());
       }
     }
     if (paragraph.lines.empty() || lineStartByte <= paragraphByteOffset) {
@@ -1158,13 +1158,13 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
     paragraph.byteLength = paragraphByteOffset;
     return paragraph;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate paragraph layout",
-                           "LayoutParagraph");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to allocate paragraph layout",
+        "LayoutParagraph"));
   }
 #else
   static_cast<void>(request);
-  return Unavailable("LayoutParagraph");
+  return std::unexpected(Unavailable("LayoutParagraph"));
 #endif
 }
 
@@ -1173,9 +1173,9 @@ auto NativeTextSystem::CaretRect(const ParagraphLayout &paragraph,
     -> UIResult<Rect> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   if (byteOffset > paragraph.byteLength) {
-    return NativeTextError(UIErrorCode::InvalidArgument,
-                           "Caret byte offset is outside the paragraph",
-                           "CaretRect");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::InvalidArgument,
+        "Caret byte offset is outside the paragraph", "CaretRect"));
   }
   for (const auto &run : paragraph.runs) {
     if (byteOffset == run.byteOffset) {
@@ -1217,13 +1217,13 @@ auto NativeTextSystem::CaretRect(const ParagraphLayout &paragraph,
                   line.bounds.height};
     }
   }
-  return NativeTextError(UIErrorCode::InvalidArgument,
-                         "Caret byte offset is outside the paragraph",
-                         "CaretRect");
+  return std::unexpected(NativeTextError(
+      UIErrorCode::InvalidArgument,
+      "Caret byte offset is outside the paragraph", "CaretRect"));
 #else
   static_cast<void>(paragraph);
   static_cast<void>(byteOffset);
-  return Unavailable("CaretRect");
+  return std::unexpected(Unavailable("CaretRect"));
 #endif
 }
 
@@ -1234,9 +1234,9 @@ auto NativeTextSystem::RangeRects(const ParagraphLayout &paragraph,
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
     if (byteLength > std::numeric_limits<UIntSize>::max() - byteOffset) {
-      return NativeTextError(UIErrorCode::InvalidArgument,
-                             "Text range overflows the paragraph",
-                             "RangeRects");
+      return std::unexpected(
+          NativeTextError(UIErrorCode::InvalidArgument,
+                          "Text range overflows the paragraph", "RangeRects"));
     }
     const auto rangeEnd = byteOffset + byteLength;
     std::vector<Rect> rectangles;
@@ -1258,21 +1258,21 @@ auto NativeTextSystem::RangeRects(const ParagraphLayout &paragraph,
       }
     }
     if (rangeEnd > paragraph.byteLength) {
-      return NativeTextError(UIErrorCode::InvalidArgument,
-                             "Text range is outside the paragraph",
-                             "RangeRects");
+      return std::unexpected(
+          NativeTextError(UIErrorCode::InvalidArgument,
+                          "Text range is outside the paragraph", "RangeRects"));
     }
     return rectangles;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate text range geometry",
-                           "RangeRects");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to allocate text range geometry",
+        "RangeRects"));
   }
 #else
   static_cast<void>(paragraph);
   static_cast<void>(byteOffset);
   static_cast<void>(byteLength);
-  return Unavailable("RangeRects");
+  return std::unexpected(Unavailable("RangeRects"));
 #endif
 }
 
@@ -1281,18 +1281,19 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
     if (m_impl->renderer == nullptr) {
-      return NativeTextError(
+      return std::unexpected(NativeTextError(
           UIErrorCode::InvalidState,
           "Glyph textures are unavailable while the render device is lost",
-          "ResolveGlyph");
+          "ResolveGlyph"));
     }
     auto *face = m_impl->FaceFor(request.fontFace);
     if (face == nullptr || !std::isfinite(request.fontSize) ||
         request.fontSize <= 0.0F || !std::isfinite(request.scaleFactor) ||
         request.scaleFactor <= 0.0F) {
-      return NativeTextError(
-          UIErrorCode::InvalidArgument,
-          "A live face, positive size, and scale are required", "ResolveGlyph");
+      return std::unexpected(
+          NativeTextError(UIErrorCode::InvalidArgument,
+                          "A live face, positive size, and scale are required",
+                          "ResolveGlyph"));
     }
     const auto pixelSize = static_cast<UInt32>(
         std::max(1.0F, std::round(request.fontSize * request.scaleFactor)));
@@ -1315,7 +1316,7 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     ++m_impl->diagnostics.missCount;
     auto sized = m_impl->SetPixelSize(*face, pixelSize, "ResolveGlyph");
     if (!sized) {
-      return sized.Error();
+      return std::unexpected(sized.error());
     }
     auto error =
         FT_Load_Glyph(face->value, request.glyphIndex, FT_LOAD_DEFAULT);
@@ -1323,9 +1324,9 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
       error = FT_Render_Glyph(face->value->glyph, FT_RENDER_MODE_NORMAL);
     }
     if (error != 0) {
-      return NativeTextError(UIErrorCode::ResourceFailed,
-                             "FreeType could not rasterize a glyph",
-                             "ResolveGlyph", error);
+      return std::unexpected(NativeTextError(
+          UIErrorCode::ResourceFailed, "FreeType could not rasterize a glyph",
+          "ResolveGlyph", error));
     }
     const auto &bitmap = face->value->glyph->bitmap;
     if (bitmap.width == 0 || bitmap.rows == 0) {
@@ -1335,9 +1336,9 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     const auto height = static_cast<UInt32>(bitmap.rows);
     auto pageIndex = m_impl->AcquirePage(width, height);
     if (!pageIndex) {
-      return std::move(pageIndex).Error();
+      return std::unexpected(std::move(pageIndex).error());
     }
-    auto &page = m_impl->pages[pageIndex.Value()];
+    auto &page = m_impl->pages[pageIndex.value()];
     m_impl->Place(page, width);
 
     std::vector<Byte> pixels(static_cast<UIntSize>(width) *
@@ -1353,20 +1354,19 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
       }
     }
     auto updated = m_impl->renderer->UpdateTexture(
-        page.texture,
-        TextureUpdateInfo{
-            .region =
-                PixelRect{
-                    static_cast<Int32>(page.x),
-                    static_cast<Int32>(page.y),
-                    width,
-                    height,
-                },
-            .bytesPerRow = static_cast<UIntSize>(width),
-            .bytes = pixels,
-        });
+        page.texture, TextureUpdateInfo{
+                          .region =
+                              PixelRect{
+                                  static_cast<Int32>(page.x),
+                                  static_cast<Int32>(page.y),
+                                  width,
+                                  height,
+                              },
+                          .bytesPerRow = static_cast<UIntSize>(width),
+                          .bytes = pixels,
+                      });
     if (!updated) {
-      return updated.Error();
+      return std::unexpected(updated.error());
     }
     const auto inverseWidth = 1.0F / static_cast<F32>(m_impl->atlasSize.width);
     const auto inverseHeight =
@@ -1404,28 +1404,26 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     page.keys.push_back(key);
     auto cachedEntry = entry;
     cachedEntry.lease.reset();
-    m_impl->glyphs.emplace(
-        key, Impl::GlyphRecord{
-                 .entry = std::move(cachedEntry),
-                 .pageIndex = pageIndex.Value(),
-                 .pixelArea =
-                     static_cast<UInt64>(width) *
-                     static_cast<UInt64>(height),
-                 .lease = lease,
-             });
+    m_impl->glyphs.emplace(key, Impl::GlyphRecord{
+                                    .entry = std::move(cachedEntry),
+                                    .pageIndex = pageIndex.value(),
+                                    .pixelArea = static_cast<UInt64>(width) *
+                                                 static_cast<UInt64>(height),
+                                    .lease = lease,
+                                });
     ++m_impl->diagnostics.uploadCount;
     m_impl->diagnostics.entryCount = m_impl->glyphs.size();
     m_impl->diagnostics.usedPixelArea +=
         static_cast<UInt64>(width) * static_cast<UInt64>(height);
     return entry;
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to allocate glyph atlas data",
-                           "ResolveGlyph");
+    return std::unexpected(
+        NativeTextError(UIErrorCode::OutOfMemory,
+                        "Unable to allocate glyph atlas data", "ResolveGlyph"));
   }
 #else
   static_cast<void>(request);
-  return Unavailable("ResolveGlyph");
+  return std::unexpected(Unavailable("ResolveGlyph"));
 #endif
 }
 
@@ -1442,11 +1440,9 @@ auto NativeTextSystem::AtlasDiagnostics() const noexcept
       static_cast<UInt64>(m_impl->pages.size());
   try {
     for (const auto &[key, record] : m_impl->glyphs) {
-      const auto found =
-          std::find_if(diagnostics.pixelSizes.begin(),
-                       diagnostics.pixelSizes.end(), [&key](const auto &size) {
-                         return size.pixelSize == key.pixelSize;
-                       });
+      const auto found = std::find_if(
+          diagnostics.pixelSizes.begin(), diagnostics.pixelSizes.end(),
+          [&key](const auto &size) { return size.pixelSize == key.pixelSize; });
       if (found != diagnostics.pixelSizes.end()) {
         ++found->entryCount;
         found->usedPixelArea += record.pixelArea;
@@ -1491,14 +1487,12 @@ auto NativeTextSystem::CoverageDiagnostics() const noexcept
       const auto &face = m_impl->faces[index];
       diagnostics.faces.push_back(FontFaceDiagnostics{
           .face = FontFaceHandle{index, 1},
-          .family =
-              NGIN::Text::String{face.value->family_name == nullptr
-                                     ? ""
-                                     : face.value->family_name},
-          .style =
-              NGIN::Text::String{face.value->style_name == nullptr
-                                     ? ""
-                                     : face.value->style_name},
+          .family = NGIN::Text::String{face.value->family_name == nullptr
+                                           ? ""
+                                           : face.value->family_name},
+          .style = NGIN::Text::String{face.value->style_name == nullptr
+                                          ? ""
+                                          : face.value->style_name},
           .sourcePath = face.path,
           .fallback = face.fallback,
           .resolvedCodePointCount = face.resolvedCodePoints.size(),
@@ -1529,19 +1523,19 @@ auto NativeTextSystem::OnDeviceRestored(IRenderBackend &renderer) noexcept
     m_impl->renderer = &renderer;
     auto page = m_impl->AddPage();
     if (!page) {
-      return std::move(page).Error();
+      return std::unexpected(std::move(page).error());
     }
     ++m_impl->diagnostics.restorationCount;
     m_impl->NotifyResourcesInvalidated();
     return {};
   } catch (...) {
-    return NativeTextError(UIErrorCode::OutOfMemory,
-                           "Unable to restore glyph atlas storage",
-                           "RestoreTextDevice");
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to restore glyph atlas storage",
+        "RestoreTextDevice"));
   }
 #else
   static_cast<void>(renderer);
-  return Unavailable("RestoreTextDevice");
+  return std::unexpected(Unavailable("RestoreTextDevice"));
 #endif
 }
 

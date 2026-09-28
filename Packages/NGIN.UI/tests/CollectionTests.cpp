@@ -104,17 +104,17 @@ public:
       -> UIResult<NGIN::UIntSize> override {
     if (index >= m_count || !m_requested || index < m_requested->first ||
         index >= m_requested->End()) {
-      return MakeUIError(UIErrorCode::ResourceFailed,
-                         "Generated item has not been requested", "Tests",
-                         "GeneratedVirtualizedSource::ItemAt");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::ResourceFailed, "Generated item has not been requested",
+          "Tests", "GeneratedVirtualizedSource::ItemAt"));
     }
     return LogicalValue(index);
   }
   auto RequestRange(const IncrementalRange range) -> UIResult<void> override {
     if (range.first > m_count || range.count > m_count - range.first) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Generated range is out of bounds", "Tests",
-                         "GeneratedVirtualizedSource::RequestRange");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Generated range is out of bounds",
+          "Tests", "GeneratedVirtualizedSource::RequestRange"));
     }
     m_requested = range;
     ++requestCount;
@@ -126,9 +126,9 @@ public:
   [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
       -> UIResult<NGIN::Text::String> override {
     if (index >= m_count) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Generated key is out of bounds", "Tests",
-                         "GeneratedVirtualizedSource::KeyAt");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Generated key is out of bounds",
+          "Tests", "GeneratedVirtualizedSource::KeyAt"));
     }
     const auto value = LogicalValue(index);
     const auto text =
@@ -143,10 +143,10 @@ public:
     }
     auto key = KeyAt(index);
     if (!key) {
-      return std::move(key).Error();
+      return std::unexpected(std::move(key).error());
     }
     NGIN::Text::String label{"Item "};
-    label.Append(key.Value());
+    label.Append(key.value());
     return label;
   }
   [[nodiscard]] auto IndexOfKey(const NGIN::Text::String &key) const
@@ -215,18 +215,18 @@ public:
   [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
       -> UIResult<NGIN::UIntSize> override {
     if (index >= m_values.size()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Mutable item is out of bounds", "Tests",
-                         "MutableVirtualizedSource::ItemAt");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Mutable item is out of bounds",
+          "Tests", "MutableVirtualizedSource::ItemAt"));
     }
     return m_values[index];
   }
   auto RequestRange(const IncrementalRange range) -> UIResult<void> override {
     if (range.first > m_values.size() ||
         range.count > m_values.size() - range.first) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Mutable range is out of bounds", "Tests",
-                         "MutableVirtualizedSource::RequestRange");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Mutable range is out of bounds",
+          "Tests", "MutableVirtualizedSource::RequestRange"));
     }
     ++requestCount;
     return {};
@@ -237,9 +237,9 @@ public:
   [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
       -> UIResult<NGIN::Text::String> override {
     if (index >= m_values.size()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Mutable key is out of bounds", "Tests",
-                         "MutableVirtualizedSource::KeyAt");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Mutable key is out of bounds", "Tests",
+          "MutableVirtualizedSource::KeyAt"));
     }
     const auto key = std::string{"item-"} + std::to_string(m_values[index]);
     return NGIN::Text::String{key.c_str()};
@@ -252,7 +252,7 @@ public:
       -> std::optional<NGIN::UIntSize> override {
     for (NGIN::UIntSize index = 0; index < m_values.size(); ++index) {
       auto candidate = KeyAt(index);
-      if (candidate && candidate.Value() == key) {
+      if (candidate && candidate.value() == key) {
         return index;
       }
     }
@@ -674,7 +674,7 @@ TEST_CASE("incremental data source validates requested boundaries") {
   VectorDataSource<int> source{values, 7};
   REQUIRE(source.Count() == 3);
   REQUIRE(source.Revision() == 7);
-  REQUIRE(source.ItemAt(1).Value() == 5);
+  REQUIRE(source.ItemAt(1).value() == 5);
   REQUIRE_FALSE(source.ItemAt(3));
   REQUIRE(source.RequestRange(IncrementalRange{.first = 1, .count = 2}));
   REQUIRE_FALSE(source.RequestRange(IncrementalRange{.first = 2, .count = 2}));
@@ -711,9 +711,9 @@ TEST_CASE("virtualized list keeps 100000 items proportional to the viewport") {
     presentation.activate = [&](const NGIN::UIntSize index) -> UIResult<void> {
       auto key = source.KeyAt(index);
       if (!key) {
-        return std::move(key).Error();
+        return std::unexpected(std::move(key).error());
       }
-      selectedKey = std::move(key).Value();
+      selectedKey = std::move(key).value();
       return {};
     };
     VirtualizedListView<NGIN::UIntSize>(
@@ -803,7 +803,7 @@ TEST_CASE("virtualized list keeps 100000 items proportional to the viewport") {
                 .action = SemanticActionKind::Realize,
             });
   REQUIRE(realized);
-  CHECK(realized.Value().handled);
+  CHECK(realized.value().handled);
 
   static_cast<void>(
       layout.Perform(SizeConstraints{.minimum = Size{320.0F, 120.0F},
@@ -844,9 +844,9 @@ TEST_CASE("virtualization anchors stable keys across inserts and type ahead") {
         .activate = [&](const NGIN::UIntSize index) -> UIResult<void> {
           auto key = source.KeyAt(index);
           if (!key) {
-            return std::move(key).Error();
+            return std::unexpected(std::move(key).error());
           }
-          selectedKey = std::move(key).Value();
+          selectedKey = std::move(key).value();
           return {};
         },
         .requestRange =
@@ -875,7 +875,7 @@ TEST_CASE("virtualization anchors stable keys across inserts and type ahead") {
   auto typeAhead = controller.TypeAhead("zebra", *anchored, 100.0F);
   REQUIRE(typeAhead);
   CHECK(selectedKey == NGIN::Text::String{"item-745"});
-  CHECK(typeAhead.Value() > 14'000.0F);
+  CHECK(typeAhead.value() > 14'000.0F);
   CHECK(source.requestCount >= 2);
   CHECK(source.cancellationCount >= 1);
 }
@@ -901,9 +901,9 @@ TEST_CASE("virtualization anchors keys through every source mutation") {
         .activate = [&](const auto index) -> UIResult<void> {
           auto key = source.KeyAt(index);
           if (!key) {
-            return std::move(key).Error();
+            return std::unexpected(std::move(key).error());
           }
-          selectedKey = std::move(key).Value();
+          selectedKey = std::move(key).value();
           return {};
         },
         .requestRange =

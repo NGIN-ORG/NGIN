@@ -395,10 +395,10 @@ auto LayoutEngine::MeasureCustom(RuntimeNode &node,
     auto measured =
         node.properties.custom.element->Measure(context, constraints);
     if (!measured) {
-      ReportCustomError(node, measured.Error());
+      ReportCustomError(node, measured.error());
       return constraints.Constrain(node.properties.layout.preferredSize);
     }
-    return constraints.Constrain(measured.Value());
+    return constraints.Constrain(measured.value());
   } catch (const std::bad_alloc &) {
     ReportCustomError(node, MakeUIError(UIErrorCode::OutOfMemory,
                                         "Custom measurement allocation failed",
@@ -502,11 +502,11 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
   };
   auto paragraph = properties.layout->LayoutParagraph(request);
   if (!paragraph) {
-    report(paragraph.Error());
+    report(paragraph.error());
     return constraints.Constrain(node.properties.layout.preferredSize);
   }
 
-  node.text.paragraph = std::move(paragraph).Value();
+  node.text.paragraph = std::move(paragraph).value();
   bool glyphsValid = true;
   for (const auto &positioned : node.text.paragraph.runs) {
     Point pen{};
@@ -518,11 +518,11 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
           .scaleFactor = m_scaleFactor,
       });
       if (!atlasEntry) {
-        report(atlasEntry.Error());
+        report(atlasEntry.error());
         glyphsValid = false;
         break;
       }
-      const auto &entry = atlasEntry.Value();
+      const auto &entry = atlasEntry.value();
       if (entry.size.width <= 0.0F || entry.size.height <= 0.0F) {
         pen.x += glyph.advance.x;
         pen.y += glyph.advance.y;
@@ -576,9 +576,9 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
           PresentedByteOffset(node, state.selection.End()) -
               PresentedByteOffset(node, state.selection.start));
       if (selectionRects) {
-        node.text.selectionRects = std::move(selectionRects).Value();
+        node.text.selectionRects = std::move(selectionRects).value();
       } else {
-        report(selectionRects.Error());
+        report(selectionRects.error());
       }
     }
     if (node.textField.editing->HasComposition() &&
@@ -589,18 +589,18 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
           PresentedByteOffset(node, state.composition.End()) -
               PresentedByteOffset(node, state.composition.start));
       if (compositionRects) {
-        node.text.compositionRects = std::move(compositionRects).Value();
+        node.text.compositionRects = std::move(compositionRects).value();
       } else {
-        report(compositionRects.Error());
+        report(compositionRects.error());
       }
     }
     auto caret = properties.geometry->CaretRect(
         node.text.paragraph, PresentedByteOffset(node, state.caretCluster));
     if (caret) {
-      node.text.caretRect = std::move(caret).Value();
+      node.text.caretRect = std::move(caret).value();
       node.text.hasCaret = true;
     } else {
-      report(caret.Error());
+      report(caret.error());
     }
   }
 
@@ -630,14 +630,14 @@ auto LayoutEngine::MeasureImage(RuntimeNode &node,
 
   auto resolved = properties.resolver->Resolve(properties.resource);
   if (!resolved) {
-    report(resolved.Error());
+    report(resolved.error());
     node.image.loadState = properties.resource->State();
   } else {
-    node.image.texture = resolved.Value().texture;
-    node.image.sourceSize = resolved.Value().size;
-    node.image.loadState = resolved.Value().state;
-    node.image.valid = resolved.Value().state == ImageLoadState::Ready &&
-                       static_cast<bool>(resolved.Value().texture);
+    node.image.texture = resolved.value().texture;
+    node.image.sourceSize = resolved.value().size;
+    node.image.loadState = resolved.value().state;
+    node.image.valid = resolved.value().state == ImageLoadState::Ready &&
+                       static_cast<bool>(resolved.value().texture);
   }
   const auto natural =
       node.image.sourceSize.IsEmpty()
@@ -998,7 +998,7 @@ void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
       auto arranged = node->properties.custom.element->Arrange(
           context, Size{finalBounds.width, finalBounds.height});
       if (!arranged) {
-        ReportCustomError(*node, arranged.Error());
+        ReportCustomError(*node, arranged.error());
       }
     } catch (const std::bad_alloc &) {
       ReportCustomError(*node,

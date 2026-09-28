@@ -49,7 +49,7 @@ public:
     m_stats->identity = context.Identity();
     auto state = context.State<ProbeState>("probe", m_stats);
     if (!state) {
-      return state.Error();
+      return std::unexpected(state.error());
     }
     return constraints.Constrain(Size{80.0F, 40.0F});
   }
@@ -93,9 +93,9 @@ public:
         event.eventKind == RoutedPointerEventKind::ButtonPressed) {
       auto state = context.State<ProbeState>("probe", m_stats);
       if (!state) {
-        return state.Error();
+        return std::unexpected(state.error());
       }
-      ++state.Value()->presses;
+      ++state.value()->presses;
       event.CapturePointer();
       event.Handle();
       return InvalidationKind::Paint | InvalidationKind::Semantics;
@@ -115,8 +115,8 @@ class FailingElement final : public ICustomElement {
 public:
   auto Measure(CustomElementContext &, SizeConstraints)
       -> UIResult<Size> override {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Intentional custom measurement failure");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "Intentional custom measurement failure"));
   }
 
   auto Paint(CustomElementContext &, PaintContext &)
@@ -126,8 +126,8 @@ public:
 
   auto Semantics(CustomElementContext &)
       -> UIResult<SemanticProperties> override {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Intentional custom semantics failure");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Intentional custom semantics failure"));
   }
 };
 } // namespace
@@ -229,12 +229,12 @@ TEST_CASE(
 
   CustomStateStore state;
   auto integer = state.GetOrCreate<int>("value", 42);
-  REQUIRE(integer.HasValue());
-  REQUIRE(*integer.Value() == 42);
+  REQUIRE(integer.has_value());
+  REQUIRE(*integer.value() == 42);
 
   auto mismatched = state.GetOrCreate<float>("value", 1.0F);
-  REQUIRE_FALSE(mismatched.HasValue());
-  REQUIRE(mismatched.Error().code == UIErrorCode::InvalidState);
+  REQUIRE_FALSE(mismatched.has_value());
+  REQUIRE(mismatched.error().code == UIErrorCode::InvalidState);
   REQUIRE(*state.Find<int>("value") == 42);
   REQUIRE(state.Size() == 1);
 }

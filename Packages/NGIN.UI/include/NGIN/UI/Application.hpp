@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Async/TaskContext.hpp>
+#include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
@@ -140,6 +141,14 @@ public:
   auto PumpOnce(std::chrono::milliseconds maximumWait =
                     std::chrono::milliseconds{0}) noexcept -> UIResult<void>;
   auto Run() noexcept -> UIResult<void>;
+  /// Application-owned background work; joined before Run returns normally.
+  [[nodiscard]] auto BackgroundTasks() noexcept
+      -> NGIN::Async::TaskSupervisor<> &;
+  /// Explicit event-loop shutdown for applications that manually call PumpOnce.
+  /// Retains live work if pumping fails; call again after resolving the
+  /// failure.
+  [[nodiscard]] auto ShutdownTasks() noexcept -> UIResult<void>;
+
   void RequestExit() noexcept;
   /// @brief Marks every open window dirty for the requested phases.
   void InvalidateAll(InvalidationKind kind = InvalidationKind::All) noexcept;

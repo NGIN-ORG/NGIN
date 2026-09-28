@@ -32,14 +32,14 @@ auto TestPlatformBackend::Initialize(const PlatformInitInfo &) noexcept
 auto TestPlatformBackend::CreateWindow(const WindowCreateInfo &info) noexcept
     -> UIResult<PlatformWindowHandle> {
   if (!m_initialized) {
-    return MakeUIError(UIErrorCode::BackendUnavailable,
-                       "Test platform is not initialized", Name(),
-                       "CreateWindow", info.id.c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::BackendUnavailable, "Test platform is not initialized",
+        Name(), "CreateWindow", info.id.c_str()));
   }
   if (info.initialSize.IsEmpty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Window size must be non-zero", Name(), "CreateWindow",
-                       info.id.c_str());
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Window size must be non-zero", Name(),
+                                       "CreateWindow", info.id.c_str()));
   }
 
   const PlatformWindowHandle handle{m_nextWindowIndex++, 1};
@@ -56,8 +56,9 @@ auto TestPlatformBackend::DestroyWindow(
     const PlatformWindowHandle window) noexcept -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "DestroyWindow");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "DestroyWindow"));
   }
   record->destroyed = true;
   record->visible = false;
@@ -68,8 +69,9 @@ auto TestPlatformBackend::ShowWindow(const PlatformWindowHandle window) noexcept
     -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "ShowWindow");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "ShowWindow"));
   }
   record->visible = true;
   return {};
@@ -80,8 +82,9 @@ auto TestPlatformBackend::SetWindowTitle(
     -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "SetWindowTitle");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "SetWindowTitle"));
   }
   record->info.title = title;
   return {};
@@ -92,8 +95,9 @@ auto TestPlatformBackend::SetWindowBounds(const PlatformWindowHandle window,
     -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "SetWindowBounds");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "SetWindowBounds"));
   }
   record->bounds = bounds;
   return {};
@@ -102,9 +106,9 @@ auto TestPlatformBackend::SetWindowBounds(const PlatformWindowHandle window,
 auto TestPlatformBackend::PollEvents(IPlatformEventSink &sink) noexcept
     -> UIResult<void> {
   if (!m_initialized) {
-    return MakeUIError(UIErrorCode::BackendUnavailable,
-                       "Test platform is not initialized", Name(),
-                       "PollEvents");
+    return std::unexpected(MakeUIError(UIErrorCode::BackendUnavailable,
+                                       "Test platform is not initialized",
+                                       Name(), "PollEvents"));
   }
   DrainEvents(sink);
   return {};
@@ -114,9 +118,9 @@ auto TestPlatformBackend::WaitEvents(
     IPlatformEventSink &sink,
     const std::chrono::milliseconds maximumWait) noexcept -> UIResult<void> {
   if (!m_initialized) {
-    return MakeUIError(UIErrorCode::BackendUnavailable,
-                       "Test platform is not initialized", Name(),
-                       "WaitEvents");
+    return std::unexpected(MakeUIError(UIErrorCode::BackendUnavailable,
+                                       "Test platform is not initialized",
+                                       Name(), "WaitEvents"));
   }
   if (m_events.empty() && maximumWait.count() > 0) {
     m_now += maximumWait;
@@ -140,8 +144,9 @@ auto TestPlatformBackend::SetCursor(const PlatformWindowHandle window,
     -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "SetCursor");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "SetCursor"));
   }
   record->cursor = cursor;
   return {};
@@ -163,8 +168,9 @@ auto TestPlatformBackend::StartTextInput(const PlatformWindowHandle window,
     -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "StartTextInput");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "StartTextInput"));
   }
   record->textInputActive = true;
   record->textInputRect = candidateRect;
@@ -175,8 +181,9 @@ auto TestPlatformBackend::StopTextInput(
     const PlatformWindowHandle window) noexcept -> UIResult<void> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "StopTextInput");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "StopTextInput"));
   }
   record->textInputActive = false;
   return {};
@@ -200,8 +207,9 @@ auto TestPlatformBackend::QueryNativeWindow(
     const PlatformWindowHandle window) noexcept -> UIResult<NativeWindowInfo> {
   auto *record = FindWindow(window);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
-                       Name(), "QueryNativeWindow");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown platform window", Name(),
+                                       "QueryNativeWindow"));
   }
   return NativeWindowInfo{
       .kind = NativeWindowKind::Win32,

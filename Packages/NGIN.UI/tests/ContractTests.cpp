@@ -116,10 +116,10 @@ TEST_CASE("headless platform records logical window services and deterministic "
       .id = NGIN::Text::String{"BeforeInit"},
       .title = NGIN::Text::String{"Before init"},
   });
-  REQUIRE_FALSE(beforeInit.HasValue());
-  REQUIRE(beforeInit.Error().code == UIErrorCode::BackendUnavailable);
+  REQUIRE_FALSE(beforeInit.has_value());
+  REQUIRE(beforeInit.error().code == UIErrorCode::BackendUnavailable);
 
-  REQUIRE(backend.Initialize(PlatformInitInfo{}).HasValue());
+  REQUIRE(backend.Initialize(PlatformInitInfo{}).has_value());
   REQUIRE(backend.ContractVersion() == CurrentBackendContractVersion);
   REQUIRE(HasPlatformCapability(backend.Capabilities(),
                                 PlatformCapabilityFlags::Clipboard));
@@ -130,12 +130,13 @@ TEST_CASE("headless platform records logical window services and deterministic "
       .title = NGIN::Text::String{"Main window"},
       .initialSize = PixelSize{800, 600},
   });
-  REQUIRE(created.HasValue());
-  REQUIRE(backend.ShowWindow(created.Value()).HasValue());
-  REQUIRE(backend.SetCursor(created.Value(), CursorShape::Text).HasValue());
-  REQUIRE(backend.SetClipboardText(NGIN::Text::String{"clipboard"}).HasValue());
-  REQUIRE(backend.StartTextInput(created.Value(), PixelRect{10, 20, 30, 40})
-              .HasValue());
+  REQUIRE(created.has_value());
+  REQUIRE(backend.ShowWindow(created.value()).has_value());
+  REQUIRE(backend.SetCursor(created.value(), CursorShape::Text).has_value());
+  REQUIRE(
+      backend.SetClipboardText(NGIN::Text::String{"clipboard"}).has_value());
+  REQUIRE(backend.StartTextInput(created.value(), PixelRect{10, 20, 30, 40})
+              .has_value());
 
   REQUIRE(backend.Windows().size() == 1);
   REQUIRE(backend.Windows().front().visible);
@@ -152,11 +153,11 @@ TEST_CASE("headless platform records logical window services and deterministic "
     std::vector<PlatformEvent> events{};
   } sink;
 
-  backend.InjectEvent(WindowResized{created.Value(), PixelSize{1024, 768}});
-  REQUIRE(backend.WaitEvents(sink, 50ms).HasValue());
+  backend.InjectEvent(WindowResized{created.value(), PixelSize{1024, 768}});
+  REQUIRE(backend.WaitEvents(sink, 50ms).has_value());
   REQUIRE(sink.events.size() == 1);
   REQUIRE(backend.Now() == 0ms);
-  REQUIRE(backend.WaitEvents(sink, 50ms).HasValue());
+  REQUIRE(backend.WaitEvents(sink, 50ms).has_value());
   REQUIRE(backend.Now() == 50ms);
 }
 
@@ -169,16 +170,16 @@ TEST_CASE("recording renderer deep-copies packets and texture updates") {
   REQUIRE(
       HasRenderCapability(backend.Capabilities(), RequiredRenderCapabilities));
   REQUIRE(
-      backend.Initialize(RenderInitInfo{.enableValidation = true}).HasValue());
+      backend.Initialize(RenderInitInfo{.enableValidation = true}).has_value());
   auto surface =
       backend.CreateSurface(PlatformWindowHandle{0, 1}, PixelSize{640, 480});
-  REQUIRE(surface.HasValue());
+  REQUIRE(surface.has_value());
 
   auto texture = backend.CreateTexture(TextureCreateInfo{
       .size = PixelSize{2, 2},
       .format = TextureFormat::RGBA8,
   });
-  REQUIRE(texture.HasValue());
+  REQUIRE(texture.has_value());
 
   std::array<NGIN::Byte, 4> pixels{
       static_cast<NGIN::Byte>(1),
@@ -187,7 +188,7 @@ TEST_CASE("recording renderer deep-copies packets and texture updates") {
       static_cast<NGIN::Byte>(4),
   };
   const TextureUpdate update{
-      .texture = texture.Value(),
+      .texture = texture.value(),
       .update =
           TextureUpdateInfo{
               .region = PixelRect{0, 0, 1, 1},
@@ -205,7 +206,7 @@ TEST_CASE("recording renderer deep-copies packets and texture updates") {
       .targetSize = PixelSize{640, 480},
   };
 
-  REQUIRE(backend.Render(surface.Value(), packet).HasValue());
+  REQUIRE(backend.Render(surface.value(), packet).has_value());
   pixels[0] = static_cast<NGIN::Byte>(9);
 
   REQUIRE(backend.RenderPackets().size() == 1);
@@ -233,17 +234,17 @@ TEST_CASE("application rejects incompatible or incomplete backend contracts") {
       .platform = std::make_unique<LegacyPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE_FALSE(legacyPlatform.HasValue());
-  REQUIRE(legacyPlatform.Error().code == UIErrorCode::Unsupported);
-  REQUIRE(legacyPlatform.Error().operation ==
+  REQUIRE_FALSE(legacyPlatform.has_value());
+  REQUIRE(legacyPlatform.error().code == UIErrorCode::Unsupported);
+  REQUIRE(legacyPlatform.error().operation ==
           NGIN::Text::String{"ValidateBackendContract"});
 
   auto limitedRenderer = CreateApplication(ApplicationCreateInfo{
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<LimitedRenderBackend>(),
   });
-  REQUIRE_FALSE(limitedRenderer.HasValue());
-  REQUIRE(limitedRenderer.Error().code == UIErrorCode::Unsupported);
-  REQUIRE(limitedRenderer.Error().operation ==
+  REQUIRE_FALSE(limitedRenderer.has_value());
+  REQUIRE(limitedRenderer.error().code == UIErrorCode::Unsupported);
+  REQUIRE(limitedRenderer.error().operation ==
           NGIN::Text::String{"ValidateBackendCapabilities"});
 }

@@ -190,7 +190,7 @@ void SelectableListItem(Composer &composer, ItemSelection selection,
     }
     auto result = selection.select();
     if (!result && onError) {
-      onError(result.Error());
+      onError(result.error());
     }
   };
   properties.semantics.role = SemanticRole::ListItem;
@@ -258,18 +258,19 @@ public:
   [[nodiscard]] auto ItemAt(const UIntSize index) const
       -> UIResult<T> override {
     if (index >= m_items.size()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Data-source item index is out of range", "NGIN.UI",
-                         "VectorDataSource::ItemAt");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidArgument,
+                      "Data-source item index is out of range", "NGIN.UI",
+                      "VectorDataSource::ItemAt"));
     }
     return m_items[index];
   }
   auto RequestRange(const IncrementalRange range) -> UIResult<void> override {
     if (range.first > m_items.size() ||
         range.count > m_items.size() - range.first) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Data-source range is out of bounds", "NGIN.UI",
-                         "VectorDataSource::RequestRange");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Data-source range is out of bounds",
+          "NGIN.UI", "VectorDataSource::RequestRange"));
     }
     return {};
   }
@@ -341,17 +342,17 @@ void VirtualizedListView(Composer &composer,
           auto sourceKey = source.KeyAt(index);
           if (!sourceKey) {
             if (presentation.onError) {
-              presentation.onError(sourceKey.Error());
+              presentation.onError(sourceKey.error());
             }
             continue;
           }
           auto label = source.LabelAt(index);
           if (!label && presentation.onError) {
-            presentation.onError(label.Error());
+            presentation.onError(label.error());
           }
           auto item = source.ItemAt(index);
           if (!item && presentation.onError) {
-            presentation.onError(item.Error());
+            presentation.onError(item.error());
           }
 
           auto itemProperties = presentation.item;
@@ -363,11 +364,11 @@ void VirtualizedListView(Composer &composer,
           itemProperties.virtualizedItem = VirtualizedItemProperties{
               .enabled = true,
               .sourceIndex = index,
-              .key = sourceKey.Value(),
+              .key = sourceKey.value(),
           };
           itemProperties.semantics.role = SemanticRole::ListItem;
           itemProperties.semantics.label =
-              label ? std::move(label).Value()
+              label ? std::move(label).value()
                     : NGIN::Text::String{"Loading item"};
           itemProperties.semantics.collectionItem = SemanticCollectionItem{
               .position = index + 1,
@@ -388,11 +389,11 @@ void VirtualizedListView(Composer &composer,
               [&controller, index, onError = presentation.onError] {
                 auto activated = controller.Activate(index);
                 if (!activated && onError) {
-                  onError(activated.Error());
+                  onError(activated.error());
                 }
               };
 
-          const auto itemKey = sourceKey.Value();
+          const auto itemKey = sourceKey.value();
           mappings.push_back(VirtualizedItemMapping{
               .sourceIndex = index,
               .key = itemKey,
@@ -400,7 +401,7 @@ void VirtualizedListView(Composer &composer,
           composer.ListItem(
               [&] {
                 if (item) {
-                  composeItem(composer, item.Value(), index);
+                  composeItem(composer, item.value(), index);
                 }
               },
               itemProperties, itemKey.View());
@@ -454,10 +455,11 @@ private:
 inline void PreparePopupMotion(PopupController &controller,
                                NodeProperties &properties) {
   const auto spec = AnimationSpec{
-      .timing = TweenTiming{
-          .duration = std::chrono::milliseconds{140},
-          .curve = EasingCurve::EaseOut(),
-      },
+      .timing =
+          TweenTiming{
+              .duration = std::chrono::milliseconds{140},
+              .curve = EasingCurve::EaseOut(),
+          },
   };
   if (!properties.motion.opacity) {
     properties.motion.opacity = controller.IsOpen()
@@ -466,21 +468,20 @@ inline void PreparePopupMotion(PopupController &controller,
   }
   if (!properties.motion.translation) {
     properties.motion.translation =
-        controller.IsOpen()
-            ? AnimateFrom(Point{0.0F, -6.0F}, Point{}, spec)
-            : Animate(Point{0.0F, -6.0F}, spec);
+        controller.IsOpen() ? AnimateFrom(Point{0.0F, -6.0F}, Point{}, spec)
+                            : Animate(Point{0.0F, -6.0F}, spec);
   }
   if (!controller.IsOpen()) {
     properties.interaction.hitTestVisible = false;
     properties.semantics.hidden = true;
     auto previous = std::move(properties.motion.onSettled);
-    properties.motion.onSettled =
-        [previous = std::move(previous), &controller]() mutable {
-          if (previous) {
-            previous();
-          }
-          controller.FinishClose();
-        };
+    properties.motion.onSettled = [previous = std::move(previous),
+                                   &controller]() mutable {
+      if (previous) {
+        previous();
+      }
+      controller.FinishClose();
+    };
   }
 }
 
@@ -591,7 +592,7 @@ void Tabs(Composer &composer, Binding<T> selection,
                      onError = presentation.onError]() {
                       auto result = selection.Set(value);
                       if (!result && onError) {
-                        onError(result.Error());
+                        onError(result.error());
                       }
                     };
                 properties.semantics.role = SemanticRole::Tab;

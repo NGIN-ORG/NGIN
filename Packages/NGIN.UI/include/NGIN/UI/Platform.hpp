@@ -1,12 +1,12 @@
 #pragma once
 
 #include <NGIN/Text/String.hpp>
+#include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
-#include <NGIN/UI/Animation.hpp>
 
 #include <chrono>
 #include <vector>
@@ -110,8 +110,7 @@ public:
                           std::chrono::milliseconds maximumWait) noexcept
       -> UIResult<void> = 0;
   virtual void WakeEventLoop() noexcept = 0;
-  [[nodiscard]] virtual auto MonotonicNow() const noexcept
-      -> MonotonicTime = 0;
+  [[nodiscard]] virtual auto MonotonicNow() const noexcept -> MonotonicTime = 0;
   [[nodiscard]] virtual auto ReducedMotionEnabled() const noexcept -> bool = 0;
   virtual auto SetCursor(PlatformWindowHandle window,
                          CursorShape cursor) noexcept -> UIResult<void> = 0;
@@ -124,12 +123,12 @@ public:
   virtual auto StopTextInput(PlatformWindowHandle window) noexcept
       -> UIResult<void> = 0;
   virtual auto QueryDisplays() noexcept -> UIResult<DisplayInfoList> = 0;
-  [[nodiscard]] virtual auto
-  QueryNativeWindow(PlatformWindowHandle) noexcept
+  [[nodiscard]] virtual auto QueryNativeWindow(PlatformWindowHandle) noexcept
       -> UIResult<NativeWindowInfo> {
-    return MakeUIError(UIErrorCode::Unsupported,
-                       "The platform backend does not expose native windows",
-                       Name(), "QueryNativeWindow");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::Unsupported,
+                    "The platform backend does not expose native windows",
+                    Name(), "QueryNativeWindow"));
   }
 };
 } // namespace NGIN::UI

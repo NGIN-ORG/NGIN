@@ -11,12 +11,12 @@
 #include "Application.hpp"
 
 #include <NGIN/Async/Task.hpp>
-#include <NGIN/Async/WhenAll.hpp>
 #include <NGIN/Async/TaskScope.hpp>
+#include <NGIN/Async/WhenAll.hpp>
 #include <NGIN/Execution/ThreadPoolScheduler.hpp>
+#include <NGIN/IO/FileSystemUtilities.hpp>
 #include <NGIN/IO/RunTask.hpp>
 #include <NGIN/IO/RuntimeRunner.hpp>
-#include <NGIN/IO/FileSystemUtilities.hpp>
 #include <NGIN/Net/Sockets/TcpListener.hpp>
 #include <NGIN/Net/Transport/Filters/LengthPrefixedMessageStream.hpp>
 #include <NGIN/Net/Transport/TcpByteStream.hpp>
@@ -32,452 +32,411 @@
 #include <type_traits>
 #include <utility>
 
-namespace HelloIO
-{
-    namespace Async = NGIN::Async;
-    namespace IO    = NGIN::IO;
-    namespace Net   = NGIN::Net;
-    using NGIN::Units::Milliseconds;
-    using MessageStream = Net::Transport::Filters::LengthPrefixedMessageStream;
+namespace HelloIO {
+namespace Async = NGIN::Async;
+namespace IO = NGIN::IO;
+namespace Net = NGIN::Net;
+using NGIN::Units::Milliseconds;
+using MessageStream = Net::Transport::Filters::LengthPrefixedMessageStream;
 
-    void Expect(bool condition, std::string_view message)
-    {
-        if (!condition)
-        {
-            throw std::runtime_error(std::string(message));
-        }
+void Expect(bool condition, std::string_view message) {
+  if (!condition) {
+    throw std::runtime_error(std::string(message));
+  }
+}
+
+std::string Describe(const IO::IOError &error) {
+  return "IO code " + std::to_string(static_cast<int>(error.code)) +
+         ", native " + std::to_string(error.systemCode) + ": " +
+         std::string(error.message.Data(), error.message.Size());
+}
+
+std::string Describe(const Net::NetError &error) {
+  return Net::ToErrorCode(error).message() + " (native " +
+         std::to_string(error.native) + ")";
+}
+
+// Synchronous setup failures are reported at the application boundary.
+template <typename T, typename E>
+T Require(NGIN::Utilities::Expected<T, E> result, std::string_view action) {
+  if (!result) {
+    throw std::runtime_error(std::string(action) + ": " +
+                             Describe(result.error()));
+  }
+  if constexpr (!std::is_void_v<T>) {
+    return std::move(result).value();
+  }
+}
+
+// Completion distinguishes typed I/O errors, cancellation, and app faults.
+template <typename T, typename E>
+T Require(Async::Completion<T, E> result, std::string_view action) {
+  const std::string prefix = std::string(action) + ": ";
+  if (result.IsStopped()) {
+    throw std::runtime_error(prefix +
+                             "canceled (application deadline reached)");
+  }
+  if ((result.HasError() && result.Error().IsFault())) {
+    throw std::runtime_error(
+        prefix + "async fault " +
+        std::to_string(static_cast<int>(result.Error().Fault().code)) + ": " +
+        result.Error().Fault().message);
+  }
+  if constexpr (!std::is_same_v<E, Async::NoError>) {
+    if ((result.HasError() && result.Error().IsDomainError())) {
+      throw std::runtime_error(prefix + Describe(result.Error().DomainError()));
     }
+  }
+  if constexpr (!std::is_void_v<T>) {
+    return std::move(result).Value();
+  }
+}
 
-    std::string Describe(const IO::IOError& error)
-    {
-        return "IO code " + std::to_string(static_cast<int>(error.code)) +
-               ", native " + std::to_string(error.systemCode) + ": " +
-               std::string(error.message.Data(), error.message.Size());
-    }
+class ScratchDirectory final {
+public:
+  explicit ScratchDirectory(IO::LocalFileSystem &files)
+      : m_files(files),
+        m_path(Require(files.CreateTempDirectory({}, "hello_io_"),
+                       "create scratch directory")) {}
 
-    std::string Describe(const Net::NetError& error)
-    {
-        return Net::ToErrorCode(error).message() + " (native " +
-               std::to_string(error.native) + ")";
-    }
-
-    // Synchronous setup failures are reported at the application boundary.
-    template<typename T, typename E>
-    T Require(NGIN::Utilities::Expected<T, E> result, std::string_view action)
-    {
-        if (!result)
-        {
-            throw std::runtime_error(std::string(action) + ": " +
-                                     Describe(result.error()));
-        }
-        if constexpr (!std::is_void_v<T>)
-        {
-            return std::move(result).value();
-        }
-    }
-
-    // Completion distinguishes typed I/O errors, cancellation, and app faults.
-    template<typename T, typename E>
-    T Require(Async::Completion<T, E> result, std::string_view action)
-    {
-        const std::string prefix = std::string(action) + ": ";
-        if (result.IsCanceled())
-        {
-            throw std::runtime_error(prefix +
-                                     "canceled (application deadline reached)");
-        }
-        if (result.IsFault())
-        {
-            throw std::runtime_error(
-                    prefix + "async fault " +
-                    std::to_string(static_cast<int>(result.Fault().code)) + ": " +
-                    result.Fault().message);
-        }
-        if constexpr (!std::is_same_v<E, Async::NoError>)
-        {
-            if (result.IsDomainError())
-            {
-                throw std::runtime_error(prefix + Describe(result.DomainError()));
-            }
-        }
-        if constexpr (!std::is_void_v<T>)
-        {
-            return std::move(result).Value();
-        }
-    }
-
-    class ScratchDirectory final
-    {
-    public:
-        explicit ScratchDirectory(IO::LocalFileSystem& files)
-            : m_files(files),
-              m_path(Require(files.CreateTempDirectory({}, "hello_io_"),
-                             "create scratch directory")) {}
-
-        ~ScratchDirectory()
-        {
-            // Best-effort cleanup on failure; Remove() checks cleanup on success.
-            if (!m_removed)
-            {
-                auto result = m_files.RemoveDirectory(
-                        m_path, {.recursive = true, .ignoreMissing = true});
-                if (!result)
-                {
-                    std::cerr << "Scratch cleanup failed: " << Describe(result.error())
-                              << '\n';
-                }
-            }
-        }
-
-        ScratchDirectory(const ScratchDirectory&)            = delete;
-        ScratchDirectory& operator=(const ScratchDirectory&) = delete;
-
-        const IO::Path& Path() const noexcept { return m_path; }
-
-        void Remove()
-        {
-            Require(m_files.RemoveDirectory(m_path, {.recursive = true}),
-                    "remove scratch directory");
-            m_removed = true;
-        }
-
-    private:
-        IO::LocalFileSystem& m_files;
-        IO::Path             m_path;
-        bool                 m_removed {false};
-    };
-
-    Net::ConstByteSpan Bytes(std::string_view text)
-    {
-        return {reinterpret_cast<const NGIN::Byte*>(text.data()), text.size()};
-    }
-
-    std::string Text(Net::ConstByteSpan bytes)
-    {
-        return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
-    }
-
-    const char* BackendName(IO::Runtime::FileBackend backend)
-    {
-        using Backend = IO::Runtime::FileBackend;
-        switch (backend)
-        {
-            case Backend::NativeIoUring:
-                return "io_uring";
-            case Backend::NativeIocp:
-                return "IOCP";
-            case Backend::WorkerFallback:
-                return "worker fallback";
-            case Backend::None:
-                return "unavailable";
-        }
-        return "unknown";
-    }
-
-    Async::Task<std::string> ReadSensor(Async::TaskContext& ctx,
-                                        std::string reading, Milliseconds delay)
-    {
-        // Simulated sensors: timers suspend the coroutine without sleeping a worker.
-        co_await ctx.Delay(delay);
-        co_return reading;
-    }
-
-    Async::Task<std::string> GatherTelemetry(Async::TaskContext& ctx)
-    {
-        // WhenAll starts both cold tasks and waits for both, including failures.
-        auto [shields, snacks] = co_await Async::WhenAll(
-                ctx, ReadSensor(ctx, "Shields: 98%", Milliseconds {40}),
-                ReadSensor(ctx, "Emergency cookies: 7", Milliseconds {70}));
-        co_return "Captain's log: the async expedition\n" + shields + "\n" + snacks +
-                "\n";
-    }
-
-    Async::Task<std::string, IO::IOError> SaveMissionLog(Async::TaskContext&  ctx,
-                                                         IO::LocalFileSystem& files,
-                                                         IO::Path             directory,
-                                                         std::string          log)
-    {
-        const auto original = directory.Join("mission.txt");
-        const auto backup   = directory.Join("black-box.txt");
-
-        // The coroutine frame owns log while WriteAllBytesAsync borrows its bytes.
-        co_await IO::WriteAllBytesAsync(files, ctx, original, Bytes(log));
-        co_await IO::CopyFileAsync(files, ctx, original, backup);
-        auto       restored     = co_await IO::ReadAllBytesAsync(files, ctx, backup);
-        const auto restoredText = Text({restored.data(), restored.Size()});
-        Expect(restoredText == log, "black-box log did not match the original");
-        co_return restoredText;
-    }
-
-    NGIN::UInt16 BoundPort(const Net::SocketHandle& handle)
-    {
-        sockaddr_in address {};
-#if defined(_WIN32)
-        int length = sizeof(address);
-        if (::getsockname(static_cast<SOCKET>(handle.Native()),
-                          reinterpret_cast<sockaddr*>(&address), &length) != 0)
-        {
-            throw std::system_error(WSAGetLastError(), std::system_category(),
-                                    "query loopback port");
-        }
-#else
-        socklen_t length = sizeof(address);
-        if (::getsockname(static_cast<int>(handle.Native()),
-                          reinterpret_cast<sockaddr*>(&address), &length) != 0)
-        {
-            throw std::system_error(errno, std::system_category(),
-                                    "query loopback port");
-        }
-#endif
-        const auto port = ntohs(address.sin_port);
-        Expect(port != 0, "listener did not receive an ephemeral port");
-        return port;
-    }
-
-    Net::TcpListener OpenStation(IO::Runtime& io)
-    {
-        Net::TcpListener listener(io);
-        Require(listener.Open(Net::AddressFamily::V4), "open station listener");
-        Require(listener.Bind({Net::IpAddress::LoopbackV4(), 0}),
-                "bind loopback station");
-        Require(listener.Listen(), "listen for probe");
-        return listener;
-    }
-
-    Async::Task<void, Net::NetError> EchoStation(Async::TaskContext& ctx,
-                                                 Net::TcpListener&   listener)
-    {
-        const auto token  = ctx.GetCancellationToken();
-        auto       socket = co_await listener.AcceptAsync(ctx);
-        // The accepted socket inherits the listener runtime; adapters preserve that binding.
-        MessageStream                messages(std::make_unique<Net::Transport::TcpByteStream>(
-                std::move(socket)));
-        std::array<NGIN::Byte, 4096> storage {};
-        Net::Buffer                  buffer;
-        buffer.data     = storage.data();
-        buffer.capacity = static_cast<NGIN::UInt32>(storage.size());
-
-        // TCP has no message boundaries. The framing adapter handles partial
-        // reads/writes and refuses a message larger than our supplied buffer.
-        auto message = co_await messages.ReadMessageAsync(ctx, buffer, token);
-        co_await messages.WriteMessageAsync(ctx, message, token);
-        co_return;
-    }
-
-    Async::Task<void, Net::NetError>
-    SendProbeLog(Async::TaskContext& ctx,
-                 Net::TcpSocket socket, Net::Endpoint station, std::string log)
-    {
-        const auto token = ctx.GetCancellationToken();
-        co_await socket.ConnectAsync(ctx, station);
-        MessageStream messages(std::make_unique<Net::Transport::TcpByteStream>(
-                std::move(socket)));
-        co_await messages.WriteMessageAsync(ctx, Bytes(log), token);
-
-        std::array<NGIN::Byte, 4096> storage {};
-        Net::Buffer                  reply;
-        reply.data     = storage.data();
-        reply.capacity = static_cast<NGIN::UInt32>(storage.size());
-        auto echoed    = co_await messages.ReadMessageAsync(ctx, reply, token);
-        Expect(Text(echoed) == log, "mission control echoed a different log");
-        co_return;
-    }
-
-    Async::Task<void, Net::NetError>
-    ExchangeWithMissionControl(Async::TaskContext& ctx, Application& app,
-                               const std::string& log)
-    {
-        auto           listener = OpenStation(app.Io());
-        Net::TcpSocket probe(app.Io());
-        Require(probe.Open(Net::AddressFamily::V4), "open probe socket");
-        const Net::Endpoint             station {Net::IpAddress::LoopbackV4(),
-                                     BoundPort(listener.Handle())};
-        Async::TaskScope<Net::NetError> children(ctx.GetExecutor(),
-                                                 ctx.GetCancellationToken());
-        const auto                      server = children.Spawn([&listener](Async::TaskContext& child) {
-            return EchoStation(child, listener);
-        });
-        const auto                      client = children.Spawn([socket = std::move(probe), station,
-                                            &log](Async::TaskContext& child) mutable {
-            return SendProbeLog(child, std::move(socket), station, log);
-        });
-        if (!server || !client)
-            children.RequestCancel();
-        (void) co_await children.Join();
-        // The listener is borrowed by a child, so join before it leaves this frame.
-        // A failed peer requests sibling cancellation rather than waiting for the
-        // deadline.
-        if (!server || !client)
-            co_await Async::Faulted(
-                    Async::MakeAsyncFault(Async::AsyncFaultCode::SchedulerDispatchFailed));
-        auto result = children.TakeResult();
-        if (result.IsDomainError())
-            co_await Async::DomainFailure(std::move(result).DomainError());
-        else if (result.IsCanceled())
-            co_await Async::Canceled();
-        else if (result.IsFault())
-            co_await Async::Faulted(std::move(result).Fault());
-        co_return;
-    }
-
-    Async::Task<void> CancelSilentStation(Async::TaskContext& applicationContext,
-                                          Application&        app)
-    {
-        auto                      listener = OpenStation(app.Io());
-        Async::CancellationSource patience;
-        auto                      waitContext =
-                applicationContext.WithLinkedCancellationToken(patience.GetToken());
-        Expect(patience.CancelAfter(waitContext.GetExecutor(), Milliseconds {100})
-                       .has_value(),
-               "could not schedule station timeout");
-
-        // No client will connect. Cancellation requests termination; awaiting the
-        // terminal completion is what makes it safe to destroy the listener.
-        auto result =
-                co_await Async::Spawn(waitContext, listener.AcceptAsync(waitContext));
-        if (!result.IsCanceled())
-        {
-            Require(std::move(result), "wait for silent station");
-            throw std::runtime_error(
-                    "silent station unexpectedly accepted a connection");
-        }
-        Expect(!applicationContext.IsCancellationRequested(),
-               "application deadline reached during cancellation demo");
-    }
-    Async::Task<void> Expedition(Async::TaskContext& ctx, Application& app,
-                                 const IO::Path& directory)
-    {
-        auto log = co_await GatherTelemetry(ctx);
-        std::cout << "[async] Both sensors checked in\n"
-                  << log;
-        auto restored =
-                Require(co_await Async::Spawn(
-                                ctx, SaveMissionLog(ctx, app.Files(), directory, log)),
-                        "save and restore black-box log");
-        std::cout << "File backend: " << BackendName(app.Io().GetFileBackend())
+  ~ScratchDirectory() {
+    // Best-effort cleanup on failure; Remove() checks cleanup on success.
+    if (!m_removed) {
+      auto result = m_files.RemoveDirectory(
+          m_path, {.recursive = true, .ignoreMissing = true});
+      if (!result) {
+        std::cerr << "Scratch cleanup failed: " << Describe(result.error())
                   << '\n';
-        std::cout << "[files] Mission log saved, copied, and verified\n";
-        Require(co_await Async::Spawn(ctx,
-                                      ExchangeWithMissionControl(ctx, app, restored)),
-                "exchange mission log");
-        std::cout << "[tcp] Mission control echoed the complete log\n";
-        co_await CancelSilentStation(ctx, app);
-        std::cout << "[cancel] Silent station wait canceled and joined\n";
+      }
     }
+  }
 
-    Async::Task<void> ShortShutdownDelay(Async::TaskContext& ctx)
-    {
-        co_await ctx.Delay(Milliseconds {10});
-    }
+  ScratchDirectory(const ScratchDirectory &) = delete;
+  ScratchDirectory &operator=(const ScratchDirectory &) = delete;
 
-    Async::Task<void> StopWithPendingAccept(Async::TaskContext& ctx,
-                                            Application&        app)
-    {
-        auto listener = OpenStation(app.Io());
-        auto pending  = Async::Spawn(ctx, listener.AcceptAsync(ctx));
-        auto delayed  = co_await Async::Spawn(ctx, ShortShutdownDelay(ctx));
-        app.Io().RequestStop();
-        // This continuation was admitted before stopping. It can join the pending
-        // accept after new tasks and I/O submissions have been rejected.
-        auto result = co_await pending;
-        Expect(result.IsCanceled(), "shutdown did not cancel the pending accept");
-        Require(std::move(delayed), "wait before shutdown");
-    }
+  const IO::Path &Path() const noexcept { return m_path; }
 
-    Async::Task<NGIN::UInt64> AnalyzeOnWorker(Async::TaskContext& ctx,
-                                              IO::Runtime&        io)
-    {
-        co_await ctx.YieldNow();
-        Expect(ctx.GetExecutor().IsCurrent() && !io.GetExecutor().IsCurrent(),
-               "analysis ran on the I/O loop");
-        NGIN::UInt64 checksum = 1469598103934665603ULL;
-        for (NGIN::UInt64 index = 0; index < 1000000; ++index)
-            checksum = (checksum ^ index) * 1099511628211ULL;
-        co_return checksum;
-    }
+  void Remove() {
+    Require(m_files.RemoveDirectory(m_path, {.recursive = true}),
+            "remove scratch directory");
+    m_removed = true;
+  }
 
-    void ManualEntry()
-    {
-        Application               app;
-        ScratchDirectory          scratch(app.Files());
-        Async::CancellationSource deadline;
-        Expect(deadline.CancelAfter(app.Io().GetExecutor(), Milliseconds {10000})
-                       .has_value(),
-               "schedule deadline");
-        std::cout
-                << "[manual] RunTask drives I/O, timers, and continuations on main\n";
-        Require(IO::RunTask(
-                        app.Io(),
-                        [&](Async::TaskContext& ctx, Async::TaskScope<>&) {
-                            return Expedition(ctx, app, scratch.Path());
-                        },
-                        deadline.GetToken()),
-                "manual expedition");
-        Expect(app.Io().IsStopped(), "RunTask returned before shutdown");
-        scratch.Remove();
-    }
+private:
+  IO::LocalFileSystem &m_files;
+  IO::Path m_path;
+  bool m_removed{false};
+};
 
-    void BackgroundEntry()
-    {
-        Application               app;
-        IO::RuntimeRunner         runner(app.Io());
-        ScratchDirectory          scratch(app.Files());
-        Async::CancellationSource deadline;
-        auto                      ctx = app.MakeTaskContext(deadline.GetToken());
-        Expect(
-                deadline.CancelAfter(ctx.GetExecutor(), Milliseconds {10000}).has_value(),
-                "schedule deadline");
-        std::cout << "[runner] Main waits while RuntimeRunner drives runtime "
-                     "continuations\n";
-        // SyncWait is on main; the runner owns the independently progressing loop.
-        Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
-                "background expedition");
-        scratch.Remove();
-        Require(Async::SyncWait(ctx, StopWithPendingAccept(ctx, app)),
-                "in-flight shutdown");
-        runner.Shutdown();
-        std::cout
-                << "[shutdown] Pending accept canceled and joined during stopping\n";
-    }
+Net::ConstByteSpan Bytes(std::string_view text) {
+  return {reinterpret_cast<const NGIN::Byte *>(text.data()), text.size()};
+}
 
-    void ExternalEntry()
-    {
-        NGIN::Execution::ThreadPoolScheduler tasks {1};
-        Application                          app;
-        IO::RuntimeRunner                    runner(app.Io());
-        ScratchDirectory                     scratch(app.Files());
-        Async::CancellationSource            deadline;
-        Async::TaskContext                   ctx(tasks, deadline.GetToken());
-        Expect(
-                deadline.CancelAfter(ctx.GetExecutor(), Milliseconds {10000}).has_value(),
-                "schedule deadline");
-        std::cout
-                << "[external] I/O completions return to the selected task executor\n";
-        Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
-                "external expedition");
-        auto checksum = Require(Async::SyncWait(ctx, AnalyzeOnWorker(ctx, app.Io())),
-                                "worker analysis");
-        Expect(checksum != 0, "analysis produced an empty checksum");
-        std::cout << "[cpu] Analysis completed on an external worker; I/O retained "
-                     "its own loop\n";
-        deadline.Cancel();
-        scratch.Remove();
-        runner.Shutdown();
-    }
-}// namespace HelloIO
+std::string Text(Net::ConstByteSpan bytes) {
+  return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
 
-int main()
-{
-    try
-    {
-        HelloIO::ManualEntry();
-        HelloIO::BackgroundEntry();
-        HelloIO::ExternalEntry();
-        std::cout << "Hello.IO complete: three execution modes, all tasks joined\n";
-        return 0;
-    } catch (const std::exception& error)
-    {
-        std::cerr << "Hello.IO failed: " << error.what() << '\n';
-        return 1;
-    }
+const char *BackendName(IO::Runtime::FileBackend backend) {
+  using Backend = IO::Runtime::FileBackend;
+  switch (backend) {
+  case Backend::NativeIoUring:
+    return "io_uring";
+  case Backend::NativeIocp:
+    return "IOCP";
+  case Backend::WorkerFallback:
+    return "worker fallback";
+  case Backend::None:
+    return "unavailable";
+  }
+  return "unknown";
+}
+
+Async::Task<std::string> ReadSensor(Async::TaskContext &ctx,
+                                    std::string reading, Milliseconds delay) {
+  // Simulated sensors: timers suspend the coroutine without sleeping a worker.
+  co_await ctx.Delay(delay);
+  co_return reading;
+}
+
+Async::Task<std::string> GatherTelemetry(Async::TaskContext &ctx) {
+  // WhenAll starts both cold tasks and waits for both, including failures.
+  auto [shields, snacks] = co_await Async::WhenAll(
+      ctx, ReadSensor(ctx, "Shields: 98%", Milliseconds{40}),
+      ReadSensor(ctx, "Emergency cookies: 7", Milliseconds{70}));
+  co_return "Captain's log: the async expedition\n" + shields + "\n" + snacks +
+      "\n";
+}
+
+Async::Task<std::string, IO::IOError> SaveMissionLog(Async::TaskContext &ctx,
+                                                     IO::LocalFileSystem &files,
+                                                     IO::Path directory,
+                                                     std::string log) {
+  const auto original = directory.Join("mission.txt");
+  const auto backup = directory.Join("black-box.txt");
+
+  // The coroutine frame owns log while WriteAllBytesAsync borrows its bytes.
+  co_await IO::WriteAllBytesAsync(files, ctx, original, Bytes(log));
+  co_await IO::CopyFileAsync(files, ctx, original, backup);
+  auto restored = co_await IO::ReadAllBytesAsync(files, ctx, backup);
+  const auto restoredText = Text({restored.data(), restored.Size()});
+  Expect(restoredText == log, "black-box log did not match the original");
+  co_return restoredText;
+}
+
+NGIN::UInt16 BoundPort(const Net::SocketHandle &handle) {
+  sockaddr_in address{};
+#if defined(_WIN32)
+  int length = sizeof(address);
+  if (::getsockname(static_cast<SOCKET>(handle.Native()),
+                    reinterpret_cast<sockaddr *>(&address), &length) != 0) {
+    throw std::system_error(WSAGetLastError(), std::system_category(),
+                            "query loopback port");
+  }
+#else
+  socklen_t length = sizeof(address);
+  if (::getsockname(static_cast<int>(handle.Native()),
+                    reinterpret_cast<sockaddr *>(&address), &length) != 0) {
+    throw std::system_error(errno, std::system_category(),
+                            "query loopback port");
+  }
+#endif
+  const auto port = ntohs(address.sin_port);
+  Expect(port != 0, "listener did not receive an ephemeral port");
+  return port;
+}
+
+Net::TcpListener OpenStation(IO::Runtime &io) {
+  Net::TcpListener listener(io);
+  Require(listener.Open(Net::AddressFamily::V4), "open station listener");
+  Require(listener.Bind({Net::IpAddress::LoopbackV4(), 0}),
+          "bind loopback station");
+  Require(listener.Listen(), "listen for probe");
+  return listener;
+}
+
+Async::Task<void, Net::NetError> EchoStation(Async::TaskContext &ctx,
+                                             Net::TcpListener &listener) {
+  const auto token = ctx.GetCancellationToken();
+  auto socket = co_await listener.AcceptAsync(ctx);
+  // The accepted socket inherits the listener runtime; adapters preserve that
+  // binding.
+  MessageStream messages(
+      std::make_unique<Net::Transport::TcpByteStream>(std::move(socket)));
+  std::array<NGIN::Byte, 4096> storage{};
+  Net::Buffer buffer;
+  buffer.data = storage.data();
+  buffer.capacity = static_cast<NGIN::UInt32>(storage.size());
+
+  // TCP has no message boundaries. The framing adapter handles partial
+  // reads/writes and refuses a message larger than our supplied buffer.
+  auto message = co_await messages.ReadMessageAsync(ctx, buffer, token);
+  co_await messages.WriteMessageAsync(ctx, message, token);
+  co_return;
+}
+
+Async::Task<void, Net::NetError> SendProbeLog(Async::TaskContext &ctx,
+                                              Net::TcpSocket socket,
+                                              Net::Endpoint station,
+                                              std::string log) {
+  const auto token = ctx.GetCancellationToken();
+  co_await socket.ConnectAsync(ctx, station);
+  MessageStream messages(
+      std::make_unique<Net::Transport::TcpByteStream>(std::move(socket)));
+  co_await messages.WriteMessageAsync(ctx, Bytes(log), token);
+
+  std::array<NGIN::Byte, 4096> storage{};
+  Net::Buffer reply;
+  reply.data = storage.data();
+  reply.capacity = static_cast<NGIN::UInt32>(storage.size());
+  auto echoed = co_await messages.ReadMessageAsync(ctx, reply, token);
+  Expect(Text(echoed) == log, "mission control echoed a different log");
+  co_return;
+}
+
+Async::Task<void, Net::NetError>
+ExchangeWithMissionControl(Async::TaskContext &ctx, Application &app,
+                           const std::string &log) {
+  auto listener = OpenStation(app.Io());
+  Net::TcpSocket probe(app.Io());
+  Require(probe.Open(Net::AddressFamily::V4), "open probe socket");
+  const Net::Endpoint station{Net::IpAddress::LoopbackV4(),
+                              BoundPort(listener.Handle())};
+  Async::TaskScope<Net::NetError> children(ctx.GetExecutor(),
+                                           ctx.GetCancellationToken());
+  const auto server = children.Spawn([&listener](Async::TaskContext &child) {
+    return EchoStation(child, listener);
+  });
+  const auto client = children.Spawn([socket = std::move(probe), station,
+                                      &log](Async::TaskContext &child) mutable {
+    return SendProbeLog(child, std::move(socket), station, log);
+  });
+  if (!server || !client)
+    children.RequestStop();
+  (void)co_await children.Join();
+  // The listener is borrowed by a child, so join before it leaves this frame.
+  // A failed peer requests sibling cancellation rather than waiting for the
+  // deadline.
+  if (!server || !client)
+    co_await Async::Faulted(
+        Async::MakeAsyncFault(Async::AsyncFaultCode::SchedulerDispatchFailed));
+  auto result = children.TakeResult();
+  if ((result.HasError() && result.Error().IsDomainError()))
+    co_await Async::DomainFailure(std::move(result).Error().DomainError());
+  else if (result.IsStopped())
+    co_await Async::Stopped();
+  else if ((result.HasError() && result.Error().IsFault()))
+    co_await Async::Faulted(std::move(result).Error().Fault());
+  co_return;
+}
+
+Async::Task<void> CancelSilentStation(Async::TaskContext &applicationContext,
+                                      Application &app) {
+  auto listener = OpenStation(app.Io());
+  Async::CancellationSource patience;
+  auto waitContext =
+      applicationContext.WithLinkedCancellationToken(patience.GetToken());
+  Expect(patience.CancelAfter(waitContext.GetExecutor(), Milliseconds{100})
+             .has_value(),
+         "could not schedule station timeout");
+
+  // No client will connect. Cancellation requests termination; awaiting the
+  // terminal completion is what makes it safe to destroy the listener.
+  auto result = co_await listener.AcceptAsync(waitContext).AsCompletion();
+  if (!result.IsStopped()) {
+    Require(std::move(result), "wait for silent station");
+    throw std::runtime_error(
+        "silent station unexpectedly accepted a connection");
+  }
+  Expect(!applicationContext.IsCancellationRequested(),
+         "application deadline reached during cancellation demo");
+}
+Async::Task<void> Expedition(Async::TaskContext &ctx, Application &app,
+                             const IO::Path &directory) {
+  auto log = co_await GatherTelemetry(ctx);
+  std::cout << "[async] Both sensors checked in\n" << log;
+  auto restored = Require(
+      co_await SaveMissionLog(ctx, app.Files(), directory, log).AsCompletion(),
+      "save and restore black-box log");
+  std::cout << "File backend: " << BackendName(app.Io().GetFileBackend())
+            << '\n';
+  std::cout << "[files] Mission log saved, copied, and verified\n";
+  Require(
+      co_await ExchangeWithMissionControl(ctx, app, restored).AsCompletion(),
+      "exchange mission log");
+  std::cout << "[tcp] Mission control echoed the complete log\n";
+  co_await CancelSilentStation(ctx, app);
+  std::cout << "[cancel] Silent station wait canceled and joined\n";
+}
+
+Async::Task<void> ShortShutdownDelay(Async::TaskContext &ctx) {
+  co_await ctx.Delay(Milliseconds{10});
+}
+
+Async::Task<void> StopWithPendingAccept(Async::TaskContext &ctx,
+                                        Application &app) {
+  auto listener = OpenStation(app.Io());
+  Async::TaskScope<Net::NetError> children(ctx.GetEnvironment(), 1);
+  auto pending = children.Spawn([&listener](Async::TaskContext &child) {
+    return listener.AcceptAsync(child);
+  });
+  Expect(pending.has_value(), "could not admit shutdown accept");
+  auto delayed = co_await ShortShutdownDelay(ctx).AsCompletion();
+  app.Io().RequestStop();
+  // This continuation was admitted before stopping. It can join the pending
+  // accept after new tasks and I/O submissions have been rejected.
+  auto result = co_await *pending;
+  (void)co_await children.Join();
+  Expect(result.IsStopped(), "shutdown did not cancel the pending accept");
+  Require(std::move(delayed), "wait before shutdown");
+}
+
+Async::Task<NGIN::UInt64> AnalyzeOnWorker(Async::TaskContext &ctx,
+                                          IO::Runtime &io) {
+  co_await ctx.YieldNow();
+  Expect(ctx.GetExecutor().IsCurrent() && !io.GetExecutor().IsCurrent(),
+         "analysis ran on the I/O loop");
+  NGIN::UInt64 checksum = 1469598103934665603ULL;
+  for (NGIN::UInt64 index = 0; index < 1000000; ++index)
+    checksum = (checksum ^ index) * 1099511628211ULL;
+  co_return checksum;
+}
+
+void ManualEntry() {
+  Application app;
+  ScratchDirectory scratch(app.Files());
+  Async::CancellationSource deadline;
+  Expect(deadline.CancelAfter(app.Io().GetExecutor(), Milliseconds{10000})
+             .has_value(),
+         "schedule deadline");
+  std::cout
+      << "[manual] RunTask drives I/O, timers, and continuations on main\n";
+  Require(IO::RunTask(
+              app.Io(),
+              [&](Async::TaskContext &ctx, Async::TaskScope<> &) {
+                return Expedition(ctx, app, scratch.Path());
+              },
+              deadline.GetToken()),
+          "manual expedition");
+  Expect(app.Io().IsStopped(), "RunTask returned before shutdown");
+  scratch.Remove();
+}
+
+void BackgroundEntry() {
+  Application app;
+  IO::RuntimeRunner runner(app.Io());
+  ScratchDirectory scratch(app.Files());
+  Async::CancellationSource deadline;
+  auto ctx = app.MakeTaskContext(deadline.GetToken());
+  Expect(
+      deadline.CancelAfter(ctx.GetExecutor(), Milliseconds{10000}).has_value(),
+      "schedule deadline");
+  std::cout << "[runner] Main waits while RuntimeRunner drives runtime "
+               "continuations\n";
+  // SyncWait is on main; the runner owns the independently progressing loop.
+  Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
+          "background expedition");
+  scratch.Remove();
+  Require(Async::SyncWait(ctx, StopWithPendingAccept(ctx, app)),
+          "in-flight shutdown");
+  runner.Shutdown();
+  std::cout
+      << "[shutdown] Pending accept canceled and joined during stopping\n";
+}
+
+void ExternalEntry() {
+  NGIN::Execution::ThreadPoolScheduler tasks{1};
+  Application app;
+  IO::RuntimeRunner runner(app.Io());
+  ScratchDirectory scratch(app.Files());
+  Async::CancellationSource deadline;
+  Async::TaskContext ctx(tasks, deadline.GetToken());
+  Expect(
+      deadline.CancelAfter(ctx.GetExecutor(), Milliseconds{10000}).has_value(),
+      "schedule deadline");
+  std::cout
+      << "[external] I/O completions return to the selected task executor\n";
+  Require(Async::SyncWait(ctx, Expedition(ctx, app, scratch.Path())),
+          "external expedition");
+  auto checksum = Require(Async::SyncWait(ctx, AnalyzeOnWorker(ctx, app.Io())),
+                          "worker analysis");
+  Expect(checksum != 0, "analysis produced an empty checksum");
+  std::cout << "[cpu] Analysis completed on an external worker; I/O retained "
+               "its own loop\n";
+  deadline.Cancel();
+  scratch.Remove();
+  runner.Shutdown();
+}
+} // namespace HelloIO
+
+int main() {
+  try {
+    HelloIO::ManualEntry();
+    HelloIO::BackgroundEntry();
+    HelloIO::ExternalEntry();
+    std::cout << "Hello.IO complete: three execution modes, all tasks joined\n";
+    return 0;
+  } catch (const std::exception &error) {
+    std::cerr << "Hello.IO failed: " << error.what() << '\n';
+    return 1;
+  }
 }

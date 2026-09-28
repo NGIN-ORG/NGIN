@@ -51,58 +51,104 @@ struct MotionHostState final {
   bool closed{false};
 };
 
-struct MotionOperationState final {
-  [[nodiscard]] auto IsComplete() const noexcept -> bool {
+void CancelControllerOperation(
+    const std::shared_ptr<MotionOperationState> &operation) noexcept;
+
+struct MotionOperationState final
+    : std::enable_shared_from_this<MotionOperationState> {
+  ~MotionOperationState() { cancellation.Reset(); }
+
+  [[nodiscard]] bool IsComplete() const noexcept {
     std::scoped_lock lock{mutex};
-    return outcome.has_value();
+    return retired;
   }
 
-  void Arm(const NGIN::Async::TaskContext &context,
-           const std::coroutine_handle<> continuationHandle) noexcept {
-    auto scheduleNow = false;
-    {
-      std::scoped_lock lock{mutex};
-      if (outcome) {
-        scheduleNow = true;
-      } else {
-        continuation = continuationHandle;
-        executor = context.GetExecutor();
-      }
-    }
-    if (scheduleNow) {
-      context.GetExecutor().Execute(continuationHandle);
-      return;
-    }
-    context.GetCancellationToken().Register(
-        cancellation, {}, {},
-        +[](void *raw) noexcept -> bool {
-          auto *operation = static_cast<MotionOperationState *>(raw);
-          if (auto controller = operation->controller.lock()) {
-            CancelControllerMotion(controller, operation->property);
-          } else {
-            operation->Complete(MotionOutcome::Canceled);
+  [[nodiscard]] bool IsCancellationRequested() const noexcept {
+    std::scoped_lock lock{mutex};
+    return cancellationRequested;
+  }
+
+  // Reserve both delivery and cancellation observation before publishing a
+  // controller entry. The callback cannot see an unowned coroutine frame.
+  [[nodiscard]] auto Prepare(const NGIN::Async::TaskContext &context)
+      -> std::expected<void, NGIN::Async::AsyncFault> {
+    auto reserved = context.GetExecutor().ReserveCompletion(
+        NGIN::Execution::WorkItem([this] {
+          std::coroutine_handle<> resume;
+          {
+            std::scoped_lock lock{mutex};
+            resume = std::exchange(continuation, {});
           }
+          if (resume)
+            resume.resume();
+        }));
+    if (!reserved) {
+      return std::unexpected(NGIN::Async::MakeAsyncFault(
+          NGIN::Async::AsyncFaultCode::ContinuationDispatchFailed,
+          static_cast<int>(reserved.error())));
+    }
+    NGIN::Async::CancellationRegistration registration;
+    auto registered = context.GetCancellationToken().Register(
+        registration, {}, {},
+        +[](void *raw) noexcept -> bool {
+          auto operation =
+              static_cast<MotionOperationState *>(raw)->weak_from_this().lock();
+          if (!operation)
+            return false;
+          {
+            std::scoped_lock lock{operation->mutex};
+            operation->cancellationRequested = true;
+          }
+          CancelControllerOperation(operation);
           return false;
         },
         this);
-  }
-
-  void Complete(const MotionOutcome result) noexcept {
-    std::coroutine_handle<> resume{};
-    NGIN::Execution::ExecutorRef resumeExecutor{};
+    if (!registered) {
+      return std::unexpected(NGIN::Async::MakeAsyncFault(
+          NGIN::Async::AsyncFaultCode::CancellationRegistrationFailed,
+          static_cast<int>(registered.error())));
+    }
     {
       std::scoped_lock lock{mutex};
-      if (outcome) {
-        return;
+      if (!outcome) {
+        delivery = std::move(*reserved);
+        cancellation = std::move(registration);
       }
+    }
+    // If cancellation completed during registration, join its callback before
+    // exposing a ready result. Never reset a registration under the state lock.
+    registration.Reset();
+    return {};
+  }
+
+  [[nodiscard]] bool Arm(std::coroutine_handle<> handle) noexcept {
+    std::scoped_lock lock{mutex};
+    if (retired)
+      return false;
+    continuation = handle;
+    return true;
+  }
+
+  void Complete(MotionOutcome result) noexcept {
+    NGIN::Async::CancellationRegistration registration;
+    {
+      std::scoped_lock lock{mutex};
+      if (outcome)
+        return;
       outcome = result;
-      resume = std::exchange(continuation, {});
-      resumeExecutor = executor;
+      registration = std::move(cancellation);
     }
-    cancellation.Reset();
-    if (resume && resumeExecutor.IsValid()) {
-      resumeExecutor.Execute(resume);
+    registration.Reset();
+    NGIN::Execution::CompletionReservation resume;
+    bool suspended;
+    {
+      std::scoped_lock lock{mutex};
+      retired = true;
+      suspended = static_cast<bool>(continuation);
+      resume = std::move(delivery);
     }
+    if (suspended)
+      resume.Dispatch();
   }
 
   [[nodiscard]] auto Result() const noexcept -> MotionOutcome {
@@ -112,8 +158,10 @@ struct MotionOperationState final {
 
   mutable std::mutex mutex{};
   std::optional<MotionOutcome> outcome{};
+  bool retired{false};
+  bool cancellationRequested{false};
   std::coroutine_handle<> continuation{};
-  NGIN::Execution::ExecutorRef executor{};
+  NGIN::Execution::CompletionReservation delivery{};
   NGIN::Async::CancellationRegistration cancellation{};
   std::weak_ptr<MotionControllerState> controller{};
   AnimationPropertyId property{};
@@ -132,6 +180,24 @@ struct MotionControllerState final {
   ElementId owner{};
   bool mounted{false};
 };
+
+void CancelControllerOperation(
+    const std::shared_ptr<MotionOperationState> &operation) noexcept {
+  std::shared_ptr<MotionHostState> host;
+  if (auto controller = operation->controller.lock()) {
+    std::scoped_lock lock{controller->mutex};
+    for (auto &entry : controller->entries) {
+      if (entry.operation == operation) {
+        entry.canceled = true;
+        host = controller->host.lock();
+        break;
+      }
+    }
+  }
+  if (host)
+    host->Wake();
+  operation->Complete(MotionOutcome::Canceled);
+}
 
 struct MotionAccess final {
   [[nodiscard]] static auto
@@ -678,15 +744,14 @@ struct MotionState final {
 namespace {
 struct MotionOperationAwaiter final {
   std::shared_ptr<MotionOperationState> operation{};
-  const NGIN::Async::TaskContext *context{nullptr};
 
   [[nodiscard]] auto await_ready() const noexcept -> bool {
     return !operation || operation->IsComplete();
   }
 
-  void
+  bool
   await_suspend(const std::coroutine_handle<> continuation) const noexcept {
-    operation->Arm(*context, continuation);
+    return operation->Arm(continuation);
   }
 
   [[nodiscard]] auto await_resume() const noexcept -> MotionOutcome {
@@ -1173,28 +1238,35 @@ auto BeginControllerMotion(
   const auto property = binding->View().property;
   operation->controller = controller;
   operation->property = property;
+  auto prepared = operation->Prepare(context);
+  if (!prepared) {
+    co_return NGIN::Async::Completion<MotionOutcome, NGIN::Async::NoError>::
+        Faulted(std::move(prepared).error());
+  }
   std::shared_ptr<MotionOperationState> interrupted;
   std::shared_ptr<MotionHostState> host;
   {
     std::scoped_lock lock{controller->mutex};
-    const auto found = std::find_if(
-        controller->entries.begin(), controller->entries.end(),
-        [property](const ControllerEntry &entry) {
-          return entry.binding && entry.binding->View().property == property;
+    if (!operation->IsCancellationRequested()) {
+      const auto found = std::find_if(
+          controller->entries.begin(), controller->entries.end(),
+          [property](const ControllerEntry &entry) {
+            return entry.binding && entry.binding->View().property == property;
+          });
+      if (found == controller->entries.end()) {
+        controller->entries.push_back(ControllerEntry{
+            .binding = std::move(binding),
+            .operation = operation,
         });
-    if (found == controller->entries.end()) {
-      controller->entries.push_back(ControllerEntry{
-          .binding = std::move(binding),
-          .operation = operation,
-      });
-    } else {
-      interrupted = found->operation;
-      *found = ControllerEntry{
-          .binding = std::move(binding),
-          .operation = operation,
-      };
+      } else {
+        interrupted = found->operation;
+        *found = ControllerEntry{
+            .binding = std::move(binding),
+            .operation = operation,
+        };
+      }
+      host = controller->host.lock();
     }
-    host = controller->host.lock();
   }
   if (interrupted) {
     interrupted->Complete(MotionOutcome::Interrupted);
@@ -1204,7 +1276,6 @@ auto BeginControllerMotion(
   }
   co_return co_await MotionOperationAwaiter{
       .operation = std::move(operation),
-      .context = &context,
   };
 }
 

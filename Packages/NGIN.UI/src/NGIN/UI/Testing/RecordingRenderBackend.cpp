@@ -42,14 +42,15 @@ auto RecordingRenderBackend::CreateSurface(const PlatformWindowHandle window,
                                            const PixelSize initialSize) noexcept
     -> UIResult<RenderSurfaceHandle> {
   if (!m_initialized) {
-    return MakeUIError(UIErrorCode::BackendUnavailable,
-                       "Recording renderer is not initialized", Name(),
-                       "CreateSurface");
+    return std::unexpected(MakeUIError(UIErrorCode::BackendUnavailable,
+                                       "Recording renderer is not initialized",
+                                       Name(), "CreateSurface"));
   }
   if (!window || initialSize.IsEmpty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "A valid window and non-zero size are required", Name(),
-                       "CreateSurface");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "A valid window and non-zero size are required", Name(),
+                    "CreateSurface"));
   }
 
   const RenderSurfaceHandle handle{m_nextSurfaceIndex++, 1};
@@ -65,8 +66,9 @@ auto RecordingRenderBackend::DestroySurface(
     const RenderSurfaceHandle surface) noexcept -> UIResult<void> {
   auto *record = FindSurface(surface);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown render surface",
-                       Name(), "DestroySurface");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown render surface", Name(),
+                                       "DestroySurface"));
   }
   record->destroyed = true;
   return {};
@@ -77,9 +79,10 @@ auto RecordingRenderBackend::ResizeSurface(const RenderSurfaceHandle surface,
     -> UIResult<void> {
   auto *record = FindSurface(surface);
   if (record == nullptr || record->destroyed || size.IsEmpty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "A live surface and non-zero size are required", Name(),
-                       "ResizeSurface");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "A live surface and non-zero size are required", Name(),
+                    "ResizeSurface"));
   }
   record->size = size;
   return {};
@@ -88,9 +91,9 @@ auto RecordingRenderBackend::ResizeSurface(const RenderSurfaceHandle surface,
 auto RecordingRenderBackend::CreateTexture(
     const TextureCreateInfo &info) noexcept -> UIResult<TextureHandle> {
   if (!m_initialized || info.size.IsEmpty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "A non-zero texture size is required", Name(),
-                       "CreateTexture");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "A non-zero texture size is required",
+                                       Name(), "CreateTexture"));
   }
   const TextureHandle handle{m_nextTextureIndex++, 1};
   m_textures.push_back(RecordedTexture{
@@ -105,8 +108,9 @@ auto RecordingRenderBackend::UpdateTexture(
     -> UIResult<void> {
   auto *record = FindTexture(texture);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown texture", Name(),
-                       "UpdateTexture");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown texture", Name(),
+                                       "UpdateTexture"));
   }
   m_textureUpdates.push_back(CopyTextureUpdate(texture, update));
   return {};
@@ -116,8 +120,9 @@ auto RecordingRenderBackend::DestroyTexture(
     const TextureHandle texture) noexcept -> UIResult<void> {
   auto *record = FindTexture(texture);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown texture", Name(),
-                       "DestroyTexture");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Unknown texture", Name(),
+                                       "DestroyTexture"));
   }
   record->destroyed = true;
   return {};
@@ -128,8 +133,8 @@ auto RecordingRenderBackend::Render(const RenderSurfaceHandle surface,
     -> UIResult<void> {
   auto *record = FindSurface(surface);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::RenderFailed, "Unknown render surface",
-                       Name(), "Render");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::RenderFailed, "Unknown render surface", Name(), "Render"));
   }
 
   RecordedRenderPacket copy{
@@ -159,8 +164,9 @@ auto RecordingRenderBackend::Present(const RenderSurfaceHandle surface) noexcept
     -> UIResult<void> {
   auto *record = FindSurface(surface);
   if (record == nullptr || record->destroyed) {
-    return MakeUIError(UIErrorCode::RenderFailed, "Unknown render surface",
-                       Name(), "Present");
+    return std::unexpected(MakeUIError(UIErrorCode::RenderFailed,
+                                       "Unknown render surface", Name(),
+                                       "Present"));
   }
   ++record->presentCount;
   return {};

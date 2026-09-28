@@ -1,7 +1,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/Async/WhenAll.hpp>
+#include <NGIN/Execution/CooperativeScheduler.hpp>
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Collections.hpp>
 #include <NGIN/UI/Motion.hpp>
@@ -179,15 +181,15 @@ TEST_CASE("custom typed properties share scheduling diagnostics and policy") {
       .platform = std::move(platform),
       .renderer = std::move(renderer),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"CustomMotion"},
       .title = NGIN::Text::String{"Custom motion"},
       .initialSize = PixelSize{160, 80},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   NGIN::F32 target = 100.0F;
   NGIN::F32 observed = -1.0F;
   AnimationHandle handle;
@@ -208,10 +210,10 @@ TEST_CASE("custom typed properties share scheduling diagnostics and policy") {
                     "gauge");
   });
 
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observed == 0.0F);
   clock->AdvanceTime(90ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observed == Catch::Approx(112.5F).margin(0.01F));
   REQUIRE_FALSE(recording->RenderPackets().empty());
   CHECK(recording->RenderPackets().back().vertices.front().color >> 24U ==
@@ -234,14 +236,14 @@ TEST_CASE("custom typed properties share scheduling diagnostics and policy") {
 
   target = 200.0F;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observed == Catch::Approx(167.1875F).margin(0.02F));
 
   handle.Cancel();
   window->Invalidate(InvalidationKind::Paint);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(window->HasActiveAnimations());
 }
 
@@ -255,14 +257,14 @@ TEST_CASE("spring timing is deterministic and settles at its exact target") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"SpringMotion"},
       .title = NGIN::Text::String{"Spring motion"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   NGIN::F32 observed = -1.0F;
   bool visible = true;
   window->SetContent([&](Composer &composer) {
@@ -283,9 +285,9 @@ TEST_CASE("spring timing is deterministic and settles at its exact target") {
                     "spring-gauge");
   });
 
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observed == Catch::Approx(0.619F).margin(0.02F));
   REQUIRE(window->HasActiveAnimations());
   const auto &motion = window->Diagnostics().motion;
@@ -298,13 +300,13 @@ TEST_CASE("spring timing is deterministic and settles at its exact target") {
   CHECK(gaugeTrack->timing.compare("Spring") == 0);
 
   clock->AdvanceTime(1500ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(observed == 1.0F);
   CHECK_FALSE(window->HasActiveAnimations());
 
   visible = false;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(window->Diagnostics().motion.tracks.empty());
 }
 
@@ -320,15 +322,15 @@ TEST_CASE("target motion retargets from the presented value and becomes idle") {
       .platform = std::move(platform),
       .renderer = std::move(renderer),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Motion"},
       .title = NGIN::Text::String{"Motion"},
       .initialSize = PixelSize{200, 100},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   NGIN::F32 target = 1.0F;
   window->SetContent([&](Composer &composer) {
     NodeProperties panel{};
@@ -344,26 +346,26 @@ TEST_CASE("target motion retargets from the presented value and becomes idle") {
     composer.Border([] {}, panel, "panel");
   });
 
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   target = 0.0F;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(window->HasActiveAnimations());
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(recording->RenderPackets().back().vertices.front().color >> 24U ==
           Catch::Approx(128).margin(2));
 
   target = 1.0F;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto alpha =
       recording->RenderPackets().back().vertices.front().color >> 24U;
   CHECK(alpha == Catch::Approx(191).margin(3));
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(window->HasActiveAnimations());
   CHECK(window->Diagnostics().activeAnimationCount == 0);
 }
@@ -378,14 +380,14 @@ TEST_CASE("reduced motion settles targets and unmounting removes deadlines") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Reduced"},
       .title = NGIN::Text::String{"Reduced"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   bool visible = true;
   window->SetContent([&](Composer &composer) {
     if (!visible) {
@@ -400,21 +402,21 @@ TEST_CASE("reduced motion settles targets and unmounting removes deadlines") {
                                   }});
     composer.Border([] {}, panel, "moving");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(window->HasActiveAnimations());
 
   visible = false;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(window->HasActiveAnimations());
 
   visible = true;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(window->HasActiveAnimations());
 
   clock->SetReducedMotion(true);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(window->HasActiveAnimations());
   CHECK(window->Diagnostics().reducedMotion);
 }
@@ -429,15 +431,15 @@ TEST_CASE("paint transforms also move clipping hit testing and semantics") {
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::move(renderer),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Transform"},
       .title = NGIN::Text::String{"Transform"},
       .initialSize = PixelSize{200, 100},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   window->SetContent([&](Composer &composer) {
     NodeProperties panel{};
     panel.layout.preferredSize = Size{50.0F, 40.0F};
@@ -462,7 +464,7 @@ TEST_CASE("paint transforms also move clipping hit testing and semantics") {
         },
         panel, "translated");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto handle =
       window->Tree().Get(window->Tree().Root())->children.front();
   CHECK_FALSE(window->HitTest(Point{10.0F, 10.0F}));
@@ -488,8 +490,8 @@ TEST_CASE(
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto firstResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"FirstMotion"},
       .title = NGIN::Text::String{"First motion"},
@@ -498,10 +500,10 @@ TEST_CASE(
       .id = NGIN::Text::String{"SecondMotion"},
       .title = NGIN::Text::String{"Second motion"},
   });
-  REQUIRE(firstResult.HasValue());
-  REQUIRE(secondResult.HasValue());
-  auto *first = firstResult.Value();
-  auto *second = secondResult.Value();
+  REQUIRE(firstResult.has_value());
+  REQUIRE(secondResult.has_value());
+  auto *first = firstResult.value();
+  auto *second = secondResult.value();
   AnimationHandle cancellable;
   first->SetContent([&](Composer &composer) {
     NodeProperties node{};
@@ -530,7 +532,7 @@ TEST_CASE(
                     });
     composer.Border([] {}, node, "second");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(first->HasActiveAnimations());
   REQUIRE(second->HasActiveAnimations());
   REQUIRE(first->NextAnimationDeadline().has_value());
@@ -539,15 +541,15 @@ TEST_CASE(
   CHECK(*second->NextAnimationDeadline() == 16ms);
 
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   cancellable.Cancel();
   first->Invalidate(InvalidationKind::Paint);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(first->HasActiveAnimations());
   CHECK(second->HasActiveAnimations());
 
   clock->AdvanceTime(250ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(second->HasActiveAnimations());
 }
 
@@ -561,15 +563,15 @@ TEST_CASE("theme state and popup transitions use the motion scheduler") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"ControlMotion"},
       .title = NGIN::Text::String{"Control motion"},
       .initialSize = PixelSize{320, 180},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   PopupController popup{
       [window](const InvalidationKind kind) { window->Invalidate(kind); }};
   window->SetContent([&](Composer &composer) {
@@ -589,7 +591,7 @@ TEST_CASE("theme state and popup transitions use the motion scheduler") {
       composer.Popup([] {}, popupProperties, "popup");
     }
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto button =
       window->Tree().Get(window->Tree().Root())->children.front();
   const auto center = Point{20.0F, 20.0F};
@@ -598,31 +600,31 @@ TEST_CASE("theme state and popup transitions use the motion scheduler") {
       .pointerId = 1,
       .position = center,
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(window->HasActiveAnimations());
   CHECK(window->HitTest(center) == button);
 
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   popup.Open();
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK(popup.IsOpen());
   CHECK(popup.IsPresented());
   CHECK(window->HasActiveAnimations());
 
   clock->AdvanceTime(50ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   popup.Close();
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(popup.IsOpen());
   CHECK(popup.IsPresented());
   const auto popupHandle =
       window->Tree().Get(window->Tree().Root())->children.back();
   CHECK(window->Tree().Get(popupHandle)->properties.semantics.hidden);
   clock->AdvanceTime(140ms);
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(popup.IsPresented());
   CHECK(window->Tree().Get(window->Tree().Root())->children.size() == 1);
 }
@@ -638,50 +640,52 @@ TEST_CASE(
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"AwaitedMotion"},
       .title = NGIN::Text::String{"Awaited motion"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   window->SetContent([&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   auto context = application->CreateTaskContext();
   const auto spec = AnimationSpec{.timing = TweenTiming{
                                       .duration = 100ms,
                                       .curve = EasingCurve::Linear(),
                                   }};
-  auto fade =
-      NGIN::Async::Spawn(context, controller.FadeToAsync(context, 0.25F, spec));
-  REQUIRE(application->PumpOnce().HasValue());
+  auto fade = application->BackgroundTasks()
+                  .Spawn(controller.FadeToAsync(context, 0.25F, spec))
+                  .value();
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(fade.IsCompleted());
   CHECK(window->HasActiveAnimations());
 
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   CHECK_FALSE(fade.IsCompleted());
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(fade.IsCompleted());
   auto fadeResult = fade.TakeResult();
   REQUIRE(fadeResult);
   CHECK(fadeResult.Value() == MotionOutcome::Completed);
 
-  auto custom = NGIN::Async::Spawn(
-      context,
-      controller.AnimateToAsync(context, GaugeSweep,
-                                MotionTest::GaugeValue{.sweep = 180.0F}, spec));
-  REQUIRE(application->PumpOnce().HasValue());
+  auto custom = application->BackgroundTasks()
+                    .Spawn(controller.AnimateToAsync(
+                        context, GaugeSweep,
+                        MotionTest::GaugeValue{.sweep = 180.0F}, spec))
+                    .value();
+  REQUIRE(application->PumpOnce().has_value());
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto customResult = custom.TakeResult();
   REQUIRE(customResult);
   CHECK(customResult.Value() == MotionOutcome::Completed);
@@ -697,29 +701,30 @@ TEST_CASE("awaited motion composes sequentially and in parallel") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"MotionComposition"},
       .title = NGIN::Text::String{"Motion composition"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   window->SetContent([&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto context = application->CreateTaskContext();
   const auto spec = AnimationSpec{.timing = TweenTiming{
                                       .duration = 100ms,
                                       .curve = EasingCurve::Linear(),
                                   }};
 
-  auto parallel =
-      NGIN::Async::Spawn(context, RunParallelMotion(context, controller, spec));
+  auto parallel = application->BackgroundTasks()
+                      .Spawn(RunParallelMotion(context, controller, spec))
+                      .value();
   const auto active = [&](const AnimationPropertyId property) {
     return std::ranges::any_of(window->Diagnostics().motion.tracks,
                                [property](const MotionTrackDiagnostics &track) {
@@ -729,14 +734,14 @@ TEST_CASE("awaited motion composes sequentially and in parallel") {
   };
   for (auto index = 0; index < 5 && !active(MotionProperty::Opacity.Id());
        ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   CHECK(active(MotionProperty::Opacity.Id()));
   CHECK(active(MotionProperty::Scale.Id()));
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   for (auto index = 0; index < 12 && !parallel.IsCompleted(); ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   REQUIRE(parallel.IsCompleted());
   auto parallelResult = parallel.TakeResult();
@@ -744,24 +749,25 @@ TEST_CASE("awaited motion composes sequentially and in parallel") {
   CHECK(std::get<0>(parallelResult.Value()) == MotionOutcome::Completed);
   CHECK(std::get<1>(parallelResult.Value()) == MotionOutcome::Completed);
 
-  auto sequence =
-      NGIN::Async::Spawn(context, RunMotionSequence(context, controller, spec));
+  auto sequence = application->BackgroundTasks()
+                      .Spawn(RunMotionSequence(context, controller, spec))
+                      .value();
   for (auto index = 0; index < 5 && !active(MotionProperty::Opacity.Id());
        ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   CHECK(active(MotionProperty::Opacity.Id()));
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   for (auto index = 0; index < 10 && !active(MotionProperty::Translation.Id());
        ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   CHECK(active(MotionProperty::Translation.Id()));
   clock->AdvanceTime(100ms);
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   for (auto index = 0; index < 8 && !sequence.IsCompleted(); ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   REQUIRE(sequence.IsCompleted());
   auto sequenceResult = sequence.TakeResult();
@@ -778,14 +784,14 @@ TEST_CASE("motion controller reports interruption cancellation and unmount") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"MotionOutcomes"},
       .title = NGIN::Text::String{"Motion outcomes"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   bool mounted = true;
   window->SetContent([&](Composer &composer) {
@@ -796,34 +802,40 @@ TEST_CASE("motion controller reports interruption cancellation and unmount") {
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto context = application->CreateTaskContext();
   const auto spec = AnimationSpec{.timing = TweenTiming{.duration = 500ms}};
 
-  auto first = NGIN::Async::Spawn(
-      context, controller.TranslateToAsync(context, Point{100.0F, 0.0F}, spec));
-  REQUIRE(application->PumpOnce().HasValue());
-  auto replacement = NGIN::Async::Spawn(
-      context, controller.TranslateToAsync(context, Point{20.0F, 0.0F}, spec));
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  auto first = application->BackgroundTasks()
+                   .Spawn(controller.TranslateToAsync(
+                       context, Point{100.0F, 0.0F}, spec))
+                   .value();
+  REQUIRE(application->PumpOnce().has_value());
+  auto replacement =
+      application->BackgroundTasks()
+          .Spawn(controller.TranslateToAsync(context, Point{20.0F, 0.0F}, spec))
+          .value();
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto firstResult = first.TakeResult();
   REQUIRE(firstResult);
   CHECK(firstResult.Value() == MotionOutcome::Interrupted);
 
   controller.Cancel(MotionProperty::Translation.Id());
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto replacementResult = replacement.TakeResult();
   REQUIRE(replacementResult);
   CHECK(replacementResult.Value() == MotionOutcome::Canceled);
 
-  auto scale = NGIN::Async::Spawn(
-      context, controller.ScaleToAsync(context, Point{2.0F, 2.0F}, spec));
-  REQUIRE(application->PumpOnce().HasValue());
+  auto scale =
+      application->BackgroundTasks()
+          .Spawn(controller.ScaleToAsync(context, Point{2.0F, 2.0F}, spec))
+          .value();
+  REQUIRE(application->PumpOnce().has_value());
   mounted = false;
   window->Invalidate(InvalidationKind::Compose);
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto scaleResult = scale.TakeResult();
   REQUIRE(scaleResult);
   CHECK(scaleResult.Value() == MotionOutcome::Unmounted);
@@ -837,14 +849,14 @@ TEST_CASE("declarative motion owns a property over a controller target") {
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"MotionOwnership"},
       .title = NGIN::Text::String{"Motion ownership"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   window->SetContent([&](Composer &composer) {
     NodeProperties node{};
@@ -853,14 +865,16 @@ TEST_CASE("declarative motion owns a property over a controller target") {
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto context = application->CreateTaskContext();
-  auto operation = NGIN::Async::Spawn(
-      context, controller.FadeToAsync(
-                   context, 0.2F,
-                   AnimationSpec{.timing = TweenTiming{.duration = 100ms}}));
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  auto operation =
+      application->BackgroundTasks()
+          .Spawn(controller.FadeToAsync(
+              context, 0.2F,
+              AnimationSpec{.timing = TweenTiming{.duration = 100ms}}))
+          .value();
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto result = operation.TakeResult();
   REQUIRE(result);
   CHECK(result.Value() == MotionOutcome::Interrupted);
@@ -877,28 +891,30 @@ TEST_CASE("motion controller completes immediately when motion is reduced") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"ReducedAwaitedMotion"},
       .title = NGIN::Text::String{"Reduced awaited motion"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   window->SetContent([&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto context = application->CreateTaskContext();
-  auto operation = NGIN::Async::Spawn(
-      context, controller.FadeToAsync(
-                   context, 0.0F,
-                   AnimationSpec{.timing = TweenTiming{.duration = 10s}}));
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  auto operation =
+      application->BackgroundTasks()
+          .Spawn(controller.FadeToAsync(
+              context, 0.0F,
+              AnimationSpec{.timing = TweenTiming{.duration = 10s}}))
+          .value();
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto result = operation.TakeResult();
   REQUIRE(result);
   CHECK(result.Value() == MotionOutcome::Completed);
@@ -914,42 +930,46 @@ TEST_CASE(
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto windowResult = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"MotionLifetime"},
       .title = NGIN::Text::String{"Motion lifetime"},
   });
-  REQUIRE(windowResult.HasValue());
-  auto *window = windowResult.Value();
+  REQUIRE(windowResult.has_value());
+  auto *window = windowResult.value();
   MotionController controller;
   window->SetContent([&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto spec = AnimationSpec{.timing = TweenTiming{.duration = 10s}};
 
   NGIN::Async::CancellationSource cancellation;
   auto canceledContext =
       application->CreateTaskContext(cancellation.GetToken());
-  auto canceled = NGIN::Async::Spawn(
-      canceledContext, controller.FadeToAsync(canceledContext, 0.0F, spec));
-  REQUIRE(application->PumpOnce().HasValue());
+  auto canceled =
+      application->BackgroundTasks()
+          .Spawn(controller.FadeToAsync(canceledContext, 0.0F, spec))
+          .value();
+  REQUIRE(application->PumpOnce().has_value());
   cancellation.Cancel();
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   auto canceledResult = canceled.TakeResult();
   REQUIRE(canceledResult);
   CHECK(canceledResult.Value() == MotionOutcome::Canceled);
   CHECK_FALSE(window->HasActiveAnimations());
 
   auto context = application->CreateTaskContext();
-  auto unmounted = NGIN::Async::Spawn(
-      context, controller.TranslateToAsync(context, Point{500.0F, 0.0F}, spec));
-  REQUIRE(application->PumpOnce().HasValue());
-  REQUIRE(application->CloseWindow(*window).HasValue());
-  REQUIRE(application->PumpOnce().HasValue());
+  auto unmounted = application->BackgroundTasks()
+                       .Spawn(controller.TranslateToAsync(
+                           context, Point{500.0F, 0.0F}, spec))
+                       .value();
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE(application->CloseWindow(*window).has_value());
+  REQUIRE(application->PumpOnce().has_value());
   auto unmountedResult = unmounted.TakeResult();
   REQUIRE(unmountedResult);
   CHECK(unmountedResult.Value() == MotionOutcome::Unmounted);
@@ -967,26 +987,28 @@ TEST_CASE("application shutdown cancels and drains motion continuations") {
         .platform = std::make_unique<TestPlatformBackend>(),
         .renderer = std::make_unique<RecordingRenderBackend>(),
     });
-    REQUIRE(created.HasValue());
-    auto application = std::move(created).Value();
+    REQUIRE(created.has_value());
+    auto application = std::move(created).value();
     auto windowResult = application->CreateWindow(WindowCreateInfo{
         .id = NGIN::Text::String{"MotionShutdown"},
         .title = NGIN::Text::String{"Motion shutdown"},
     });
-    REQUIRE(windowResult.HasValue());
-    auto *window = windowResult.Value();
+    REQUIRE(windowResult.has_value());
+    auto *window = windowResult.value();
     window->SetContent([&](Composer &composer) {
       NodeProperties node{};
       controller.Attach(node.motion);
       composer.Border([] {}, node, "controlled");
     });
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
     context.emplace(application->CreateTaskContext());
-    operation.emplace(NGIN::Async::Spawn(
-        *context, controller.ScaleToAsync(
-                      *context, Point{3.0F, 3.0F},
-                      AnimationSpec{.timing = TweenTiming{.duration = 10s}})));
-    REQUIRE(application->PumpOnce().HasValue());
+    operation.emplace(
+        application->BackgroundTasks()
+            .Spawn(controller.ScaleToAsync(
+                *context, Point{3.0F, 3.0F},
+                AnimationSpec{.timing = TweenTiming{.duration = 10s}}))
+            .value());
+    REQUIRE(application->PumpOnce().has_value());
     CHECK_FALSE(operation->IsCompleted());
   }
 
@@ -994,4 +1016,172 @@ TEST_CASE("application shutdown cancels and drains motion continuations") {
   auto result = operation->TakeResult();
   REQUIRE(result);
   CHECK(result.Value() == MotionOutcome::Unmounted);
+}
+
+namespace {
+struct MotionDeliveryScheduler final {
+  NGIN::Execution::CooperativeScheduler queue;
+  bool rejectOrdinary{false};
+  bool rejectReservations{false};
+  auto Execute(NGIN::Execution::WorkItem work) noexcept
+      -> NGIN::Execution::ScheduleResult {
+    if (rejectOrdinary)
+      return std::unexpected(NGIN::Execution::ScheduleError::Stopped);
+    return queue.Execute(std::move(work));
+  }
+  auto ExecuteAt(NGIN::Execution::WorkItem work,
+                 NGIN::Time::TimePoint when) noexcept
+      -> NGIN::Execution::ScheduleResult {
+    if (rejectOrdinary)
+      return std::unexpected(NGIN::Execution::ScheduleError::Stopped);
+    return queue.ExecuteAt(std::move(work), when);
+  }
+  auto ReserveCompletion(NGIN::Execution::WorkItem work) noexcept
+      -> std::expected<NGIN::Execution::CompletionReservation,
+                       NGIN::Execution::ScheduleError> {
+    if (rejectReservations)
+      return std::unexpected(NGIN::Execution::ScheduleError::ResourceExhausted);
+    return queue.ReserveCompletion(std::move(work));
+  }
+};
+struct MotionDeliveryFixture final {
+  std::unique_ptr<NGIN::UI::Application> application;
+  NGIN::UI::MotionController controller;
+  NGIN::UI::Window *window{};
+  MotionDeliveryFixture() {
+    using namespace NGIN::UI;
+    auto created = CreateApplication(ApplicationCreateInfo{
+        .platform = std::make_unique<Testing::TestPlatformBackend>(),
+        .renderer = std::make_unique<Testing::RecordingRenderBackend>()});
+    REQUIRE(created);
+    application = std::move(created).value();
+    auto createdWindow = application->CreateWindow(
+        WindowCreateInfo{.id = NGIN::Text::String{"MotionDelivery"},
+                         .title = NGIN::Text::String{"Motion delivery"}});
+    REQUIRE(createdWindow);
+    window = *createdWindow;
+    window->SetContent([this](Composer &composer) {
+      NodeProperties node;
+      controller.Attach(node.motion);
+      composer.Border([] {}, node, "controlled");
+    });
+    REQUIRE(application->PumpOnce());
+  }
+};
+struct MotionRegistrationResource final : std::pmr::memory_resource {
+  bool reject{false};
+  void *do_allocate(std::size_t bytes, std::size_t alignment) override {
+    if (reject)
+      throw std::bad_alloc{};
+    return std::pmr::new_delete_resource()->allocate(bytes, alignment);
+  }
+  void do_deallocate(void *pointer, std::size_t bytes,
+                     std::size_t alignment) override {
+    std::pmr::new_delete_resource()->deallocate(pointer, bytes, alignment);
+  }
+  bool
+  do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    return this == &other;
+  }
+};
+} // namespace
+
+TEST_CASE("motion admission rejects unavailable completion delivery before "
+          "publication") {
+  MotionDeliveryFixture ui;
+  MotionDeliveryScheduler scheduler;
+  NGIN::Async::TaskSupervisor<> owner{NGIN::Async::AsyncEnvironment{
+      .executor = NGIN::Execution::ExecutorRef::From(scheduler)}};
+  NGIN::Async::TaskContext context{
+      NGIN::Execution::ExecutorRef::From(scheduler)};
+  auto admitted = owner.Spawn(ui.controller.FadeToAsync(context, 0.25F));
+  REQUIRE(admitted);
+  scheduler.rejectReservations = true;
+  scheduler.queue.RunUntilIdle();
+  auto result = admitted->TakeResult();
+  REQUIRE(result.HasError());
+  CHECK(result.Error().Fault().code ==
+        NGIN::Async::AsyncFaultCode::ContinuationDispatchFailed);
+  CHECK(result.Error().Fault().native ==
+        static_cast<int>(NGIN::Execution::ScheduleError::ResourceExhausted));
+  REQUIRE(ui.application->PumpOnce());
+  CHECK_FALSE(ui.window->HasActiveAnimations());
+  REQUIRE(owner.TryJoin());
+}
+
+TEST_CASE(
+    "motion reserved delivery survives closure and joins owner shutdown") {
+  MotionDeliveryFixture ui;
+  MotionDeliveryScheduler scheduler;
+  NGIN::Async::TaskSupervisor<> owner{NGIN::Async::AsyncEnvironment{
+      .executor = NGIN::Execution::ExecutorRef::From(scheduler)}};
+  NGIN::Async::TaskContext context{
+      NGIN::Execution::ExecutorRef::From(scheduler)};
+  context.BindCancellationToken(owner.GetCancellationToken());
+  auto admitted = owner.Spawn(ui.controller.FadeToAsync(context, 0.25F));
+  REQUIRE(admitted);
+  scheduler.queue.RunUntilIdle();
+  REQUIRE_FALSE(admitted->IsCompleted());
+  scheduler.rejectOrdinary = true;
+  scheduler.rejectReservations = true;
+  owner.Close();
+  owner.RequestStop(NGIN::Async::StopReason::RuntimeShutdown);
+  scheduler.queue.RunUntilIdle();
+  auto result = admitted->TakeResult();
+  REQUIRE(result.Succeeded());
+  CHECK(result.Value() == NGIN::UI::MotionOutcome::Canceled);
+  REQUIRE(owner.TryJoin());
+}
+
+TEST_CASE("motion cancellation registration failure is observable without "
+          "starting animation") {
+  MotionDeliveryFixture ui;
+  MotionDeliveryScheduler scheduler;
+  MotionRegistrationResource resource;
+  NGIN::Async::CancellationSource cancellation{&resource};
+  NGIN::Async::TaskSupervisor<> owner{NGIN::Async::AsyncEnvironment{
+      .executor = NGIN::Execution::ExecutorRef::From(scheduler)}};
+  NGIN::Async::TaskContext context{
+      NGIN::Execution::ExecutorRef::From(scheduler)};
+  context.BindCancellationToken(cancellation.GetToken());
+  auto admitted = owner.Spawn(ui.controller.FadeToAsync(context, 0.25F));
+  REQUIRE(admitted);
+  resource.reject = true;
+  scheduler.queue.RunUntilIdle();
+  auto result = admitted->TakeResult();
+  REQUIRE(result.HasError());
+  CHECK(result.Error().Fault().code ==
+        NGIN::Async::AsyncFaultCode::CancellationRegistrationFailed);
+  REQUIRE(ui.application->PumpOnce());
+  CHECK_FALSE(ui.window->HasActiveAnimations());
+  REQUIRE(owner.TryJoin());
+}
+
+TEST_CASE("already canceled motion cannot replace an admitted animation") {
+  MotionDeliveryFixture ui;
+  MotionDeliveryScheduler scheduler;
+  NGIN::Async::TaskSupervisor<> owner{NGIN::Async::AsyncEnvironment{
+      .executor = NGIN::Execution::ExecutorRef::From(scheduler)}};
+  NGIN::Async::TaskContext context{
+      NGIN::Execution::ExecutorRef::From(scheduler)};
+  auto first = owner.Spawn(ui.controller.FadeToAsync(context, 0.25F));
+  REQUIRE(first);
+  scheduler.queue.RunUntilIdle();
+  REQUIRE_FALSE(first->IsCompleted());
+
+  NGIN::Async::CancellationSource canceled;
+  canceled.Cancel();
+  auto canceledContext = context.WithCancellationToken(canceled.GetToken());
+  auto replacement =
+      owner.Spawn(ui.controller.FadeToAsync(canceledContext, 0.5F));
+  REQUIRE(replacement);
+  scheduler.queue.RunUntilIdle();
+  auto result = replacement->TakeResult();
+  REQUIRE(result.Succeeded());
+  CHECK(result.Value() == NGIN::UI::MotionOutcome::Canceled);
+  CHECK_FALSE(first->IsCompleted());
+  ui.controller.CancelAll();
+  scheduler.queue.RunUntilIdle();
+  REQUIRE(first->IsCompleted());
+  REQUIRE(owner.TryJoin());
 }

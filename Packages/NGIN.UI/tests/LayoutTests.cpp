@@ -651,7 +651,7 @@ TEST_CASE("text field paints shaped selection composition and caret geometry") {
   REQUIRE(textField->textField.editing != nullptr);
   REQUIRE(textField->textField.editing
               ->UpdateComposition(NGIN::Text::String{"XY"}, 0, 1)
-              .HasValue());
+              .has_value());
   textField->interaction.focused = true;
 
   LayoutEngine layout{tree};
@@ -719,21 +719,21 @@ TEST_CASE("display-list builder diagnoses unbalanced scopes") {
 
   DisplayListBuilder underflow;
   auto popped = underflow.PopClip();
-  REQUIRE_FALSE(popped.HasValue());
-  REQUIRE(popped.Error().code == UIErrorCode::InvalidState);
+  REQUIRE_FALSE(popped.has_value());
+  REQUIRE(popped.error().code == UIErrorCode::InvalidState);
 
   DisplayListBuilder unbalanced;
   unbalanced.PushClip(Rect{0.0F, 0.0F, 10.0F, 10.0F});
   auto unfinished = std::move(unbalanced).Finish();
-  REQUIRE_FALSE(unfinished.HasValue());
+  REQUIRE_FALSE(unfinished.has_value());
 
   DisplayListBuilder balanced;
   balanced.PushClip(Rect{0.0F, 0.0F, 10.0F, 10.0F});
   balanced.Fill(Rect{1.0F, 1.0F, 2.0F, 2.0F}, Color{1.0F, 0.0F, 0.0F, 1.0F});
-  REQUIRE(balanced.PopClip().HasValue());
+  REQUIRE(balanced.PopClip().has_value());
   auto finished = std::move(balanced).Finish();
-  REQUIRE(finished.HasValue());
-  REQUIRE(finished.Value().size() == 3);
+  REQUIRE(finished.has_value());
+  REQUIRE(finished.value().size() == 3);
 }
 
 TEST_CASE("UI renderer tessellates antialiased and batched solid rectangles") {

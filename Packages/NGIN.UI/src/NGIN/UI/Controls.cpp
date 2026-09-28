@@ -18,7 +18,7 @@ namespace {
   if (presentation.onError) {
     presentation.onError(error);
   }
-  return error;
+  return std::unexpected(std::move(error));
 }
 
 [[nodiscard]] auto ValueText(const F32 value) -> NGIN::Text::String {
@@ -49,7 +49,7 @@ auto RoutePress(CustomElementContext &context, RoutedPointerEvent &event,
                 Activate &&activate) -> UIResult<InvalidationKind> {
   auto state = context.State<PressState>("press");
   if (!state) {
-    return std::move(state).Error();
+    return std::unexpected(std::move(state).error());
   }
   if (event.button != PointerButton::Primary &&
       (event.eventKind == RoutedPointerEventKind::ButtonPressed ||
@@ -58,21 +58,21 @@ auto RoutePress(CustomElementContext &context, RoutedPointerEvent &event,
   }
   if (event.eventKind == RoutedPointerEventKind::ButtonPressed &&
       context.Interaction().enabled) {
-    state.Value()->pressed = true;
+    state.value()->pressed = true;
     event.CapturePointer();
     event.Handle();
     return InvalidationKind::Paint;
   }
   if (event.eventKind == RoutedPointerEventKind::ButtonReleased &&
-      state.Value()->pressed) {
-    state.Value()->pressed = false;
+      state.value()->pressed) {
+    state.value()->pressed = false;
     event.ReleasePointerCapture();
     event.Handle();
     if (context.Interaction().enabled &&
         LocalContains(context, event.position)) {
       auto result = std::forward<Activate>(activate)();
       if (!result) {
-        return std::move(result).Error();
+        return std::unexpected(std::move(result).error());
       }
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
@@ -171,7 +171,7 @@ public:
       event.Handle();
       auto toggled = Toggle();
       if (!toggled) {
-        return std::move(toggled).Error();
+        return std::unexpected(std::move(toggled).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
@@ -183,13 +183,14 @@ public:
       -> UIResult<InvalidationKind> override {
     if (request.action != SemanticActionKind::Activate ||
         !context.Interaction().enabled) {
-      return MakeUIError(UIErrorCode::Unsupported,
-                         "The checkbox cannot perform this semantic action",
-                         "NGIN.UI", "CheckBox::SemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::Unsupported,
+                      "The checkbox cannot perform this semantic action",
+                      "NGIN.UI", "CheckBox::SemanticAction"));
     }
     auto toggled = Toggle();
     if (!toggled) {
-      return std::move(toggled).Error();
+      return std::unexpected(std::move(toggled).error());
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -201,7 +202,7 @@ private:
                           : CheckState::Checked;
     auto changed = m_value.Set(next);
     if (!changed) {
-      return ErrorResult(m_presentation, std::move(changed).Error());
+      return ErrorResult(m_presentation, std::move(changed).error());
     }
     return {};
   }
@@ -261,8 +262,7 @@ public:
     auto result = m_semantics;
     result.role = SemanticRole::RadioButton;
     result.actions = SemanticActionFlags::Activate |
-                     SemanticActionFlags::Focus |
-                     SemanticActionFlags::Select;
+                     SemanticActionFlags::Focus | SemanticActionFlags::Select;
     if (m_selection.isSelected && m_selection.isSelected()) {
       result.states |=
           SemanticStateFlags::Selected | SemanticStateFlags::Checked;
@@ -286,7 +286,7 @@ public:
       event.Handle();
       auto selected = Select();
       if (!selected) {
-        return std::move(selected).Error();
+        return std::unexpected(std::move(selected).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
@@ -299,13 +299,14 @@ public:
     if ((request.action != SemanticActionKind::Activate &&
          request.action != SemanticActionKind::Select) ||
         !context.Interaction().enabled) {
-      return MakeUIError(UIErrorCode::Unsupported,
-                         "The radio button cannot perform this semantic action",
-                         "NGIN.UI", "RadioButton::SemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::Unsupported,
+                      "The radio button cannot perform this semantic action",
+                      "NGIN.UI", "RadioButton::SemanticAction"));
     }
     auto selected = Select();
     if (!selected) {
-      return std::move(selected).Error();
+      return std::unexpected(std::move(selected).error());
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -320,7 +321,7 @@ private:
     }
     auto changed = m_selection.select();
     if (!changed) {
-      return ErrorResult(m_presentation, std::move(changed).Error());
+      return ErrorResult(m_presentation, std::move(changed).error());
     }
     return {};
   }
@@ -401,7 +402,7 @@ public:
       event.Handle();
       auto toggled = Toggle();
       if (!toggled) {
-        return std::move(toggled).Error();
+        return std::unexpected(std::move(toggled).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
@@ -413,13 +414,14 @@ public:
       -> UIResult<InvalidationKind> override {
     if (request.action != SemanticActionKind::Activate ||
         !context.Interaction().enabled) {
-      return MakeUIError(UIErrorCode::Unsupported,
-                         "The switch cannot perform this semantic action",
-                         "NGIN.UI", "ToggleSwitch::SemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::Unsupported,
+                      "The switch cannot perform this semantic action",
+                      "NGIN.UI", "ToggleSwitch::SemanticAction"));
     }
     auto toggled = Toggle();
     if (!toggled) {
-      return std::move(toggled).Error();
+      return std::unexpected(std::move(toggled).error());
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -428,7 +430,7 @@ private:
   auto Toggle() -> UIResult<void> {
     auto changed = m_value.Set(!m_value.Get());
     if (!changed) {
-      return ErrorResult(m_presentation, std::move(changed).Error());
+      return ErrorResult(m_presentation, std::move(changed).error());
     }
     return {};
   }
@@ -518,37 +520,37 @@ public:
       -> UIResult<InvalidationKind> override {
     auto drag = context.State<SliderDragState>("drag");
     if (!drag) {
-      return std::move(drag).Error();
+      return std::unexpected(std::move(drag).error());
     }
     if (event.eventKind == RoutedPointerEventKind::ButtonPressed &&
         event.button == PointerButton::Primary &&
         context.Interaction().enabled) {
-      drag.Value()->dragging = true;
+      drag.value()->dragging = true;
       event.CapturePointer();
       event.Handle();
       auto changed = SetFromPoint(context, event.position);
       if (!changed) {
-        return std::move(changed).Error();
+        return std::unexpected(std::move(changed).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
     if (event.eventKind == RoutedPointerEventKind::Moved &&
-        drag.Value()->dragging) {
+        drag.value()->dragging) {
       event.Handle();
       auto changed = SetFromPoint(context, event.position);
       if (!changed) {
-        return std::move(changed).Error();
+        return std::unexpected(std::move(changed).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
     if (event.eventKind == RoutedPointerEventKind::ButtonReleased &&
-        event.button == PointerButton::Primary && drag.Value()->dragging) {
-      drag.Value()->dragging = false;
+        event.button == PointerButton::Primary && drag.value()->dragging) {
+      drag.value()->dragging = false;
       event.ReleasePointerCapture();
       event.Handle();
       auto changed = SetFromPoint(context, event.position);
       if (!changed) {
-        return std::move(changed).Error();
+        return std::unexpected(std::move(changed).error());
       }
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
@@ -577,7 +579,7 @@ public:
     event.Handle();
     auto changed = SetValue(next);
     if (!changed) {
-      return std::move(changed).Error();
+      return std::unexpected(std::move(changed).error());
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -586,9 +588,9 @@ public:
                       const SemanticActionRequest &request)
       -> UIResult<InvalidationKind> override {
     if (!context.Interaction().enabled) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "The slider is disabled", "NGIN.UI",
-                         "Slider::SemanticAction");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                         "The slider is disabled", "NGIN.UI",
+                                         "Slider::SemanticAction"));
     }
     auto next = m_value.Get();
     switch (request.action) {
@@ -602,13 +604,14 @@ public:
       next -= m_range.step;
       break;
     default:
-      return MakeUIError(UIErrorCode::Unsupported,
-                         "The slider cannot perform this semantic action",
-                         "NGIN.UI", "Slider::SemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::Unsupported,
+                      "The slider cannot perform this semantic action",
+                      "NGIN.UI", "Slider::SemanticAction"));
     }
     auto changed = SetValue(next);
     if (!changed) {
-      return std::move(changed).Error();
+      return std::unexpected(std::move(changed).error());
     }
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -637,7 +640,7 @@ private:
     value = std::clamp(value, m_range.minimum, m_range.maximum);
     auto changed = m_value.Set(value);
     if (!changed) {
-      return ErrorResult(m_presentation, std::move(changed).Error());
+      return ErrorResult(m_presentation, std::move(changed).error());
     }
     return {};
   }
@@ -676,18 +679,15 @@ public:
       const auto phase = context.IsMotionActive()
                              ? std::clamp(context.MotionValue(), 0.0F, 1.0F)
                              : 0.5F;
-      paint.FillRounded(
-          Rect{-chunkWidth + (bounds.width + chunkWidth) * phase, 0.0F,
-               chunkWidth, bounds.height},
-          radius,
-          foreground);
+      paint.FillRounded(Rect{-chunkWidth + (bounds.width + chunkWidth) * phase,
+                             0.0F, chunkWidth, bounds.height},
+                        radius, foreground);
     } else {
       paint.FillRounded(
           Rect{0.0F, 0.0F,
                bounds.width * std::clamp(context.MotionValue(), 0.0F, 1.0F),
                bounds.height},
-          radius,
-          foreground);
+          radius, foreground);
     }
     if (m_presentation.invalid) {
       paint.StrokeRounded(bounds, radius, 1.0F, colors.error);
@@ -784,16 +784,17 @@ void ProgressBar(Composer &composer, const ProgressValue value,
   auto control = PrepareProperties(properties, Size{220.0F, 12.0F}, false);
   if (!control.motion.value) {
     if (value.indeterminate) {
-      control.motion.value = AnimateFrom(
-          0.0F, 1.0F,
-          AnimationSpec{
-              .timing = TweenTiming{
-                  .duration = std::chrono::milliseconds{1200},
-                  .curve = EasingCurve::Linear(),
-              },
-              .repeatCount = 0,
-              .repeatMode = AnimationRepeatMode::Restart,
-          });
+      control.motion.value =
+          AnimateFrom(0.0F, 1.0F,
+                      AnimationSpec{
+                          .timing =
+                              TweenTiming{
+                                  .duration = std::chrono::milliseconds{1200},
+                                  .curve = EasingCurve::Linear(),
+                              },
+                          .repeatCount = 0,
+                          .repeatMode = AnimationRepeatMode::Restart,
+                      });
     } else {
       const auto extent = value.maximum - value.minimum;
       const auto fraction =
@@ -803,11 +804,12 @@ void ProgressBar(Composer &composer, const ProgressValue value,
       control.motion.value = Animate(
           fraction,
           AnimationSpec{
-              .timing = TweenTiming{
-                  .duration = std::chrono::milliseconds{static_cast<Int64>(
-                      presentation.theme.motion.regularMilliseconds)},
-                  .curve = EasingCurve::Standard(),
-              },
+              .timing =
+                  TweenTiming{
+                      .duration = std::chrono::milliseconds{static_cast<Int64>(
+                          presentation.theme.motion.regularMilliseconds)},
+                      .curve = EasingCurve::Standard(),
+                  },
           });
     }
   }
@@ -882,7 +884,7 @@ void ToolTipController::Attach(NodeProperties &target) {
                                                InvalidationKind::Paint |
                                                InvalidationKind::Semantics);
           });
-          state->pending = scheduled ? scheduled.Value() : 0;
+          state->pending = scheduled ? scheduled.value() : 0;
         } else if (event.eventKind == RoutedPointerEventKind::Exited) {
           if (state->pending != 0) {
             static_cast<void>(state->window->CancelScheduled(state->pending));

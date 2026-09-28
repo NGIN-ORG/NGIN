@@ -106,7 +106,7 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
           },
           [](Composer &, DetailViewModel &, const DetailParameter &) {});
   REQUIRE_FALSE(duplicateId);
-  REQUIRE(duplicateId.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE(duplicateId.error().code == UIErrorCode::InvalidArgument);
 
   struct OtherPage final {};
   const auto duplicateRoute = registry.Register<OtherPage, HomeViewModel>(
@@ -124,7 +124,7 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
       {.id = "missing-factory"}, std::move(missingFactory),
       [](Composer &, HomeViewModel &, const NoNavigationParameter &) {});
   REQUIRE_FALSE(missing);
-  REQUIRE(missing.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE(missing.error().code == UIErrorCode::InvalidArgument);
 
   registry.Freeze();
   struct LatePage final {};
@@ -134,7 +134,7 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
          std::string_view) { return Lease(std::make_shared<HomeViewModel>()); },
       [](Composer &, HomeViewModel &, const NoNavigationParameter &) {});
   REQUIRE_FALSE(late);
-  REQUIRE(late.Error().code == UIErrorCode::InvalidState);
+  REQUIRE(late.error().code == UIErrorCode::InvalidState);
 }
 
 TEST_CASE("Navigation is typed rollback safe and retains stack entries",
@@ -148,7 +148,8 @@ TEST_CASE("Navigation is typed rollback safe and retains stack entries",
       {.id = "failing"},
       [](PageActivationContext &, const NoNavigationParameter &,
          std::string_view) -> UIResult<PageLease<HomeViewModel>> {
-        return MakeUIError(UIErrorCode::ResourceFailed, "expected failure");
+        return std::unexpected(
+            MakeUIError(UIErrorCode::ResourceFailed, "expected failure"));
       },
       [](Composer &, HomeViewModel &, const NoNavigationParameter &) {}));
 
@@ -221,8 +222,8 @@ TEST_CASE("Navigation cache is explicit bounded and reusable",
   const auto restored =
       navigation.Navigate<DetailPage>(DetailParameter{999}, "one");
   REQUIRE(restored);
-  REQUIRE(restored.Value().restoredFromCache);
-  REQUIRE(restored.Value().entryId == first.Value().entryId);
+  REQUIRE(restored.value().restoredFromCache);
+  REQUIRE(restored.value().entryId == first.value().entryId);
   REQUIRE(activations == 1);
 
   REQUIRE(navigation.Back());
@@ -248,7 +249,7 @@ TEST_CASE("Navigation enforces scheduler keyboard back and region isolation",
 
   const auto wrongThread = first.Start<HomePage>();
   REQUIRE_FALSE(wrongThread);
-  REQUIRE(wrongThread.Error().code == UIErrorCode::WrongThread);
+  REQUIRE(wrongThread.error().code == UIErrorCode::WrongThread);
   onScheduler = true;
   REQUIRE(first.Start<HomePage>());
   REQUIRE(first.Navigate<DetailPage>(DetailParameter{3}));
@@ -260,7 +261,7 @@ TEST_CASE("Navigation enforces scheduler keyboard back and region isolation",
       KeyChanged{.logicalKey = static_cast<UInt32>(LogicalKey::Left),
                  .state = KeyState::Pressed,
                  .modifiers = static_cast<UInt32>(KeyModifierFlags::Alt)};
-  REQUIRE(first.HandleBackEvent(back).Value());
+  REQUIRE(first.HandleBackEvent(back).value());
   REQUIRE(first.StackDepth() == 1);
   REQUIRE(second.StackDepth() == 1);
 }
@@ -269,7 +270,7 @@ TEST_CASE("Navigation rejects reentrant mutations", "[navigation]") {
   PageRegistry registry;
   NavigationService *active = nullptr;
   UIResult<NavigationChange> nested =
-      MakeUIError(UIErrorCode::InvalidState, "not attempted");
+      std::unexpected(MakeUIError(UIErrorCode::InvalidState, "not attempted"));
   REQUIRE(RegisterHome(registry, nullptr, &active, &nested));
   REQUIRE(RegisterDetail(registry));
   TestContext context;
@@ -278,7 +279,7 @@ TEST_CASE("Navigation rejects reentrant mutations", "[navigation]") {
 
   REQUIRE(navigation.Start<HomePage>());
   REQUIRE_FALSE(nested);
-  REQUIRE(nested.Error().code == UIErrorCode::InvalidState);
+  REQUIRE(nested.error().code == UIErrorCode::InvalidState);
   REQUIRE(navigation.StackDepth() == 1);
 }
 
@@ -298,10 +299,10 @@ TEST_CASE("Headless navigation helpers override services and detect leaks",
         REQUIRE(&activation == &context);
         auto service = context.ResolveRequired<GreetingService>();
         if (!service) {
-          return NGIN::Utilities::Unexpected<UIError>(service.Error());
+          return NGIN::Utilities::Unexpected<UIError>(service.error());
         }
         return context.Lease(std::make_shared<HomeViewModel>(
-            HomeViewModel{.value = service.Value()->value}));
+            HomeViewModel{.value = service.value()->value}));
       },
       [](Composer &, HomeViewModel &, const NoNavigationParameter &) {}));
 

@@ -58,7 +58,7 @@ nameValidation.AddSyncValidator([](const Text::String& value) {
 });
 
 nameValidation.SetAsyncValidator(
-    application.CreateTaskContext(window),
+    application.BackgroundTasks(), application.CreateTaskContext(window),
     [](Async::TaskContext& context, Text::String value)
         -> Async::Task<std::vector<UI::ValidationIssue>,
                        UI::ValidationIssue> {

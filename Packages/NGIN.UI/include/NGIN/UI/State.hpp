@@ -301,8 +301,9 @@ public:
 
   [[nodiscard]] auto Set(T value) const -> UIResult<void> {
     if (!m_setter) {
-      return MakeUIError(UIErrorCode::InvalidState, "Binding is not writable",
-                         "NGIN.UI", "Binding::Set");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                         "Binding is not writable", "NGIN.UI",
+                                         "Binding::Set"));
     }
     return m_setter(std::move(value));
   }
@@ -320,12 +321,12 @@ public:
          validator = std::move(validator)](T value) mutable -> UIResult<void> {
           auto valid = validator(value);
           if (!valid) {
-            return std::move(valid).Error();
+            return std::unexpected(std::move(valid).error());
           }
           if (!setter) {
-            return MakeUIError(UIErrorCode::InvalidState,
-                               "Binding is not writable", "NGIN.UI",
-                               "Binding::Set");
+            return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                               "Binding is not writable",
+                                               "NGIN.UI", "Binding::Set"));
           }
           return setter(std::move(value));
         },
@@ -433,7 +434,7 @@ public:
             std::move(compute), std::move(scheduler), invalidation)) {
     auto configured = SetDependencies(std::move(dependencies));
     if (!configured) {
-      m_storage->configurationError = configured.Error();
+      m_storage->configurationError = configured.error();
     }
   }
 
@@ -471,9 +472,10 @@ public:
     for (const auto &dependency : dependencies) {
       const auto &node = dependency.ObservableNode();
       if (node && (node == target || Detail::DependsOn(node, target))) {
-        return MakeUIError(UIErrorCode::InvalidArgument,
-                           "Computed-state dependency cycle detected",
-                           "NGIN.UI", "ComputedState::SetDependencies");
+        return std::unexpected(
+            MakeUIError(UIErrorCode::InvalidArgument,
+                        "Computed-state dependency cycle detected", "NGIN.UI",
+                        "ComputedState::SetDependencies"));
       }
     }
 

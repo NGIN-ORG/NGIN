@@ -64,15 +64,15 @@ auto main(const int argc, char **argv) -> int {
   });
   if (!createdApplication) {
     return ReportError("Application creation failed",
-                       createdApplication.Error());
+                       createdApplication.error());
   }
-  auto application = std::move(createdApplication).Value();
+  auto application = std::move(createdApplication).value();
 
   auto createdText = NativeTextSystem::Create(application->Renderer());
   if (!createdText) {
-    return ReportError("Native text creation failed", createdText.Error());
+    return ReportError("Native text creation failed", createdText.error());
   }
-  auto text = std::move(createdText).Value();
+  auto text = std::move(createdText).value();
   text->SetResourcesInvalidatedCallback(
       [applicationObserver = application.get()] {
         applicationObserver->InvalidateAll(InvalidationKind::All);
@@ -84,7 +84,7 @@ auto main(const int argc, char **argv) -> int {
   }
   auto window = NGIN::UIGallery::CreateMainWindow(*application, *text, model);
   if (!window) {
-    return ReportError("Window creation failed", window.Error());
+    return ReportError("Window creation failed", window.error());
   }
 
   if (smoke) {
@@ -92,12 +92,16 @@ auto main(const int argc, char **argv) -> int {
       model.SelectPage(NGIN::UIGallery::PageAt(page));
       auto pumped = application->PumpOnce();
       if (!pumped) {
-        return ReportError("Native smoke frame failed", pumped.Error());
+        return ReportError("Native smoke frame failed", pumped.error());
       }
+    }
+    auto shutdown = application->ShutdownTasks();
+    if (!shutdown) {
+      return ReportError("Application task shutdown failed", shutdown.error());
     }
     return 0;
   }
 
   auto run = application->Run();
-  return run ? 0 : ReportError("Application run failed", run.Error());
+  return run ? 0 : ReportError("Application run failed", run.error());
 }

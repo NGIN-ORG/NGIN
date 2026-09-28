@@ -27,3 +27,8 @@ catalogue through deterministic test backends.
 
 The `Release` profile can publish the versioned demo archive described in the
 [0.4 release notes](../../docs/guides/ngin-ui-v0.4-release.md).
+
+The four asynchronous motion actions transfer work to the application's
+background supervisor and display a status message if admission is rejected.
+Normal application exit joins that work through `Application::Run`; smoke mode
+explicitly calls `ShutdownTasks()` before releasing the gallery model.

@@ -144,7 +144,7 @@ auto FixedVirtualizedListController::Navigate(
   }
   auto activated = Activate(target);
   if (!activated) {
-    return std::move(activated).Error();
+    return std::unexpected(std::move(activated).error());
   }
   return EnsureVisible(target, currentOffset, viewportExtent);
 }
@@ -165,13 +165,13 @@ auto FixedVirtualizedListController::TypeAhead(const std::string_view prefix,
     if (!label) {
       continue;
     }
-    const auto candidate = LowerAscii(label.Value().View());
+    const auto candidate = LowerAscii(label.value().View());
     if (!candidate.starts_with(wanted)) {
       continue;
     }
     auto activated = Activate(index);
     if (!activated) {
-      return std::move(activated).Error();
+      return std::unexpected(std::move(activated).error());
     }
     return EnsureVisible(index, currentOffset, viewportExtent);
   }
@@ -221,9 +221,10 @@ auto FixedVirtualizedListController::SelectedIndex()
 auto FixedVirtualizedListController::KeyAt(const UIntSize index)
     -> UIResult<NGIN::Text::String> {
   if (index >= m_source.logicalItemCount || !m_source.keyAt) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Virtualized item key index is out of range", "NGIN.UI",
-                       "FixedVirtualizedListController::KeyAt");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Virtualized item key index is out of range", "NGIN.UI",
+                    "FixedVirtualizedListController::KeyAt"));
   }
   return m_source.keyAt(index);
 }
@@ -231,9 +232,10 @@ auto FixedVirtualizedListController::KeyAt(const UIntSize index)
 auto FixedVirtualizedListController::LabelAt(const UIntSize index)
     -> UIResult<NGIN::Text::String> {
   if (index >= m_source.logicalItemCount || !m_source.labelAt) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Virtualized item label index is out of range",
-                       "NGIN.UI", "FixedVirtualizedListController::LabelAt");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Virtualized item label index is out of range", "NGIN.UI",
+                    "FixedVirtualizedListController::LabelAt"));
   }
   return m_source.labelAt(index);
 }
@@ -243,10 +245,10 @@ auto FixedVirtualizedListController::StableSemanticId(const ElementId list,
     -> UInt64 {
   auto key = KeyAt(index);
   if (!key) {
-    Report(key.Error());
+    Report(key.error());
     return list.value ^ (0x8000000000000000ULL + index + 1);
   }
-  auto value = FnvMix(1469598103934665603ULL ^ list.value, key.Value().View());
+  auto value = FnvMix(1469598103934665603ULL ^ list.value, key.value().View());
   value |= 0x8000000000000000ULL;
   return value == 0 ? 1 : value;
 }
@@ -264,13 +266,14 @@ auto FixedVirtualizedListController::SemanticProxyIndex(const ElementId list,
 auto FixedVirtualizedListController::Activate(const UIntSize index)
     -> UIResult<void> {
   if (index >= m_source.logicalItemCount || !m_source.activate) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Virtualized activation index is out of range",
-                       "NGIN.UI", "FixedVirtualizedListController::Activate");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Virtualized activation index is out of range", "NGIN.UI",
+                    "FixedVirtualizedListController::Activate"));
   }
   auto activated = m_source.activate(index);
   if (!activated) {
-    Report(activated.Error());
+    Report(activated.error());
   }
   return activated;
 }
@@ -333,7 +336,7 @@ void FixedVirtualizedListController::RecalculateRange(const bool schedule,
     auto requested = m_source.requestRange(next);
     ++m_rangeRequestCount;
     if (!requested) {
-      Report(requested.Error());
+      Report(requested.error());
     }
   }
   m_requestedRange = next.count == 0 ? std::optional<VirtualizedRange>{}
@@ -354,10 +357,10 @@ void FixedVirtualizedListController::UpdateAnchor() {
       static_cast<UIntSize>(std::floor(m_viewportOffset / ItemStride())));
   auto key = m_source.keyAt(index);
   if (!key) {
-    Report(key.Error());
+    Report(key.error());
     return;
   }
-  m_anchorKey = std::move(key).Value();
+  m_anchorKey = std::move(key).value();
   m_anchorWithinItem =
       m_viewportOffset - static_cast<F32>(index) * ItemStride();
 }

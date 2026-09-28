@@ -126,7 +126,7 @@ auto Command::ExecuteStorage(const std::shared_ptr<Storage> &storage)
 #endif
     auto result = storage->action();
     if (!result) {
-      auto error = std::move(result).Error();
+      auto error = std::move(result).error();
       outcome.kind = error.kind == CommandErrorKind::Domain
                          ? CommandOutcomeKind::DomainError
                          : CommandOutcomeKind::Fault;
@@ -223,14 +223,17 @@ struct AsyncCommand::Run final {
   UInt64 id{0};
   NGIN::Async::CancellationSource cancellation{};
   NGIN::Async::TaskContext context;
+  std::shared_ptr<Action> action{};
 };
 
 struct AsyncCommand::Storage final {
-  Storage(NGIN::Async::TaskContext taskContext, Action commandAction,
+  Storage(NGIN::Async::TaskSupervisor<> &taskOwner,
+          NGIN::Async::TaskContext taskContext, Action commandAction,
           const bool initiallyEnabled,
           const CommandConcurrencyPolicy concurrencyPolicy,
           const UIntSize maximumQueue, InvalidationScheduler scheduler)
-      : context(std::move(taskContext)), action(std::move(commandAction)),
+      : context(std::move(taskContext)), owner(taskOwner),
+        action(std::make_shared<Action>(std::move(commandAction))),
         concurrency(concurrencyPolicy), queueCapacity(maximumQueue),
         status(
             CommandStatus{
@@ -267,7 +270,8 @@ struct AsyncCommand::Storage final {
   }
 
   NGIN::Async::TaskContext context;
-  Action action{};
+  NGIN::Async::TaskSupervisor<> &owner;
+  std::shared_ptr<Action> action{};
   CommandConcurrencyPolicy concurrency{CommandConcurrencyPolicy::Reject};
   UIntSize queueCapacity{1};
   State<CommandStatus> status;
@@ -293,7 +297,7 @@ void AsyncCommand::FinishRun(const std::shared_ptr<Storage> &storage,
   if (storage->alive && storage->status.Get().enabled &&
       storage->pendingCount > 0) {
     storage->pendingCount -= 1;
-    StartRun(storage);
+    static_cast<void>(StartRun(storage));
     return;
   }
 
@@ -306,36 +310,62 @@ void AsyncCommand::FinishRun(const std::shared_ptr<Storage> &storage,
 auto AsyncCommand::RunAction(std::shared_ptr<Storage> storage,
                              std::shared_ptr<Run> run)
     -> NGIN::Async::Task<void> {
+  if (run->context.IsCancellationRequested()) {
+    FinishRun(storage, run,
+              CommandOutcome{.kind = CommandOutcomeKind::Canceled});
+    co_return;
+  }
+  std::optional<NGIN::Async::AsyncFault> fault;
   auto outcome = CommandOutcome{.kind = CommandOutcomeKind::Succeeded};
 #if NGIN_ASYNC_HAS_EXCEPTIONS
   try {
 #endif
-    auto operation =
-        NGIN::Async::Spawn(run->context, storage->action(run->context));
-    auto completion = co_await operation;
-    if (completion.IsDomainError()) {
+    auto completion = co_await (*run->action)(run->context).AsCompletion();
+    if ((completion.HasError() && completion.Error().IsDomainError())) {
       outcome.kind = CommandOutcomeKind::DomainError;
-      outcome.error = std::move(completion).DomainError();
-    } else if (completion.IsCanceled()) {
+      outcome.error = std::move(completion).Error().DomainError();
+    } else if (completion.IsStopped()) {
       outcome.kind = CommandOutcomeKind::Canceled;
-    } else if (completion.IsFault()) {
+    } else if ((completion.HasError() && completion.Error().IsFault())) {
       outcome.kind = CommandOutcomeKind::Fault;
-      outcome.error = FaultError(completion.Fault());
+      fault = completion.Error().Fault();
+      outcome.error = FaultError(*fault);
     }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
   } catch (...) {
     outcome.kind = CommandOutcomeKind::Fault;
     outcome.error = ExceptionError();
+    fault = NGIN::Async::MakeAsyncFault(
+        NGIN::Async::AsyncFaultCode::UnhandledException);
+#if NGIN_ASYNC_CAPTURE_EXCEPTIONS
+    fault->capturedException = std::current_exception();
+#endif
   }
 #endif
 
+  const bool unobserved =
+      (!storage->alive || !storage->active || storage->active->id != run->id) &&
+      outcome.error.has_value();
+  if (unobserved && !fault) {
+    fault = NGIN::Async::MakeAsyncFault(
+        NGIN::Async::AsyncFaultCode::UnknownRuntimeFailure,
+        outcome.error->nativeCode,
+        std::string(outcome.error->code.View()) + ": " +
+            std::string(outcome.error->message.View()));
+  }
   FinishRun(storage, run, std::move(outcome));
+  if (unobserved)
+    co_await NGIN::Async::Faulted(std::move(*fault));
 }
 
-void AsyncCommand::StartRun(const std::shared_ptr<Storage> &storage) {
+bool AsyncCommand::StartRun(const std::shared_ptr<Storage> &storage) {
   const auto id = storage->nextExecutionId++;
   auto run = std::make_shared<Run>(id, storage->context);
   run->context.BindLinkedCancellationToken(run->cancellation.GetToken());
+  run->context.BindLinkedCancellationToken(
+      storage->owner.GetCancellationToken());
+  run->action = storage->action;
+  auto task = RunAction(storage, run);
   storage->active = run;
 
   auto status = storage->status.Get();
@@ -344,16 +374,39 @@ void AsyncCommand::StartRun(const std::shared_ptr<Storage> &storage) {
   static_cast<void>(storage->status.Set(std::move(status)));
   storage->Publish();
 
-  NGIN::Async::Detach(run->context, RunAction(storage, run));
+  auto admitted = storage->owner.SpawnOn(
+      run->context.GetExecutor(),
+      [run, task = std::move(task)](NGIN::Async::TaskContext &context) mutable {
+        context.BindCancellationToken(run->context.GetCancellationToken());
+        return std::move(task);
+      });
+  if (!admitted) {
+    storage->pendingCount = 0;
+    FinishRun(storage, run,
+              CommandOutcome{
+                  .kind = CommandOutcomeKind::Fault,
+                  .error =
+                      CommandError{
+                          .kind = CommandErrorKind::Fault,
+                          .code = NGIN::Text::String{"task-admission-rejected"},
+                          .message =
+                              NGIN::Text::String{
+                                  "Background task owner rejected the command"},
+                      },
+              });
+    return false;
+  }
+  return true;
 }
 
-AsyncCommand::AsyncCommand(NGIN::Async::TaskContext context, Action action,
+AsyncCommand::AsyncCommand(NGIN::Async::TaskSupervisor<> &owner,
+                           NGIN::Async::TaskContext context, Action action,
                            const bool enabled,
                            const CommandConcurrencyPolicy concurrency,
                            const UIntSize queueCapacity,
                            InvalidationScheduler scheduler)
     : m_storage(std::make_shared<Storage>(
-          std::move(context), std::move(action), enabled, concurrency,
+          owner, std::move(context), std::move(action), enabled, concurrency,
           std::max<UIntSize>(queueCapacity, 1), std::move(scheduler))) {}
 
 AsyncCommand::~AsyncCommand() {
@@ -380,8 +433,8 @@ auto AsyncCommand::ExecuteStorage(const std::shared_ptr<Storage> &storage)
   }
 
   if (!storage->active) {
-    StartRun(storage);
-    return CommandInvocation::Started;
+    return StartRun(storage) ? CommandInvocation::Started
+                             : CommandInvocation::RejectedOwner;
   }
 
   switch (storage->concurrency) {
@@ -389,8 +442,8 @@ auto AsyncCommand::ExecuteStorage(const std::shared_ptr<Storage> &storage)
     return CommandInvocation::RejectedRunning;
   case CommandConcurrencyPolicy::CancelPrevious:
     storage->active->cancellation.Cancel();
-    StartRun(storage);
-    return CommandInvocation::Replaced;
+    return StartRun(storage) ? CommandInvocation::Replaced
+                             : CommandInvocation::RejectedOwner;
   case CommandConcurrencyPolicy::Queue:
     if (storage->pendingCount >= storage->queueCapacity) {
       return CommandInvocation::RejectedQueueFull;

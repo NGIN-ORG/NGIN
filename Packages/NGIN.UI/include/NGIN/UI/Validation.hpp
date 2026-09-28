@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Async/Task.hpp>
+#include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/State.hpp>
 #include <NGIN/Utilities/Callable.hpp>
@@ -113,13 +114,19 @@ public:
   }
 
   /// @brief Configures one cancellation-aware asynchronous validator.
-  void SetAsyncValidator(NGIN::Async::TaskContext context,
+  /// The owner and executor must remain alive through all submissions and
+  /// admitted work.
+  void SetAsyncValidator(NGIN::Async::TaskSupervisor<> &owner,
+                         NGIN::Async::TaskContext context,
                          AsyncValidator validator) {
     if (!m_storage || !m_storage->alive) {
       return;
     }
+    m_storage->owner = &owner;
     m_storage->context = std::move(context);
-    m_storage->asyncValidator = std::move(validator);
+    m_storage->asyncValidator =
+        validator ? std::make_shared<AsyncValidator>(std::move(validator))
+                  : nullptr;
     if (m_storage->trigger == ValidationTrigger::Immediate ||
         m_storage->submitted) {
       ValidateStorage(m_storage);
@@ -169,6 +176,7 @@ private:
     UInt64 version{0};
     NGIN::Async::CancellationSource cancellation{};
     NGIN::Async::TaskContext context;
+    std::shared_ptr<AsyncValidator> validator{};
   };
 
   struct Storage final : std::enable_shared_from_this<Storage> {
@@ -217,7 +225,8 @@ private:
     ValidationTrigger trigger{ValidationTrigger::Immediate};
     std::vector<SyncValidator> syncValidators{};
     NGIN::Async::TaskContext context{NGIN::Execution::ExecutorRef{}};
-    AsyncValidator asyncValidator{};
+    NGIN::Async::TaskSupervisor<> *owner{nullptr};
+    std::shared_ptr<AsyncValidator> asyncValidator{};
     State<std::vector<ValidationIssue>> issues;
     State<bool> validating;
     State<bool> validated;
@@ -272,6 +281,9 @@ private:
     if (storage->active) {
       storage->active->cancellation.Cancel();
       storage->active.reset();
+      StateBatch batch;
+      static_cast<void>(storage->validating.Set(false));
+      static_cast<void>(storage->validated.Set(false));
     }
     const auto version = ++storage->version;
     auto syncIssues = std::vector<ValidationIssue>{};
@@ -290,39 +302,72 @@ private:
     }
 #endif
 
+    std::shared_ptr<Run> run;
+    NGIN::Async::Task<void> task;
+    if (storage->asyncValidator) {
+      run = std::make_shared<Run>(version, storage->context);
+      run->context.BindLinkedCancellationToken(run->cancellation.GetToken());
+      run->context.BindLinkedCancellationToken(
+          storage->owner->GetCancellationToken());
+      run->validator = storage->asyncValidator;
+      task = RunAsync(storage, run, storage->input.Get(), syncIssues);
+    }
     {
       StateBatch batch;
       static_cast<void>(storage->issues.Set(syncIssues));
       static_cast<void>(storage->validated.Set(true));
-      static_cast<void>(
-          storage->validating.Set(static_cast<bool>(storage->asyncValidator)));
+      static_cast<void>(storage->validating.Set(static_cast<bool>(run)));
     }
-    if (!storage->asyncValidator) {
+    if (!run)
       return;
-    }
-
-    auto run = std::make_shared<Run>(version, storage->context);
-    run->context.BindLinkedCancellationToken(run->cancellation.GetToken());
     storage->active = run;
-    auto value = storage->input.Get();
-    NGIN::Async::Detach(run->context, RunAsync(storage, run, std::move(value),
-                                               std::move(syncIssues)));
+    auto admitted = storage->owner->SpawnOn(
+        run->context.GetExecutor(),
+        [run,
+         task = std::move(task)](NGIN::Async::TaskContext &context) mutable {
+          context.BindCancellationToken(run->context.GetCancellationToken());
+          return std::move(task);
+        });
+    if (!admitted) {
+      syncIssues.push_back(ValidationIssue{
+          .id = NGIN::Text::String{"task-admission-rejected"},
+          .message =
+              NGIN::Text::String{"Background task owner rejected validation"},
+      });
+      FinishAsync(storage, run, std::move(syncIssues));
+    }
   }
 
   [[nodiscard]] static auto RunAsync(std::shared_ptr<Storage> storage,
                                      std::shared_ptr<Run> run, T value,
                                      std::vector<ValidationIssue> syncIssues)
       -> NGIN::Async::Task<void> {
+    if (!storage->alive || run->context.IsCancellationRequested()) {
+      if (storage->alive)
+        FinishAsync(storage, run, std::move(syncIssues), false);
+      co_return;
+    }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     try {
 #endif
-      auto operation = NGIN::Async::Spawn(
-          run->context,
-          storage->asyncValidator(run->context, std::move(value)));
-      auto completion = co_await operation;
+      auto completion =
+          co_await (*run->validator)(run->context, std::move(value))
+              .AsCompletion();
       if (!storage->alive || !storage->active ||
           storage->active->version != run->version ||
           storage->version != run->version) {
+        if (completion.HasError()) {
+          auto error = std::move(completion).Error();
+          if (error.IsFault()) {
+            co_await NGIN::Async::Faulted(error.Fault());
+          } else {
+            const auto &issue = error.DomainError();
+            co_await NGIN::Async::Faulted(NGIN::Async::MakeAsyncFault(
+                NGIN::Async::AsyncFaultCode::UnknownRuntimeFailure, 0,
+                std::string(issue.id.View()) + ": " +
+                    std::string(issue.message.View())));
+          }
+        }
         co_return;
       }
 
@@ -331,12 +376,13 @@ private:
         syncIssues.insert(syncIssues.end(),
                           std::make_move_iterator(next.begin()),
                           std::make_move_iterator(next.end()));
-      } else if (completion.IsDomainError()) {
-        syncIssues.push_back(std::move(completion).DomainError());
-      } else if (completion.IsFault()) {
-        syncIssues.push_back(FaultIssue(completion.Fault()));
+      } else if ((completion.HasError() &&
+                  completion.Error().IsDomainError())) {
+        syncIssues.push_back(std::move(completion).Error().DomainError());
+      } else if ((completion.HasError() && completion.Error().IsFault())) {
+        syncIssues.push_back(FaultIssue(completion.Error().Fault()));
       }
-      FinishAsync(storage, run, std::move(syncIssues));
+      FinishAsync(storage, run, std::move(syncIssues), !completion.IsStopped());
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     } catch (...) {
       if (storage->alive && storage->active &&
@@ -344,6 +390,8 @@ private:
           storage->version == run->version) {
         syncIssues.push_back(ExceptionIssue());
         FinishAsync(storage, run, std::move(syncIssues));
+      } else {
+        throw;
       }
     }
 #endif
@@ -351,7 +399,8 @@ private:
 
   static void FinishAsync(const std::shared_ptr<Storage> &storage,
                           const std::shared_ptr<Run> &run,
-                          std::vector<ValidationIssue> issues) {
+                          std::vector<ValidationIssue> issues,
+                          bool validated = true) {
     if (!storage->alive || !storage->active ||
         storage->active->version != run->version ||
         storage->version != run->version) {
@@ -360,6 +409,7 @@ private:
     storage->active.reset();
     StateBatch batch;
     static_cast<void>(storage->issues.Set(std::move(issues)));
+    static_cast<void>(storage->validated.Set(validated));
     static_cast<void>(storage->validating.Set(false));
   }
 

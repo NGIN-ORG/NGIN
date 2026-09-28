@@ -77,3 +77,29 @@ else()
 endif()
 
 catch_discover_tests(NGINUITests TEST_PREFIX "UI.")
+
+# The event-loop executor contract depends only on Execution. Keep it independently
+# runnable from rendering/platform providers and their integration tests.
+add_executable(NGINUIAsyncTests UIAsyncSchedulerTests.cpp)
+target_compile_features(NGINUIAsyncTests PRIVATE cxx_std_23)
+target_link_libraries(NGINUIAsyncTests PRIVATE Catch2::Catch2WithMain NGIN::Base::Execution)
+if(MSVC)
+    target_compile_options(NGINUIAsyncTests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(NGINUIAsyncTests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+catch_discover_tests(NGINUIAsyncTests TEST_PREFIX "UI.Async.")
+
+# Ownership and observable state have no rendering/platform dependency.
+add_executable(NGINUIOwnershipTests
+    UIOwnershipTests.cpp ValidationTests.cpp
+    ../src/NGIN/UI/Command.cpp ../src/NGIN/UI/ViewModel.cpp ../src/NGIN/UI/State.cpp)
+target_compile_features(NGINUIOwnershipTests PRIVATE cxx_std_23)
+target_include_directories(NGINUIOwnershipTests PRIVATE ../include)
+target_link_libraries(NGINUIOwnershipTests PRIVATE Catch2::Catch2WithMain NGIN::Base::Execution)
+if(MSVC)
+    target_compile_options(NGINUIOwnershipTests PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(NGINUIOwnershipTests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+catch_discover_tests(NGINUIOwnershipTests TEST_PREFIX "UI.Ownership.")

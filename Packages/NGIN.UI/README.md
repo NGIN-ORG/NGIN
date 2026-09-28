@@ -80,3 +80,53 @@ cmake --build build/ngin-ui-docs --target NGINUIDocs
 Release notes: [0.2](../../docs/guides/ngin-ui-v0.2-release.md),
 [0.3](../../docs/guides/ngin-ui-v0.3-release.md), and
 [0.4](../../docs/guides/ngin-ui-v0.4-release.md).
+
+### Application task ownership
+
+Use `Application::BackgroundTasks().Spawn(...)` when a result handle is needed,
+or `.Transfer(...)` to give an owned factory/cold task to the application. Check
+admission failure; the bounded supervisor owns accepted work until retirement.
+Unhandled errors close admission, request stop, and remain in the joined report.
+`Application::Run()` joins application work before normal return. Applications
+that drive `PumpOnce()` themselves call `ShutdownTasks()` while borrowed model,
+window, and task resources are still alive. If event pumping fails, live work
+remains owned; shutdown must be retried before destroying the application.
+Inspect `BackgroundTasks().TakeResult()` for retained shutdown diagnostics.
+
+The UI executor has bounded ordinary/timer queues, reserved continuation
+admission, removable timers, and a 64-callback dispatch batch. Queue rejection
+never invokes work inline. Already-admitted completion delivery remains available
+after ordinary admission closes. Its platform clock controls timer wakeups.
+
+The independent executor contract target can be built and run without linking
+rendering/platform-provider implementation tests:
+
+```bash
+cmake --build build/ngin-ui --target NGINUIAsyncTests
+ctest --test-dir build/ngin-ui --output-on-failure -R '^UI\.Async\.'
+```
+
+`AsyncCommand`, `ViewModelTaskScope`, and `KeyedViewModelHost` take an explicit
+`TaskSupervisor<>&` before their `TaskContext`. `ValidationField::SetAsyncValidator`
+takes the same owner/context pair. Supply `application.BackgroundTasks()` for UI
+work. The owner must remain alive for every submission and through retirement;
+borrowed view-model resources must remain alive until shutdown joins their work.
+The context selects execution and local cancellation; supervision adds owner stop.
+Sequential actions/validators are awaited within that owned task.
+
+Admission rejection returns `CommandInvocation::RejectedOwner`, an invalid
+view-model task handle with a fault status, or a validation issue. It clears
+running/validating status. Queued runs retain their callable through cleanup.
+Fallible setup finishes before running status is published. Stopped validation
+remains unavailable. Errors arriving after destruction or supersession of a UI
+observer reach the supervisor: infrastructure faults retain their original
+classification; unobserved UI domain errors become diagnostic faults carrying
+the UI error code/id and message. Expected stale validation results are discarded.
+
+The independent ownership target exercises commands, validation, and view-model
+work using their production implementation without rendering providers:
+
+```bash
+cmake --build build/ngin-ui --target NGINUIOwnershipTests
+ctest --test-dir build/ngin-ui --output-on-failure -R '^UI\.Ownership\.'
+```

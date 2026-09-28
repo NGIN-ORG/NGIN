@@ -98,16 +98,16 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(createdApplication.HasValue());
-  auto application = std::move(createdApplication).Value();
+  REQUIRE(createdApplication.has_value());
+  auto application = std::move(createdApplication).value();
 
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Diagnostics"},
       .title = NGIN::Text::String{"Diagnostics"},
       .initialSize = PixelSize{200, 100},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
 
   window->SetContent([](Composer &composer) {
     NodeProperties properties{};
@@ -119,7 +119,7 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
     properties.paintsBackground = true;
     composer.Button([] {}, properties, "run");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   const auto button = window->HitTest(Point{10.0F, 10.0F});
   const auto *runtimeButton = window->Tree().Get(button);
@@ -148,7 +148,7 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
       .state = ButtonState::Pressed,
       .position = Point{10.0F, 10.0F},
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   semanticButton = window->Semantics().FindByOwner(runtimeButton->id);
   REQUIRE(
@@ -168,16 +168,16 @@ TEST_CASE("inspector snapshots runtime state and appends debugging overlays") {
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(createdApplication.HasValue());
-  auto application = std::move(createdApplication).Value();
+  REQUIRE(createdApplication.has_value());
+  auto application = std::move(createdApplication).value();
 
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Inspector.Target"},
       .title = NGIN::Text::String{"Inspector target"},
       .initialSize = PixelSize{200, 100},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
   window->SetContent([](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{100.0F, 40.0F};
@@ -188,7 +188,7 @@ TEST_CASE("inspector snapshots runtime state and appends debugging overlays") {
     properties.semantics.label = NGIN::Text::String{"Inspect me"};
     composer.Button([] {}, properties, "inspect-me");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   const auto button = window->HitTest(Point{10.0F, 10.0F});
   REQUIRE(window->Focus(button));
@@ -199,7 +199,7 @@ TEST_CASE("inspector snapshots runtime state and appends debugging overlays") {
       .showFocus = true,
       .selected = button,
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
 
   const auto snapshot = window->Inspect();
   REQUIRE(snapshot.windowId == NGIN::Text::String{"Inspector.Target"});

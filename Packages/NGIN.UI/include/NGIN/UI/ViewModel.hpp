@@ -87,7 +87,10 @@ public:
       NGIN::Utilities::Callable<void(const ViewModelTaskOutcome &)>;
   using DrainedObserver = NGIN::Utilities::Callable<void()>;
 
-  explicit ViewModelTaskScope(NGIN::Async::TaskContext context,
+  /// The owner and executor must remain alive through all submissions and
+  /// admitted work.
+  explicit ViewModelTaskScope(NGIN::Async::TaskSupervisor<> &owner,
+                              NGIN::Async::TaskContext context,
                               InvalidationScheduler scheduler = {});
   ViewModelTaskScope(const ViewModelTaskScope &) = delete;
   ViewModelTaskScope(ViewModelTaskScope &&) = delete;
@@ -151,14 +154,16 @@ using ViewModelFactory = NGIN::Utilities::Callable<std::shared_ptr<T>(
 /// @brief Creates, activates, reuses, and releases one keyed plain ViewModel.
 template <typename T> class KeyedViewModelHost final {
 public:
-  KeyedViewModelHost(NGIN::Async::TaskContext context,
+  KeyedViewModelHost(NGIN::Async::TaskSupervisor<> &owner,
+                     NGIN::Async::TaskContext context,
                      ViewModelFactory<T> factory,
                      ViewModelServiceResolver services = {},
                      InvalidationScheduler scheduler = {})
-      : m_context(std::move(context)), m_factory(std::move(factory)),
-        m_services(std::move(services)), m_scheduler(std::move(scheduler)),
-        m_cleanupScope(
-            std::make_unique<ViewModelTaskScope>(m_context, m_scheduler)) {}
+      : m_owner(owner), m_context(std::move(context)),
+        m_factory(std::move(factory)), m_services(std::move(services)),
+        m_scheduler(std::move(scheduler)),
+        m_cleanupScope(std::make_unique<ViewModelTaskScope>(m_owner, m_context,
+                                                            m_scheduler)) {}
 
   KeyedViewModelHost(const KeyedViewModelHost &) = delete;
   KeyedViewModelHost(KeyedViewModelHost &&) = delete;
@@ -177,9 +182,9 @@ public:
     }
     Hide();
     if (!m_factory) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "ViewModel host has no factory", "NGIN.UI",
-                         "KeyedViewModelHost::Show");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidState, "ViewModel host has no factory", "NGIN.UI",
+          "KeyedViewModelHost::Show"));
     }
     auto created = std::shared_ptr<T>{};
 #if NGIN_ASYNC_HAS_EXCEPTIONS
@@ -188,20 +193,20 @@ public:
       created = m_factory(key, m_services);
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     } catch (...) {
-      return MakeUIError(UIErrorCode::ResourceFailed,
-                         "ViewModel factory threw an exception", "NGIN.UI",
-                         "KeyedViewModelHost::Show");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::ResourceFailed, "ViewModel factory threw an exception",
+          "NGIN.UI", "KeyedViewModelHost::Show"));
     }
 #endif
     if (!created) {
-      return MakeUIError(UIErrorCode::ResourceFailed,
-                         "ViewModel factory returned no value", "NGIN.UI",
-                         "KeyedViewModelHost::Show");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::ResourceFailed, "ViewModel factory returned no value",
+          "NGIN.UI", "KeyedViewModelHost::Show"));
     }
     m_key = std::move(key);
     m_current = std::move(created);
     m_activeScope =
-        std::make_unique<ViewModelTaskScope>(m_context, m_scheduler);
+        std::make_unique<ViewModelTaskScope>(m_owner, m_context, m_scheduler);
     if constexpr (requires(T &value, ViewModelTaskScope &scope) {
                     { value.Activate(scope) } noexcept -> std::same_as<void>;
                   }) {
@@ -275,6 +280,7 @@ public:
   }
 
 private:
+  NGIN::Async::TaskSupervisor<> &m_owner;
   NGIN::Async::TaskContext m_context;
   ViewModelFactory<T> m_factory{};
   ViewModelServiceResolver m_services{};

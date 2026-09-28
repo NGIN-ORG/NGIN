@@ -85,9 +85,9 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
   UIntSize offset = 0;
   const auto magic = ReadToken(bytes, offset);
   if (magic != "P6" && magic != "P3") {
-    return ImageError(UIErrorCode::Unsupported,
-                      "Only P6 and P3 portable pixmap images are supported",
-                      "DecodeImage");
+    return std::unexpected(ImageError(
+        UIErrorCode::Unsupported,
+        "Only P6 and P3 portable pixmap images are supported", "DecodeImage"));
   }
   UInt32 width = 0;
   UInt32 height = 0;
@@ -96,14 +96,15 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
       !ParseUInt(ReadToken(bytes, offset), height) ||
       !ParseUInt(ReadToken(bytes, offset), maximum) || width == 0 ||
       height == 0 || maximum == 0 || maximum > 255) {
-    return ImageError(UIErrorCode::ResourceFailed,
-                      "The portable pixmap header is invalid", "DecodeImage");
+    return std::unexpected(ImageError(UIErrorCode::ResourceFailed,
+                                      "The portable pixmap header is invalid",
+                                      "DecodeImage"));
   }
   const auto pixelCount = static_cast<UIntSize>(width) * height;
   if (pixelCount > std::numeric_limits<UIntSize>::max() / 4U) {
-    return ImageError(UIErrorCode::OutOfMemory,
-                      "The decoded image dimensions are too large",
-                      "DecodeImage");
+    return std::unexpected(ImageError(
+        UIErrorCode::OutOfMemory, "The decoded image dimensions are too large",
+        "DecodeImage"));
   }
 
   ImagePixels result{
@@ -112,16 +113,16 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
   };
   if (magic == "P6") {
     if (offset >= bytes.size()) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The portable pixmap payload is missing",
-                        "DecodeImage");
+      return std::unexpected(
+          ImageError(UIErrorCode::ResourceFailed,
+                     "The portable pixmap payload is missing", "DecodeImage"));
     }
     const auto separator = static_cast<char>(ByteValue(bytes[offset]));
     if (separator != ' ' && separator != '\t' && separator != '\r' &&
         separator != '\n') {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The portable pixmap header separator is invalid",
-                        "DecodeImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::ResourceFailed,
+          "The portable pixmap header separator is invalid", "DecodeImage"));
     }
     ++offset;
     if (separator == '\r' && offset < bytes.size() &&
@@ -129,18 +130,18 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
       ++offset;
     }
     if (bytes.size() - offset < pixelCount * 3U) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The portable pixmap payload is truncated",
-                        "DecodeImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::ResourceFailed,
+          "The portable pixmap payload is truncated", "DecodeImage"));
     }
     for (UIntSize pixel = 0; pixel < pixelCount; ++pixel) {
       for (UIntSize channel = 0; channel < 3; ++channel) {
         const auto value = static_cast<UInt32>(
             ByteValue(bytes[offset + pixel * 3U + channel]));
         if (value > maximum) {
-          return ImageError(UIErrorCode::ResourceFailed,
-                            "The portable pixmap payload exceeds its range",
-                            "DecodeImage");
+          return std::unexpected(ImageError(
+              UIErrorCode::ResourceFailed,
+              "The portable pixmap payload exceeds its range", "DecodeImage"));
         }
         result.rgba[pixel * 4U + channel] =
             static_cast<Byte>(value * 255U / maximum);
@@ -152,9 +153,9 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
       for (UIntSize channel = 0; channel < 3; ++channel) {
         UInt32 value = 0;
         if (!ParseUInt(ReadToken(bytes, offset), value) || value > maximum) {
-          return ImageError(UIErrorCode::ResourceFailed,
-                            "The portable pixmap payload is invalid",
-                            "DecodeImage");
+          return std::unexpected(ImageError(
+              UIErrorCode::ResourceFailed,
+              "The portable pixmap payload is invalid", "DecodeImage"));
         }
         result.rgba[pixel * 4U + channel] =
             static_cast<Byte>(value * 255U / maximum);
@@ -188,8 +189,8 @@ constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
          ByteValue(bytes[1]) == 0xD8U && ByteValue(bytes[2]) == 0xFFU;
 }
 
-[[nodiscard]] auto HasPortablePixmapSignature(
-    const std::span<const Byte> bytes) noexcept -> bool {
+[[nodiscard]] auto
+HasPortablePixmapSignature(const std::span<const Byte> bytes) noexcept -> bool {
   return bytes.size() >= 2 && ByteValue(bytes[0]) == 0x50U &&
          (ByteValue(bytes[1]) == 0x33U || ByteValue(bytes[1]) == 0x36U);
 }
@@ -200,14 +201,16 @@ auto PortablePixmapImageDecoder::Decode(
     const std::atomic_bool &cancellationRequested) noexcept
     -> UIResult<ImagePixels> {
   if (cancellationRequested.load()) {
-    return ImageError(UIErrorCode::InvalidState, "Image decoding was cancelled",
-                      "DecodeImage");
+    return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                      "Image decoding was cancelled",
+                                      "DecodeImage"));
   }
   try {
     return DecodePortablePixmap(encoded);
   } catch (...) {
-    return ImageError(UIErrorCode::OutOfMemory,
-                      "Unable to allocate decoded image pixels", "DecodeImage");
+    return std::unexpected(ImageError(UIErrorCode::OutOfMemory,
+                                      "Unable to allocate decoded image pixels",
+                                      "DecodeImage"));
   }
 }
 
@@ -216,32 +219,33 @@ auto StandardImageDecoder::Decode(
     const std::atomic_bool &cancellationRequested) noexcept
     -> UIResult<ImagePixels> {
   if (cancellationRequested.load()) {
-    return ImageError(UIErrorCode::InvalidState, "Image decoding was cancelled",
-                      "DecodeImage");
+    return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                      "Image decoding was cancelled",
+                                      "DecodeImage"));
   }
   if (encoded.size() > MaximumStandardEncodedBytes) {
-    return ImageError(UIErrorCode::ResourceFailed,
-                      "The encoded image exceeds the 64 MiB limit",
-                      "DecodeImage");
+    return std::unexpected(ImageError(
+        UIErrorCode::ResourceFailed,
+        "The encoded image exceeds the 64 MiB limit", "DecodeImage"));
   }
   if (HasPortablePixmapSignature(encoded)) {
     PortablePixmapImageDecoder portablePixmap;
     return portablePixmap.Decode(encoded, cancellationRequested);
   }
   if (!HasPngSignature(encoded) && !HasJpegSignature(encoded)) {
-    return ImageError(
+    return std::unexpected(ImageError(
         UIErrorCode::Unsupported,
         "The built-in decoder supports PNG, JPEG, P3 PPM, and P6 PPM",
-        "DecodeImage");
+        "DecodeImage"));
   }
 
 #if defined(NGIN_UI_HAS_STANDARD_IMAGE_FORMATS)
   try {
     if (encoded.size() >
         static_cast<UIntSize>(std::numeric_limits<int>::max())) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The encoded image is too large for the decoder",
-                        "DecodeImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::ResourceFailed,
+          "The encoded image is too large for the decoder", "DecodeImage"));
     }
     const auto encodedSize = static_cast<int>(encoded.size());
     const auto *encodedBytes =
@@ -252,34 +256,37 @@ auto StandardImageDecoder::Decode(
     if (stbi_info_from_memory(encodedBytes, encodedSize, &width, &height,
                               &sourceChannels) == 0 ||
         width <= 0 || height <= 0) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The PNG or JPEG header is invalid", "DecodeImage");
+      return std::unexpected(ImageError(UIErrorCode::ResourceFailed,
+                                        "The PNG or JPEG header is invalid",
+                                        "DecodeImage"));
     }
-    const auto pixelCount = static_cast<UInt64>(width) *
-                            static_cast<UInt64>(height);
+    const auto pixelCount =
+        static_cast<UInt64>(width) * static_cast<UInt64>(height);
     if (pixelCount > MaximumStandardDecodedBytes / 4ULL) {
-      return ImageError(UIErrorCode::OutOfMemory,
-                        "The decoded image exceeds the 256 MiB limit",
-                        "DecodeImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::OutOfMemory,
+          "The decoded image exceeds the 256 MiB limit", "DecodeImage"));
     }
     if (cancellationRequested.load()) {
-      return ImageError(UIErrorCode::InvalidState,
-                        "Image decoding was cancelled", "DecodeImage");
+      return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                        "Image decoding was cancelled",
+                                        "DecodeImage"));
     }
 
     auto *decoded =
         stbi_load_from_memory(encodedBytes, encodedSize, &width, &height,
                               &sourceChannels, STBI_rgb_alpha);
     if (decoded == nullptr) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The PNG or JPEG payload could not be decoded",
-                        "DecodeImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::ResourceFailed,
+          "The PNG or JPEG payload could not be decoded", "DecodeImage"));
     }
     const auto release = [](stbi_uc *pixels) { stbi_image_free(pixels); };
     std::unique_ptr<stbi_uc, decltype(release)> pixels{decoded, release};
     if (cancellationRequested.load()) {
-      return ImageError(UIErrorCode::InvalidState,
-                        "Image decoding was cancelled", "DecodeImage");
+      return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                        "Image decoding was cancelled",
+                                        "DecodeImage"));
     }
 
     const auto byteCount = static_cast<UIntSize>(pixelCount * 4ULL);
@@ -295,14 +302,15 @@ auto StandardImageDecoder::Decode(
                 result.rgba.begin());
     return result;
   } catch (...) {
-    return ImageError(UIErrorCode::OutOfMemory,
-                      "Unable to allocate decoded image pixels", "DecodeImage");
+    return std::unexpected(ImageError(UIErrorCode::OutOfMemory,
+                                      "Unable to allocate decoded image pixels",
+                                      "DecodeImage"));
   }
 #else
-  return ImageError(
-      UIErrorCode::Unsupported,
-      "PNG and JPEG support was disabled when NGIN.UI was built",
-      "DecodeImage");
+  return std::unexpected(
+      ImageError(UIErrorCode::Unsupported,
+                 "PNG and JPEG support was disabled when NGIN.UI was built",
+                 "DecodeImage"));
 #endif
 }
 
@@ -339,9 +347,9 @@ auto ImageResource::FromPixels(ImagePixels pixels,
     -> UIResult<std::shared_ptr<ImageResource>> {
   try {
     if (!pixels.IsValid()) {
-      return ImageError(UIErrorCode::InvalidArgument,
-                        "RGBA image pixels do not match their dimensions",
-                        "CreateImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::InvalidArgument,
+          "RGBA image pixels do not match their dimensions", "CreateImage"));
     }
     auto implementation = std::make_shared<Impl>();
     implementation->state = ImageLoadState::Ready;
@@ -350,8 +358,9 @@ auto ImageResource::FromPixels(ImagePixels pixels,
     return std::shared_ptr<ImageResource>{
         new ImageResource{std::move(implementation)}};
   } catch (...) {
-    return ImageError(UIErrorCode::OutOfMemory,
-                      "Unable to allocate an image resource", "CreateImage");
+    return std::unexpected(ImageError(UIErrorCode::OutOfMemory,
+                                      "Unable to allocate an image resource",
+                                      "CreateImage"));
   }
 }
 
@@ -367,13 +376,14 @@ auto ImageResource::Start(ImageWork work) noexcept
             try {
               return work(implementation->cancellationRequested);
             } catch (const std::bad_alloc &) {
-              return ImageError(UIErrorCode::OutOfMemory,
-                                "Image decoding allocation failed",
-                                "DecodeImageAsync");
+              return std::unexpected(ImageError(
+                  UIErrorCode::OutOfMemory, "Image decoding allocation failed",
+                  "DecodeImageAsync"));
             } catch (...) {
-              return ImageError(UIErrorCode::ResourceFailed,
-                                "Image decoding callback threw an exception",
-                                "DecodeImageAsync");
+              return std::unexpected(
+                  ImageError(UIErrorCode::ResourceFailed,
+                             "Image decoding callback threw an exception",
+                             "DecodeImageAsync"));
             }
           }();
           std::scoped_lock lock{implementation->mutex};
@@ -382,10 +392,10 @@ auto ImageResource::Start(ImageWork work) noexcept
             implementation->state = ImageLoadState::Cancelled;
           } else if (!decoded) {
             implementation->pixels = {};
-            implementation->error = std::move(decoded).Error();
+            implementation->error = std::move(decoded).error();
             implementation->state = ImageLoadState::Failed;
           } else {
-            implementation->pixels = std::move(decoded).Value();
+            implementation->pixels = std::move(decoded).value();
             implementation->state = ImageLoadState::Ready;
           }
           ++implementation->revision;
@@ -421,37 +431,41 @@ auto ImageResource::DecodeFileAsync(
   return Start([source = std::move(source), decoder = std::move(decoder)](
                    const std::atomic_bool &cancelled) -> UIResult<ImagePixels> {
     if (cancelled.load()) {
-      return ImageError(UIErrorCode::InvalidState,
-                        "Image decoding was cancelled", "DecodeImage");
+      return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                        "Image decoding was cancelled",
+                                        "DecodeImage"));
     }
     std::ifstream stream{source.path.CStr(), std::ios::binary};
     if (!stream) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The image file could not be opened", "ReadImage");
+      return std::unexpected(ImageError(UIErrorCode::ResourceFailed,
+                                        "The image file could not be opened",
+                                        "ReadImage"));
     }
     stream.seekg(0, std::ios::end);
     const auto length = stream.tellg();
     if (length < 0) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The image file length could not be read", "ReadImage");
+      return std::unexpected(
+          ImageError(UIErrorCode::ResourceFailed,
+                     "The image file length could not be read", "ReadImage"));
     }
-    if (!decoder &&
-        static_cast<UInt64>(length) > MaximumStandardEncodedBytes) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The encoded image exceeds the 64 MiB limit",
-                        "ReadImage");
+    if (!decoder && static_cast<UInt64>(length) > MaximumStandardEncodedBytes) {
+      return std::unexpected(ImageError(
+          UIErrorCode::ResourceFailed,
+          "The encoded image exceeds the 64 MiB limit", "ReadImage"));
     }
     stream.seekg(0, std::ios::beg);
     std::vector<Byte> bytes(static_cast<UIntSize>(length));
     stream.read(reinterpret_cast<char *>(bytes.data()),
                 static_cast<std::streamsize>(bytes.size()));
     if (!stream && !bytes.empty()) {
-      return ImageError(UIErrorCode::ResourceFailed,
-                        "The image file could not be read", "ReadImage");
+      return std::unexpected(ImageError(UIErrorCode::ResourceFailed,
+                                        "The image file could not be read",
+                                        "ReadImage"));
     }
     if (cancelled.load()) {
-      return ImageError(UIErrorCode::InvalidState,
-                        "Image decoding was cancelled", "DecodeImage");
+      return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                        "Image decoding was cancelled",
+                                        "DecodeImage"));
     }
     if (decoder) {
       return decoder->Decode(bytes, cancelled);
@@ -467,17 +481,17 @@ auto ImageResource::GenerateAsync(ImageGeneratedSource source) noexcept
       [source = std::move(source)](
           const std::atomic_bool &cancelled) mutable -> UIResult<ImagePixels> {
         if (source.size.IsEmpty() || !source.pixel) {
-          return ImageError(
+          return std::unexpected(ImageError(
               UIErrorCode::InvalidArgument,
               "Generated images require dimensions and a pixel callback",
-              "GenerateImage");
+              "GenerateImage"));
         }
         const auto pixelCount =
             static_cast<UIntSize>(source.size.width) * source.size.height;
         if (pixelCount > std::numeric_limits<UIntSize>::max() / 4U) {
-          return ImageError(UIErrorCode::OutOfMemory,
-                            "The generated image dimensions are too large",
-                            "GenerateImage");
+          return std::unexpected(ImageError(
+              UIErrorCode::OutOfMemory,
+              "The generated image dimensions are too large", "GenerateImage"));
         }
         ImagePixels pixels{
             .size = source.size,
@@ -485,9 +499,9 @@ auto ImageResource::GenerateAsync(ImageGeneratedSource source) noexcept
         };
         for (UInt32 y = 0; y < source.size.height; ++y) {
           if (cancelled.load()) {
-            return ImageError(UIErrorCode::InvalidState,
-                              "Image generation was cancelled",
-                              "GenerateImage");
+            return std::unexpected(ImageError(UIErrorCode::InvalidState,
+                                              "Image generation was cancelled",
+                                              "GenerateImage"));
           }
           for (UInt32 x = 0; x < source.size.width; ++x) {
             const auto color = source.pixel(x, y);
@@ -531,10 +545,11 @@ auto ImageResource::Error() const noexcept -> UIError {
 auto ImageResource::CopyPixels() const -> UIResult<ImagePixels> {
   std::scoped_lock lock{m_impl->mutex};
   if (m_impl->state != ImageLoadState::Ready) {
-    return m_impl->state == ImageLoadState::Failed
-               ? m_impl->error
-               : ImageError(UIErrorCode::InvalidState,
-                            "Image pixels are not ready", "ReadImagePixels");
+    return std::unexpected(m_impl->state == ImageLoadState::Failed
+                               ? m_impl->error
+                               : ImageError(UIErrorCode::InvalidState,
+                                            "Image pixels are not ready",
+                                            "ReadImagePixels"));
   }
   return m_impl->pixels;
 }
@@ -543,16 +558,16 @@ auto ImageResource::UpdatePixels(ImagePixels pixels) noexcept
     -> UIResult<void> {
   try {
     if (!pixels.IsValid()) {
-      return ImageError(UIErrorCode::InvalidArgument,
-                        "RGBA image pixels do not match their dimensions",
-                        "UpdateImage");
+      return std::unexpected(ImageError(
+          UIErrorCode::InvalidArgument,
+          "RGBA image pixels do not match their dimensions", "UpdateImage"));
     }
     std::scoped_lock lock{m_impl->mutex};
     if (m_impl->worker.joinable()) {
-      return ImageError(
+      return std::unexpected(ImageError(
           UIErrorCode::InvalidState,
           "Asynchronous image work must finish before updating pixels",
-          "UpdateImage");
+          "UpdateImage"));
     }
     m_impl->pixels = std::move(pixels);
     m_impl->error = {};
@@ -560,11 +575,13 @@ auto ImageResource::UpdatePixels(ImagePixels pixels) noexcept
     ++m_impl->revision;
     return {};
   } catch (const std::bad_alloc &) {
-    return ImageError(UIErrorCode::OutOfMemory,
-                      "Unable to replace image pixels", "UpdateImage");
+    return std::unexpected(ImageError(UIErrorCode::OutOfMemory,
+                                      "Unable to replace image pixels",
+                                      "UpdateImage"));
   } catch (...) {
-    return ImageError(UIErrorCode::ResourceFailed,
-                      "Unable to replace image pixels", "UpdateImage");
+    return std::unexpected(ImageError(UIErrorCode::ResourceFailed,
+                                      "Unable to replace image pixels",
+                                      "UpdateImage"));
   }
 }
 
@@ -659,21 +676,22 @@ auto ImageTextureCache::Resolve(
     const std::shared_ptr<ImageResource> &resource) noexcept
     -> UIResult<ResolvedImage> {
   if (!resource) {
-    return ImageError(UIErrorCode::InvalidArgument,
-                      "Image resolution requires a logical resource",
-                      "ResolveImage");
+    return std::unexpected(ImageError(
+        UIErrorCode::InvalidArgument,
+        "Image resolution requires a logical resource", "ResolveImage"));
   }
   const auto state = resource->State();
   if (state != ImageLoadState::Ready) {
     if (state == ImageLoadState::Failed) {
-      return resource->Error();
+      return std::unexpected(resource->Error());
     }
     return ResolvedImage{.state = state};
   }
   if (m_impl->renderer == nullptr) {
-    return ImageError(UIErrorCode::InvalidState,
-                      "Image textures are unavailable while the device is lost",
-                      "ResolveImage");
+    return std::unexpected(
+        ImageError(UIErrorCode::InvalidState,
+                   "Image textures are unavailable while the device is lost",
+                   "ResolveImage"));
   }
 
   const auto revision = resource->Revision();
@@ -697,30 +715,30 @@ auto ImageTextureCache::Resolve(
   ++m_impl->diagnostics.missCount;
   auto pixels = resource->CopyPixels();
   if (!pixels) {
-    return std::move(pixels).Error();
+    return std::unexpected(std::move(pixels).error());
   }
-  const auto residentBytes = static_cast<UInt64>(pixels.Value().size.width) *
-                             static_cast<UInt64>(pixels.Value().size.height) *
+  const auto residentBytes = static_cast<UInt64>(pixels.value().size.width) *
+                             static_cast<UInt64>(pixels.value().size.height) *
                              4ULL;
   if (residentBytes > m_impl->diagnostics.maximumResidentBytes) {
     ++m_impl->diagnostics.capacityFailureCount;
-    return ImageError(UIErrorCode::ResourceFailed,
-                      "The decoded image exceeds the texture-cache budget",
-                      "ResolveImage");
+    return std::unexpected(ImageError(
+        UIErrorCode::ResourceFailed,
+        "The decoded image exceeds the texture-cache budget", "ResolveImage"));
   }
   if (found != m_impl->entries.end() && found->second.texture &&
-      found->second.size == pixels.Value().size) {
+      found->second.size == pixels.value().size) {
     auto updated = m_impl->renderer->UpdateTexture(
         found->second.texture,
         TextureUpdateInfo{
-            .region = PixelRect{0, 0, pixels.Value().size.width,
-                                pixels.Value().size.height},
+            .region = PixelRect{0, 0, pixels.value().size.width,
+                                pixels.value().size.height},
             .bytesPerRow =
-                static_cast<UIntSize>(pixels.Value().size.width) * 4U,
-            .bytes = pixels.Value().rgba,
+                static_cast<UIntSize>(pixels.value().size.width) * 4U,
+            .bytes = pixels.value().rgba,
         });
     if (!updated) {
-      return std::move(updated).Error();
+      return std::unexpected(std::move(updated).error());
     }
     found->second.revision = revision;
     found->second.lastUse = ++m_impl->useCounter;
@@ -736,29 +754,29 @@ auto ImageTextureCache::Resolve(
   }
   m_impl->MakeRoom(residentBytes);
   auto texture = m_impl->renderer->CreateTexture(TextureCreateInfo{
-      .size = pixels.Value().size,
+      .size = pixels.value().size,
       .format = TextureFormat::RGBA8,
       .filter = resource->Filter(),
   });
   if (!texture) {
-    return std::move(texture).Error();
+    return std::unexpected(std::move(texture).error());
   }
   auto updated = m_impl->renderer->UpdateTexture(
-      texture.Value(),
+      texture.value(),
       TextureUpdateInfo{
-          .region = PixelRect{0, 0, pixels.Value().size.width,
-                              pixels.Value().size.height},
-          .bytesPerRow = static_cast<UIntSize>(pixels.Value().size.width) * 4U,
-          .bytes = pixels.Value().rgba,
+          .region = PixelRect{0, 0, pixels.value().size.width,
+                              pixels.value().size.height},
+          .bytesPerRow = static_cast<UIntSize>(pixels.value().size.width) * 4U,
+          .bytes = pixels.value().rgba,
       });
   if (!updated) {
-    static_cast<void>(m_impl->renderer->DestroyTexture(texture.Value()));
-    return std::move(updated).Error();
+    static_cast<void>(m_impl->renderer->DestroyTexture(texture.value()));
+    return std::unexpected(std::move(updated).error());
   }
-  const auto size = pixels.Value().size;
+  const auto size = pixels.value().size;
   m_impl->entries[resource.get()] = Impl::Entry{
       .resource = resource,
-      .texture = texture.Value(),
+      .texture = texture.value(),
       .size = size,
       .revision = revision,
       .residentBytes = residentBytes,
@@ -772,7 +790,7 @@ auto ImageTextureCache::Resolve(
   m_impl->diagnostics.peakResidentBytes = std::max(
       m_impl->diagnostics.peakResidentBytes, m_impl->diagnostics.residentBytes);
   return ResolvedImage{
-      .texture = texture.Value(),
+      .texture = texture.value(),
       .size = size,
       .state = ImageLoadState::Ready,
   };

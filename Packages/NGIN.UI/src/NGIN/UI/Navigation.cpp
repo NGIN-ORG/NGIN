@@ -6,19 +6,20 @@ namespace NGIN::UI {
 auto PageRegistry::RegisterErased(RegisteredPage page, ErasedFactory factory)
     -> UIResult<void> {
   if (m_frozen) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Page registry is already frozen", "NGIN.UI",
-                       "PageRegistry::Register");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+                                       "Page registry is already frozen",
+                                       "NGIN.UI", "PageRegistry::Register"));
   }
   if (page.id.empty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Page identity cannot be empty", "NGIN.UI",
-                       "PageRegistry::Register");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Page identity cannot be empty",
+                                       "NGIN.UI", "PageRegistry::Register"));
   }
   if (!factory) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Page registration has no ViewModel factory", "NGIN.UI",
-                       "PageRegistry::Register", page.id.c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Page registration has no ViewModel factory", "NGIN.UI",
+                    "PageRegistry::Register", page.id.c_str()));
   }
   const auto duplicate =
       std::find_if(m_entries.begin(), m_entries.end(), [&](const Entry &entry) {
@@ -26,9 +27,10 @@ auto PageRegistry::RegisterErased(RegisteredPage page, ErasedFactory factory)
                entry.metadata.pageType == page.pageType;
       });
   if (duplicate != m_entries.end()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Page identity or page tag is already registered",
-                       "NGIN.UI", "PageRegistry::Register", page.id.c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Page identity or page tag is already registered",
+                    "NGIN.UI", "PageRegistry::Register", page.id.c_str()));
   }
   if (!page.routeName.empty()) {
     const auto route = std::find_if(
@@ -36,9 +38,9 @@ auto PageRegistry::RegisterErased(RegisteredPage page, ErasedFactory factory)
           return entry.metadata.routeName == page.routeName;
         });
     if (route != m_entries.end()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Page route name is already registered", "NGIN.UI",
-                         "PageRegistry::Register", page.routeName.c_str());
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Page route name is already registered",
+          "NGIN.UI", "PageRegistry::Register", page.routeName.c_str()));
     }
   }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
@@ -53,9 +55,9 @@ auto PageRegistry::RegisterErased(RegisteredPage page, ErasedFactory factory)
     if (m_pages.size() > m_entries.size()) {
       m_pages.pop_back();
     }
-    return MakeUIError(UIErrorCode::OutOfMemory,
-                       "Page registration allocation failed", "NGIN.UI",
-                       "PageRegistry::Register");
+    return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
+                                       "Page registration allocation failed",
+                                       "NGIN.UI", "PageRegistry::Register"));
   }
 #endif
 }
@@ -132,14 +134,14 @@ NavigationService::~NavigationService() { CloseAll(); }
 auto NavigationService::BeginMutation(const char *operation)
     -> UIResult<MutationGuard> {
   if (m_options.isOnScheduler && !m_options.isOnScheduler()) {
-    return MakeUIError(UIErrorCode::WrongThread,
-                       "Navigation must run on its UI scheduler", "NGIN.UI",
-                       operation, m_options.region.c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::WrongThread, "Navigation must run on its UI scheduler",
+        "NGIN.UI", operation, m_options.region.c_str()));
   }
   if (m_mutating.exchange(true)) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "A navigation operation is already running", "NGIN.UI",
-                       operation, m_options.region.c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "A navigation operation is already running",
+        "NGIN.UI", operation, m_options.region.c_str()));
   }
   return MutationGuard{m_mutating};
 }
@@ -159,7 +161,7 @@ auto NavigationService::Mutate(const Mutation mutation,
     -> UIResult<NavigationChange> {
   auto guard = BeginMutation("NavigationService::Navigate");
   if (!guard) {
-    return Fail(guard.Error());
+    return Fail(guard.error());
   }
   if (mutation == Mutation::Start && !m_stack.empty()) {
     return Fail(MakeUIError(UIErrorCode::InvalidState,
@@ -201,9 +203,9 @@ auto NavigationService::Mutate(const Mutation mutation,
                      std::to_string(entryId);
     auto activated = registration->factory(*m_context, parameter, key);
     if (!activated) {
-      return Fail(activated.Error());
+      return Fail(activated.error());
     }
-    auto instance = std::move(activated).Value();
+    auto instance = std::move(activated).value();
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     try {
 #endif
@@ -251,7 +253,7 @@ auto NavigationService::Mutate(const Mutation mutation,
 auto NavigationService::Back() -> UIResult<NavigationChange> {
   auto guard = BeginMutation("NavigationService::Back");
   if (!guard) {
-    return Fail(guard.Error());
+    return Fail(guard.error());
   }
   if (m_stack.size() <= 1) {
     return Fail(MakeUIError(
@@ -270,7 +272,7 @@ auto NavigationService::Back() -> UIResult<NavigationChange> {
 auto NavigationService::Clear() -> UIResult<NavigationChange> {
   auto guard = BeginMutation("NavigationService::Clear");
   if (!guard) {
-    return Fail(guard.Error());
+    return Fail(guard.error());
   }
   for (auto &entry : m_stack) {
     Retire(std::move(entry));
@@ -294,7 +296,7 @@ auto NavigationService::HandleBackEvent(const PlatformEvent &event)
   }
   auto result = Back();
   if (!result) {
-    return NGIN::Utilities::Unexpected<UIError>(result.Error());
+    return NGIN::Utilities::Unexpected<UIError>(result.error());
   }
   return true;
 }

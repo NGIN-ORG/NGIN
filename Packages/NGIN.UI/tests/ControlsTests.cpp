@@ -358,15 +358,15 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Tooltip"},
       .title = NGIN::Text::String{"Tooltip"},
       .initialSize = PixelSize{240, 120},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
   ToolTipController tooltip{*window, NGIN::Text::String{"Delayed help"},
                             std::chrono::milliseconds{2}};
 
@@ -391,7 +391,7 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
         },
         "tooltip-popup");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto target = window->HitTest(Point{20.0F, 20.0F});
   REQUIRE(target);
   REQUIRE(window->Focus(target));
@@ -402,10 +402,10 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
       .kind = PointerKind::Mouse,
       .position = Point{20.0F, 20.0F},
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE_FALSE(tooltip.IsOpen());
   platformObserver->AdvanceTime(std::chrono::milliseconds{4});
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(tooltip.IsOpen());
   REQUIRE(window->FocusedElement() == target);
 }
@@ -420,15 +420,15 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
       .platform = std::move(platform),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Scrollbars"},
       .title = NGIN::Text::String{"Scrollbars"},
       .initialSize = PixelSize{120, 80},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
   window->SetContent([](Composer &composer) {
     NodeProperties scroll{};
     scroll.layout.preferredSize = Size{100.0F, 60.0F};
@@ -451,7 +451,7 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
         },
         scroll, "scroll");
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   const auto *root = window->Tree().Get(window->Tree().Root());
   REQUIRE(root != nullptr);
   const auto scrollHandle = root->children.front();
@@ -479,7 +479,7 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
       .kind = PointerKind::Mouse,
       .position = Point{96.0F, 48.0F},
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(window->CapturedElement(9) == scrollHandle);
   REQUIRE(window->Tree().Get(scrollHandle)->scroll.offset.y > 0.0F);
   platformObserver->InjectEvent(PointerButtonChanged{
@@ -490,7 +490,7 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
       .state = ButtonState::Released,
       .position = Point{96.0F, 48.0F},
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE_FALSE(window->CapturedElement(9));
 
   if (window->FocusedElement() != scrollHandle) {
@@ -506,7 +506,7 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
       .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Down),
       .state = KeyState::Pressed,
   });
-  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(application->PumpOnce().has_value());
   REQUIRE(window->Tree().Get(scrollHandle)->scroll.offset.y ==
           window->Tree().Get(scrollHandle)->properties.scroll.wheelStep);
 }

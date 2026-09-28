@@ -1,7 +1,7 @@
 #include <NGIN/UI/Input.hpp>
 
-#include "ScrollBarGeometry.hpp"
 #include "MotionInternal.hpp"
+#include "ScrollBarGeometry.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -239,14 +239,15 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
     -> UIResult<InputDispatchResult> {
   auto *node = m_tree.Get(target);
   if (node == nullptr) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "The semantic target is no longer available", "NGIN.UI",
-                       "InputRouter::PerformSemanticAction");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "The semantic target is no longer available", "NGIN.UI",
+                    "InputRouter::PerformSemanticAction"));
   }
   if (!node->properties.interaction.enabled) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "The semantic target is disabled", "NGIN.UI",
-                       "InputRouter::PerformSemanticAction");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "The semantic target is disabled", "NGIN.UI",
+        "InputRouter::PerformSemanticAction"));
   }
 
   InputDispatchResult result{};
@@ -263,7 +264,7 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
           request.action == SemanticActionKind::Select) {
         auto activated = controller.Activate(*proxyIndex);
         if (!activated) {
-          return std::move(activated).Error();
+          return std::unexpected(std::move(activated).error());
         }
         result.callbackInvoked = true;
         result.activated = true;
@@ -334,22 +335,23 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
       auto action =
           node->properties.custom.element->SemanticAction(context, request);
       if (!action) {
-        return std::move(action).Error();
+        return std::unexpected(std::move(action).error());
       }
       m_tree.SynchronizeCustom(*node, m_scaleFactor);
       result.handled = true;
       result.callbackInvoked = true;
-      result.invalidation = action.Value();
+      result.invalidation = action.value();
       result.visualStateChanged =
-          HasInvalidation(action.Value(), InvalidationKind::Paint);
+          HasInvalidation(action.value(), InvalidationKind::Paint);
       result.layoutStateChanged =
-          HasInvalidation(action.Value(), InvalidationKind::Measure) ||
-          HasInvalidation(action.Value(), InvalidationKind::Arrange);
+          HasInvalidation(action.value(), InvalidationKind::Measure) ||
+          HasInvalidation(action.value(), InvalidationKind::Arrange);
       return result;
     } catch (...) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "The custom semantic action threw an exception",
-                         "NGIN.UI", "InputRouter::PerformSemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidState,
+                      "The custom semantic action threw an exception",
+                      "NGIN.UI", "InputRouter::PerformSemanticAction"));
     }
   }
 
@@ -361,9 +363,9 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
           return buffer.Reset(request.value);
         });
     if (!edited.handled) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "The text value was rejected", "NGIN.UI",
-                         "InputRouter::PerformSemanticAction");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidState, "The text value was rejected",
+                      "NGIN.UI", "InputRouter::PerformSemanticAction"));
     }
     return edited;
   }
@@ -385,9 +387,9 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
     }
   }
 
-  return MakeUIError(UIErrorCode::Unsupported,
-                     "The semantic action has no runtime handler", "NGIN.UI",
-                     "InputRouter::PerformSemanticAction");
+  return std::unexpected(MakeUIError(
+      UIErrorCode::Unsupported, "The semantic action has no runtime handler",
+      "NGIN.UI", "InputRouter::PerformSemanticAction"));
 }
 
 void InputRouter::Synchronize() noexcept {
@@ -506,15 +508,16 @@ auto InputRouter::HitTestSubtree(const ElementHandle handle,
       (node->type == ElementType::Popup && handle != popupRoot)) {
     return {};
   }
-  const auto localPosition = Detail::InverseTransformPoint(
-      position, Detail::TransformFor(*node));
+  const auto localPosition =
+      Detail::InverseTransformPoint(position, Detail::TransformFor(*node));
   if (!node->arrangedBounds.Contains(localPosition)) {
     return {};
   }
 
   for (auto child = node->children.rbegin(); child != node->children.rend();
        ++child) {
-    if (const auto hit = HitTestSubtree(*child, localPosition, popupRoot); hit) {
+    if (const auto hit = HitTestSubtree(*child, localPosition, popupRoot);
+        hit) {
       return hit;
     }
   }
@@ -668,12 +671,12 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
       auto handled =
           node->properties.custom.element->PointerEvent(context, event);
       if (handled) {
-        m_customInvalidation |= handled.Value();
+        m_customInvalidation |= handled.value();
         outcome.callbackInvoked = outcome.callbackInvoked ||
-                                  handled.Value() != InvalidationKind::None ||
+                                  handled.value() != InvalidationKind::None ||
                                   event.handled;
       } else {
-        ReportCustomError(*node, handled.Error());
+        ReportCustomError(*node, handled.error());
         m_customInvalidation |=
             InvalidationKind::Paint | InvalidationKind::Semantics;
         outcome.callbackInvoked = true;
@@ -735,12 +738,12 @@ auto InputRouter::Dispatch(RoutedKeyEvent &event, const ElementHandle target)
         auto handled =
             node->properties.custom.element->KeyEvent(context, event);
         if (handled) {
-          m_customInvalidation |= handled.Value();
+          m_customInvalidation |= handled.value();
           result.callbackInvoked = result.callbackInvoked ||
-                                   handled.Value() != InvalidationKind::None ||
+                                   handled.value() != InvalidationKind::None ||
                                    event.handled;
         } else {
-          ReportCustomError(*node, handled.Error());
+          ReportCustomError(*node, handled.error());
           m_customInvalidation |=
               InvalidationKind::Paint | InvalidationKind::Semantics;
           result.callbackInvoked = true;
@@ -802,12 +805,12 @@ auto InputRouter::Dispatch(RoutedTextEvent &event, const ElementHandle target)
         auto handled =
             node->properties.custom.element->TextEvent(context, event);
         if (handled) {
-          m_customInvalidation |= handled.Value();
+          m_customInvalidation |= handled.value();
           result.callbackInvoked = result.callbackInvoked ||
-                                   handled.Value() != InvalidationKind::None ||
+                                   handled.value() != InvalidationKind::None ||
                                    event.handled;
         } else {
-          ReportCustomError(*node, handled.Error());
+          ReportCustomError(*node, handled.error());
           m_customInvalidation |=
               InvalidationKind::Paint | InvalidationKind::Semantics;
           result.callbackInvoked = true;
@@ -903,7 +906,7 @@ void InputRouter::StartTextInput(const RuntimeNode &node) noexcept {
   }
   const auto started = m_platform->StartTextInput(
       m_window, ToPixelRect(node.arrangedBounds, m_scaleFactor));
-  m_textInputActive = m_textInputActive || started.HasValue();
+  m_textInputActive = m_textInputActive || started.has_value();
 }
 
 void InputRouter::StopTextInput(const RuntimeNode &node) noexcept {
@@ -959,7 +962,7 @@ auto InputRouter::CommitTextFieldEdit(
   const auto previousEditing = editing;
   auto edited = edit(editing);
   if (!edited) {
-    ReportTextFieldError(node, edited.Error());
+    ReportTextFieldError(node, edited.error());
     result.callbackInvoked =
         static_cast<bool>(node.properties.textField.onError);
     return result;
@@ -968,7 +971,7 @@ auto InputRouter::CommitTextFieldEdit(
   auto committed = node.properties.textField.value.Set(editing.Value());
   if (!committed) {
     editing = previousEditing;
-    ReportTextFieldError(node, committed.Error());
+    ReportTextFieldError(node, committed.error());
     result.callbackInvoked =
         static_cast<bool>(node.properties.textField.onError);
     return result;
@@ -999,7 +1002,7 @@ auto InputRouter::RouteTextFieldComposition(RuntimeNode &node,
   auto updated = node.textField.editing->UpdateComposition(
       event.text, event.selectionStart, event.selectionLength);
   if (!updated) {
-    ReportTextFieldError(node, updated.Error());
+    ReportTextFieldError(node, updated.error());
     result.callbackInvoked =
         static_cast<bool>(node.properties.textField.onError);
     return result;
@@ -1045,7 +1048,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
     }
     auto copied = m_platform->SetClipboardText(editing.SelectedText());
     if (!copied) {
-      ReportTextFieldError(node, copied.Error());
+      ReportTextFieldError(node, copied.error());
       result.callbackInvoked =
           static_cast<bool>(node.properties.textField.onError);
       return result;
@@ -1076,12 +1079,12 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
     auto pasted = m_platform->GetClipboardText();
     if (!pasted) {
       InputDispatchResult result{.handled = true};
-      ReportTextFieldError(node, pasted.Error());
+      ReportTextFieldError(node, pasted.error());
       result.callbackInvoked =
           static_cast<bool>(node.properties.textField.onError);
       return result;
     }
-    return RouteTextFieldInput(node, pasted.Value());
+    return RouteTextFieldInput(node, pasted.value());
   }
 
   if (node.type == ElementType::TextArea && key == LogicalKey::Enter) {
@@ -1126,7 +1129,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
     if (auto caret = node.properties.text.geometry->CaretRect(
             node.text.paragraph, caretByte);
         caret && preferredX == 0.0F) {
-      preferredX = caret.Value().x;
+      preferredX = caret.value().x;
     }
     if (key == LogicalKey::Home || key == LogicalKey::End) {
       const auto byte = key == LogicalKey::Home
@@ -1151,7 +1154,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
         if (!caret) {
           continue;
         }
-        const auto distance = std::abs(caret.Value().x - preferredX);
+        const auto distance = std::abs(caret.value().x - preferredX);
         if (distance < bestDistance) {
           bestDistance = distance;
           target = cluster;
@@ -1161,7 +1164,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
 
     auto moved = editing.MoveCaretVertically(target, preferredX, extend);
     if (!moved) {
-      ReportTextFieldError(node, moved.Error());
+      ReportTextFieldError(node, moved.error());
       return InputDispatchResult{
           .handled = true,
           .callbackInvoked =
@@ -1197,7 +1200,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
 
   auto moved = editing.MoveCaretTo(target, extend);
   if (!moved) {
-    ReportTextFieldError(node, moved.Error());
+    ReportTextFieldError(node, moved.error());
     return InputDispatchResult{
         .handled = true,
         .callbackInvoked = static_cast<bool>(node.properties.textField.onError),
@@ -1318,7 +1321,7 @@ auto InputRouter::RouteListKey(const ElementHandle listHandle,
       if (!moved) {
         return InputDispatchResult{.handled = true};
       }
-      virtualList->scroll.offset.y = moved.Value();
+      virtualList->scroll.offset.y = moved.value();
       return InputDispatchResult{
           .handled = true,
           .visualStateChanged = true,
@@ -1350,7 +1353,7 @@ auto InputRouter::RouteListKey(const ElementHandle listHandle,
         controller.TypeAhead(m_typeAheadPrefix, virtualList->scroll.offset.y,
                              virtualList->scroll.viewportSize.height);
     if (moved) {
-      virtualList->scroll.offset.y = moved.Value();
+      virtualList->scroll.offset.y = moved.value();
     }
     return InputDispatchResult{
         .handled = true,

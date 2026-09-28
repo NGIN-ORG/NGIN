@@ -15,10 +15,10 @@ public:
   auto Segment(const NGIN::Text::String &text) noexcept
       -> NGIN::UI::UIResult<std::vector<NGIN::UI::GraphemeCluster>> override {
     if (fail) {
-      return NGIN::UI::MakeUIError(NGIN::UI::UIErrorCode::TextShapingFailed,
-                                   "Injected grapheme segmentation failure",
-                                   "NGIN.UI.Tests",
-                                   "TestGraphemeSegmenter::Segment");
+      return std::unexpected(NGIN::UI::MakeUIError(
+          NGIN::UI::UIErrorCode::TextShapingFailed,
+          "Injected grapheme segmentation failure", "NGIN.UI.Tests",
+          "TestGraphemeSegmenter::Segment"));
     }
 
     std::vector<NGIN::UI::GraphemeCluster> clusters;
@@ -73,18 +73,18 @@ TEST_CASE("text editing uses grapheme clusters for caret and deletion") {
   REQUIRE(buffer
               .Reset(NGIN::Text::String{"Ae\xCC\x81"
                                         "B"})
-              .HasValue());
+              .has_value());
   REQUIRE(buffer.Clusters().size() == 3);
   REQUIRE(buffer.Clusters()[1].byteLength == 3);
   REQUIRE(buffer.State().caretCluster == 3);
 
-  REQUIRE(buffer.MoveCaretTo(2).HasValue());
-  REQUIRE(buffer.DeleteBackward().HasValue());
+  REQUIRE(buffer.MoveCaretTo(2).has_value());
+  REQUIRE(buffer.DeleteBackward().has_value());
   REQUIRE(buffer.Value() == NGIN::Text::String{"AB"});
   REQUIRE(buffer.State().selection == TextRange{1, 0});
   REQUIRE(buffer.State().caretCluster == 1);
 
-  REQUIRE(buffer.DeleteForward().HasValue());
+  REQUIRE(buffer.DeleteForward().has_value());
   REQUIRE(buffer.Value() == NGIN::Text::String{"A"});
   REQUIRE(buffer.State().caretCluster == 1);
 }
@@ -97,14 +97,14 @@ TEST_CASE("text editing replacement and selection remain cluster indexed") {
   REQUIRE(buffer
               .Reset(NGIN::Text::String{"Ae\xCC\x81"
                                         "B"})
-              .HasValue());
-  REQUIRE(buffer.SetSelection(TextRange{1, 1}).HasValue());
-  REQUIRE(buffer.ReplaceSelection(NGIN::Text::String{"Z"}).HasValue());
+              .has_value());
+  REQUIRE(buffer.SetSelection(TextRange{1, 1}).has_value());
+  REQUIRE(buffer.ReplaceSelection(NGIN::Text::String{"Z"}).has_value());
   REQUIRE(buffer.Value() == NGIN::Text::String{"AZB"});
   REQUIRE(buffer.State().caretCluster == 2);
 
-  REQUIRE(buffer.MoveCaretTo(3).HasValue());
-  REQUIRE(buffer.MoveCaretTo(1, true).HasValue());
+  REQUIRE(buffer.MoveCaretTo(3).has_value());
+  REQUIRE(buffer.MoveCaretTo(1, true).has_value());
   REQUIRE(buffer.State().selection == TextRange{1, 2});
   REQUIRE(buffer.State().caretCluster == 1);
 
@@ -117,13 +117,13 @@ TEST_CASE("text editing rejects malformed UTF-8 transactionally") {
 
   TestGraphemeSegmenter segmenter;
   TextEditingBuffer buffer{segmenter};
-  REQUIRE(buffer.Reset(NGIN::Text::String{"safe"}).HasValue());
-  REQUIRE(buffer.MoveCaretTo(2).HasValue());
+  REQUIRE(buffer.Reset(NGIN::Text::String{"safe"}).has_value());
+  REQUIRE(buffer.MoveCaretTo(2).has_value());
 
   const NGIN::Text::String malformed{"\xC0\xAF", 2};
   const auto result = buffer.ReplaceSelection(malformed);
-  REQUIRE_FALSE(result.HasValue());
-  REQUIRE(result.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().code == UIErrorCode::InvalidArgument);
   REQUIRE(buffer.Value() == NGIN::Text::String{"safe"});
   REQUIRE(buffer.State().caretCluster == 2);
   REQUIRE(buffer.State().selection == TextRange{2, 0});
@@ -135,8 +135,8 @@ TEST_CASE("text editing validates grapheme partitions before mutation") {
   BrokenGraphemeSegmenter segmenter;
   TextEditingBuffer buffer{segmenter};
   const auto result = buffer.Reset(NGIN::Text::String{"A"});
-  REQUIRE_FALSE(result.HasValue());
-  REQUIRE(result.Error().code == UIErrorCode::InvalidState);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().code == UIErrorCode::InvalidState);
   REQUIRE(buffer.Value().Empty());
   REQUIRE(buffer.Clusters().empty());
 }
@@ -146,13 +146,13 @@ TEST_CASE("text editing deletion is transactional when segmentation fails") {
 
   TestGraphemeSegmenter segmenter;
   TextEditingBuffer buffer{segmenter};
-  REQUIRE(buffer.Reset(NGIN::Text::String{"safe"}).HasValue());
-  REQUIRE(buffer.MoveCaretTo(2).HasValue());
+  REQUIRE(buffer.Reset(NGIN::Text::String{"safe"}).has_value());
+  REQUIRE(buffer.MoveCaretTo(2).has_value());
   segmenter.fail = true;
 
   const auto result = buffer.DeleteBackward();
-  REQUIRE_FALSE(result.HasValue());
-  REQUIRE(result.Error().code == UIErrorCode::TextShapingFailed);
+  REQUIRE_FALSE(result.has_value());
+  REQUIRE(result.error().code == UIErrorCode::TextShapingFailed);
   REQUIRE(buffer.Value() == NGIN::Text::String{"safe"});
   REQUIRE(buffer.State().selection == TextRange{2, 0});
   REQUIRE(buffer.State().caretCluster == 2);
@@ -163,19 +163,19 @@ TEST_CASE("text editing composition updates remain transient and cancellable") {
 
   TestGraphemeSegmenter segmenter;
   TextEditingBuffer buffer{segmenter};
-  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).HasValue());
-  REQUIRE(buffer.SetSelection(TextRange{1, 1}).HasValue());
+  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).has_value());
+  REQUIRE(buffer.SetSelection(TextRange{1, 1}).has_value());
 
   const NGIN::Text::String composed{"e\xCC\x81"};
-  REQUIRE(buffer.UpdateComposition(composed, composed.Size(), 0).HasValue());
+  REQUIRE(buffer.UpdateComposition(composed, composed.Size(), 0).has_value());
   REQUIRE(buffer.HasComposition());
   REQUIRE(buffer.Value() == NGIN::Text::String{"Ae\xCC\x81"});
   REQUIRE(buffer.State().composition == TextRange{1, 1});
   REQUIRE(buffer.State().selection == TextRange{2, 0});
 
-  REQUIRE(buffer.UpdateComposition(NGIN::Text::String{"Z"}, 1, 0).HasValue());
+  REQUIRE(buffer.UpdateComposition(NGIN::Text::String{"Z"}, 1, 0).has_value());
   REQUIRE(buffer.Value() == NGIN::Text::String{"AZ"});
-  REQUIRE(buffer.CancelComposition().HasValue());
+  REQUIRE(buffer.CancelComposition().has_value());
   REQUIRE_FALSE(buffer.HasComposition());
   REQUIRE(buffer.Value() == NGIN::Text::String{"AB"});
   REQUIRE(buffer.State().selection == TextRange{1, 1});
@@ -186,19 +186,19 @@ TEST_CASE("text editing composition commits against its original selection") {
 
   TestGraphemeSegmenter segmenter;
   TextEditingBuffer buffer{segmenter};
-  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).HasValue());
-  REQUIRE(buffer.SetSelection(TextRange{1, 1}).HasValue());
+  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).has_value());
+  REQUIRE(buffer.SetSelection(TextRange{1, 1}).has_value());
   REQUIRE(buffer.UpdateComposition(NGIN::Text::String{"candidate"}, 9, 0)
-              .HasValue());
-  REQUIRE(buffer.CommitComposition(NGIN::Text::String{"Q"}).HasValue());
+              .has_value());
+  REQUIRE(buffer.CommitComposition(NGIN::Text::String{"Q"}).has_value());
   REQUIRE_FALSE(buffer.HasComposition());
   REQUIRE(buffer.Value() == NGIN::Text::String{"AQ"});
   REQUIRE(buffer.State().selection == TextRange{2, 0});
 
   const NGIN::Text::String multiByte{"\xC3\xA9"};
   const auto invalid = buffer.UpdateComposition(multiByte, 1, 0);
-  REQUIRE_FALSE(invalid.HasValue());
-  REQUIRE(invalid.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE_FALSE(invalid.has_value());
+  REQUIRE(invalid.error().code == UIErrorCode::InvalidArgument);
   REQUIRE(buffer.Value() == NGIN::Text::String{"AQ"});
 }
 
@@ -225,7 +225,7 @@ TEST_CASE("semantic text field edits bindings and retains its session") {
               .Initialize(PlatformInitInfo{
                   .applicationName = NGIN::Text::String{"Text tests"},
               })
-              .HasValue());
+              .has_value());
   InputRouter input{tree, &platform};
   REQUIRE(input.SetFocus(field));
 
@@ -297,8 +297,9 @@ TEST_CASE("text field restores composition when commit validation fails") {
   auto validated = Bind(value).WithValidation(
       [](const NGIN::Text::String &candidate) -> UIResult<void> {
         if (candidate.Size() > 1) {
-          return MakeUIError(UIErrorCode::InvalidArgument, "Text is too long",
-                             "NGIN.UI.Tests", "Validate");
+          return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                             "Text is too long",
+                                             "NGIN.UI.Tests", "Validate"));
         }
         return {};
       });
@@ -348,14 +349,14 @@ TEST_CASE("text field focus coordinates platform IME lifecycle") {
               .Initialize(PlatformInitInfo{
                   .applicationName = NGIN::Text::String{"Text tests"},
               })
-              .HasValue());
+              .has_value());
   auto created = platform.CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"IME"},
       .title = NGIN::Text::String{"IME"},
   });
-  REQUIRE(created.HasValue());
+  REQUIRE(created.has_value());
 
-  InputRouter input{tree, &platform, created.Value(), 2.0F};
+  InputRouter input{tree, &platform, created.value(), 2.0F};
   REQUIRE(input.SetFocus(field));
   REQUIRE(platform.Windows().front().textInputActive);
   REQUIRE(platform.Windows().front().textInputRect == PixelRect{2, 4, 60, 20});
@@ -363,7 +364,7 @@ TEST_CASE("text field focus coordinates platform IME lifecycle") {
   REQUIRE(
       tree.Get(field)
           ->textField.editing->UpdateComposition(NGIN::Text::String{"x"}, 1, 0)
-          .HasValue());
+          .has_value());
   REQUIRE(input.SetFocus(button));
   REQUIRE_FALSE(platform.Windows().front().textInputActive);
   REQUIRE_FALSE(tree.Get(field)->textField.editing->HasComposition());
@@ -397,7 +398,7 @@ TEST_CASE("text field clipboard and keyboard commands are cluster aware") {
               .Initialize(PlatformInitInfo{
                   .applicationName = NGIN::Text::String{"Text tests"},
               })
-              .HasValue());
+              .has_value());
   InputRouter input{tree, &platform};
   REQUIRE(input.SetFocus(field));
 
@@ -418,7 +419,7 @@ TEST_CASE("text field clipboard and keyboard commands are cluster aware") {
               .handled);
   REQUIRE(platform.ClipboardText() == value.Get());
 
-  REQUIRE(platform.SetClipboardText(NGIN::Text::String{"Paste"}).HasValue());
+  REQUIRE(platform.SetClipboardText(NGIN::Text::String{"Paste"}).has_value());
   REQUIRE(input
               .Route(KeyChanged{
                   .logicalKey = static_cast<NGIN::UInt32>('V'),
@@ -448,8 +449,9 @@ TEST_CASE("text field rolls back edits rejected by binding validation") {
   auto validated = Bind(value).WithValidation(
       [](const NGIN::Text::String &candidate) -> UIResult<void> {
         if (candidate.Size() > 4) {
-          return MakeUIError(UIErrorCode::InvalidArgument, "Text is too long",
-                             "NGIN.UI.Tests", "Validate");
+          return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                             "Text is too long",
+                                             "NGIN.UI.Tests", "Validate"));
         }
         return {};
       });

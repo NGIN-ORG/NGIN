@@ -1,3 +1,4 @@
+#include "TaskOwnerFixture.hpp"
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/Execution/CooperativeScheduler.hpp>
@@ -71,8 +72,10 @@ TEST_CASE("ViewModel task scopes observe success failure and cancellation") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
-  ViewModelTaskScope scope{context};
+  ViewModelTaskScope scope{owner, context};
   int completions = 0;
   std::vector<ViewModelTaskOutcome> outcomes;
 
@@ -113,12 +116,14 @@ TEST_CASE(
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   int completions = 0;
   int observations = 0;
   ReadOnlyBinding<ViewModelTaskStatus> retained;
   {
-    ViewModelTaskScope scope{context};
+    ViewModelTaskScope scope{owner, context};
     retained = scope.StatusBinding();
     static_cast<void>(scope.Start(
         [&](NGIN::Async::TaskContext &runContext) {
@@ -137,8 +142,10 @@ TEST_CASE("closing a ViewModel task scope reports when cancellation drains") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
-  ViewModelTaskScope scope{context};
+  ViewModelTaskScope scope{owner, context};
   bool drained = false;
   int completions = 0;
   static_cast<void>(scope.Start([&](NGIN::Async::TaskContext &runContext) {
@@ -162,8 +169,10 @@ TEST_CASE("ViewModel task scopes retain observer exceptions as faults") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
-  ViewModelTaskScope scope{context};
+  ViewModelTaskScope scope{owner, context};
   int completions = 0;
   static_cast<void>(scope.Start(
       [&](NGIN::Async::TaskContext &runContext) {
@@ -185,24 +194,27 @@ TEST_CASE("keyed ViewModel hosts reuse replace and clean up plain types") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   auto metrics = std::make_shared<LifecycleMetrics>();
   KeyedViewModelHost<PlainLifecycleViewModel> host{
-      context, [metrics](const NGIN::Text::String &key,
-                         const ViewModelServiceResolver &) {
+      owner, context,
+      [metrics](const NGIN::Text::String &key,
+                const ViewModelServiceResolver &) {
         return std::make_shared<PlainLifecycleViewModel>(key, metrics);
       }};
 
   auto first = host.Show(NGIN::Text::String{"first"});
-  REQUIRE(first.HasValue());
+  REQUIRE(first.has_value());
   auto reused = host.Show(NGIN::Text::String{"first"});
-  REQUIRE(reused.HasValue());
-  REQUIRE(first.Value() == reused.Value());
+  REQUIRE(reused.has_value());
+  REQUIRE(first.value() == reused.value());
   REQUIRE(metrics->activated == 1);
 
   auto second = host.Show(NGIN::Text::String{"second"});
-  REQUIRE(second.HasValue());
-  REQUIRE(second.Value() != first.Value());
+  REQUIRE(second.has_value());
+  REQUIRE(second.value() != first.value());
   REQUIRE(metrics->activated == 2);
   REQUIRE(metrics->deactivated == 1);
   scheduler.RunUntilIdle();
@@ -223,17 +235,20 @@ TEST_CASE("rapid ViewModel replacement prevents stale activation") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   auto metrics = std::make_shared<LifecycleMetrics>();
   KeyedViewModelHost<PlainLifecycleViewModel> host{
-      context, [metrics](const NGIN::Text::String &key,
-                         const ViewModelServiceResolver &) {
+      owner, context,
+      [metrics](const NGIN::Text::String &key,
+                const ViewModelServiceResolver &) {
         return std::make_shared<PlainLifecycleViewModel>(key, metrics);
       }};
 
-  REQUIRE(host.Show(NGIN::Text::String{"one"}).HasValue());
-  REQUIRE(host.Show(NGIN::Text::String{"two"}).HasValue());
-  REQUIRE(host.Show(NGIN::Text::String{"three"}).HasValue());
+  REQUIRE(host.Show(NGIN::Text::String{"one"}).has_value());
+  REQUIRE(host.Show(NGIN::Text::String{"two"}).has_value());
+  REQUIRE(host.Show(NGIN::Text::String{"three"}).has_value());
   scheduler.RunUntilIdle();
 
   REQUIRE(host.CurrentKey() == NGIN::Text::String{"three"});
@@ -247,6 +262,8 @@ TEST_CASE("ViewModel factories can use a narrow non-owning service resolver") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   auto metrics = std::make_shared<LifecycleMetrics>();
   int service = 42;
@@ -255,7 +272,7 @@ TEST_CASE("ViewModel factories can use a narrow non-owning service resolver") {
   }};
   int resolved = 0;
   KeyedViewModelHost<PlainLifecycleViewModel> host{
-      context,
+      owner, context,
       [&](const NGIN::Text::String &key,
           const ViewModelServiceResolver &resolver) {
         resolved = *resolver.TryResolve<int>();
@@ -263,7 +280,7 @@ TEST_CASE("ViewModel factories can use a narrow non-owning service resolver") {
       },
       services};
 
-  REQUIRE(host.Show(NGIN::Text::String{"service"}).HasValue());
+  REQUIRE(host.Show(NGIN::Text::String{"service"}).has_value());
   REQUIRE(resolved == 42);
 }
 
@@ -272,17 +289,19 @@ TEST_CASE("keyed ViewModel hosts report factory exceptions") {
   using namespace NGIN::UI;
 
   NGIN::Execution::CooperativeScheduler scheduler;
+  TaskOwnerFixture tasks{scheduler};
+  auto &owner = tasks.owner;
   NGIN::Async::TaskContext context{scheduler};
   KeyedViewModelHost<PlainLifecycleViewModel> host{
-      context,
+      owner, context,
       [](const NGIN::Text::String &, const ViewModelServiceResolver &)
           -> std::shared_ptr<PlainLifecycleViewModel> {
         throw std::runtime_error{"factory failed"};
       }};
 
   const auto shown = host.Show(NGIN::Text::String{"failure"});
-  REQUIRE_FALSE(shown.HasValue());
-  REQUIRE(shown.Error().code == UIErrorCode::ResourceFailed);
+  REQUIRE_FALSE(shown.has_value());
+  REQUIRE(shown.error().code == UIErrorCode::ResourceFailed);
   REQUIRE_FALSE(host.IsMounted());
 }
 #endif
@@ -295,23 +314,24 @@ TEST_CASE("window and application closure cancel ViewModel task scopes") {
       .platform = std::make_unique<TestPlatformBackend>(),
       .renderer = std::make_unique<RecordingRenderBackend>(),
   });
-  REQUIRE(created.HasValue());
-  auto application = std::move(created).Value();
+  REQUIRE(created.has_value());
+  auto application = std::move(created).value();
   auto createdWindow = application->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"ViewModelLifetime"},
       .title = NGIN::Text::String{"ViewModel lifetime"},
   });
-  REQUIRE(createdWindow.HasValue());
-  auto *window = createdWindow.Value();
+  REQUIRE(createdWindow.has_value());
+  auto *window = createdWindow.value();
   int completions = 0;
-  ViewModelTaskScope scope{application->CreateTaskContext(*window)};
+  ViewModelTaskScope scope{application->BackgroundTasks(),
+                           application->CreateTaskContext(*window)};
   static_cast<void>(scope.Start([&](NGIN::Async::TaskContext &context) {
     return CompleteAfterYield(context, completions);
   }));
 
-  REQUIRE(application->CloseWindow(*window).HasValue());
+  REQUIRE(application->CloseWindow(*window).has_value());
   for (auto index = 0; index < 8 && scope.Status().activeCount != 0; ++index) {
-    REQUIRE(application->PumpOnce().HasValue());
+    REQUIRE(application->PumpOnce().has_value());
   }
   REQUIRE(completions == 0);
   REQUIRE(scope.Status().lastOutcome.kind ==
@@ -321,9 +341,10 @@ TEST_CASE("window and application closure cancel ViewModel task scopes") {
       .id = NGIN::Text::String{"ApplicationViewModelLifetime"},
       .title = NGIN::Text::String{"Application ViewModel lifetime"},
   });
-  REQUIRE(secondWindow.HasValue());
+  REQUIRE(secondWindow.has_value());
   ViewModelTaskScope applicationScope{
-      application->CreateTaskContext(*secondWindow.Value())};
+      application->BackgroundTasks(),
+      application->CreateTaskContext(*secondWindow.value())};
   static_cast<void>(
       applicationScope.Start([&](NGIN::Async::TaskContext &context) {
         return CompleteAfterYield(context, completions);

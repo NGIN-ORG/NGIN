@@ -33,32 +33,34 @@ namespace {
       codePoint = first & 0x07U;
       minimum = 0x10000U;
     } else {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Text contains invalid UTF-8", "NGIN.UI",
-                         "TextEditingBuffer::Validate");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Text contains invalid UTF-8",
+          "NGIN.UI", "TextEditingBuffer::Validate"));
     }
 
     if (length > size - offset) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Text contains truncated UTF-8", "NGIN.UI",
-                         "TextEditingBuffer::Validate");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::InvalidArgument, "Text contains truncated UTF-8",
+          "NGIN.UI", "TextEditingBuffer::Validate"));
     }
 
     for (UIntSize index = 1; index < length; ++index) {
       const auto continuation = static_cast<UInt8>(value[offset + index]);
       if ((continuation & 0xC0U) != 0x80U) {
-        return MakeUIError(UIErrorCode::InvalidArgument,
-                           "Text contains invalid UTF-8 continuation bytes",
-                           "NGIN.UI", "TextEditingBuffer::Validate");
+        return std::unexpected(
+            MakeUIError(UIErrorCode::InvalidArgument,
+                        "Text contains invalid UTF-8 continuation bytes",
+                        "NGIN.UI", "TextEditingBuffer::Validate"));
       }
       codePoint = (codePoint << 6U) | (continuation & 0x3FU);
     }
 
     if (codePoint < minimum || codePoint > 0x10FFFFU ||
         (codePoint >= 0xD800U && codePoint <= 0xDFFFU)) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Text contains an invalid Unicode scalar value",
-                         "NGIN.UI", "TextEditingBuffer::Validate");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidArgument,
+                      "Text contains an invalid Unicode scalar value",
+                      "NGIN.UI", "TextEditingBuffer::Validate"));
     }
 
     offset += length;
@@ -135,11 +137,11 @@ auto TextEditingBuffer::ClusterForByteOffset(
 auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   auto clusters = SegmentAndValidate(value);
   if (!clusters) {
-    return std::move(clusters).Error();
+    return std::unexpected(std::move(clusters).error());
   }
 
   m_value = std::move(value);
-  m_clusters = std::move(clusters).Value();
+  m_clusters = std::move(clusters).value();
   m_state.selection = TextRange{m_clusters.size(), 0};
   m_state.composition = {};
   m_state.caretCluster = m_clusters.size();
@@ -158,9 +160,10 @@ auto TextEditingBuffer::SetSelection(const TextRange selection)
     -> UIResult<void> {
   if (selection.start > m_clusters.size() ||
       selection.length > m_clusters.size() - selection.start) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Text selection is outside the editing buffer",
-                       "NGIN.UI", "TextEditingBuffer::SetSelection");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Text selection is outside the editing buffer", "NGIN.UI",
+                    "TextEditingBuffer::SetSelection"));
   }
 
   m_state.selection = selection;
@@ -181,9 +184,9 @@ auto TextEditingBuffer::MoveCaretTo(const UIntSize cluster,
                                     const bool extendSelection)
     -> UIResult<void> {
   if (cluster > m_clusters.size()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Caret is outside the editing buffer", "NGIN.UI",
-                       "TextEditingBuffer::MoveCaretTo");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidArgument, "Caret is outside the editing buffer",
+        "NGIN.UI", "TextEditingBuffer::MoveCaretTo"));
   }
 
   if (!extendSelection) {
@@ -248,20 +251,22 @@ auto TextEditingBuffer::UpdateComposition(const NGIN::Text::String &text,
   }
   if (selectionStartByte > text.Size() ||
       selectionLengthByte > text.Size() - selectionStartByte) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "IME selection is outside the composition text",
-                       "NGIN.UI", "TextEditingBuffer::UpdateComposition");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "IME selection is outside the composition text", "NGIN.UI",
+                    "TextEditingBuffer::UpdateComposition"));
   }
   auto compositionBoundaries = Utf8Boundaries(text);
   if (!compositionBoundaries) {
-    return std::move(compositionBoundaries).Error();
+    return std::unexpected(std::move(compositionBoundaries).error());
   }
-  if (!compositionBoundaries.Value()[selectionStartByte] ||
+  if (!compositionBoundaries.value()[selectionStartByte] ||
       !compositionBoundaries
-           .Value()[selectionStartByte + selectionLengthByte]) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "IME selection does not use UTF-8 boundaries", "NGIN.UI",
-                       "TextEditingBuffer::UpdateComposition");
+           .value()[selectionStartByte + selectionLengthByte]) {
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "IME selection does not use UTF-8 boundaries", "NGIN.UI",
+                    "TextEditingBuffer::UpdateComposition"));
   }
 
   if (!m_compositionActive) {
@@ -277,22 +282,22 @@ auto TextEditingBuffer::UpdateComposition(const NGIN::Text::String &text,
                     m_compositionEndByte - m_compositionStartByte, text.View());
   auto clusters = SegmentAndValidate(candidate);
   if (!clusters) {
-    return std::move(clusters).Error();
+    return std::unexpected(std::move(clusters).error());
   }
 
   const auto compositionEndByte = m_compositionStartByte + text.Size();
   const auto compositionStartCluster =
-      ClusterAtByte(clusters.Value(), m_compositionStartByte);
+      ClusterAtByte(clusters.value(), m_compositionStartByte);
   const auto compositionEndCluster =
-      ClusterPositionAtOrAfterByte(clusters.Value(), compositionEndByte);
+      ClusterPositionAtOrAfterByte(clusters.value(), compositionEndByte);
   const auto selectionStartCluster = ClusterPositionAtOrAfterByte(
-      clusters.Value(), m_compositionStartByte + selectionStartByte);
+      clusters.value(), m_compositionStartByte + selectionStartByte);
   const auto selectionEndCluster = ClusterPositionAtOrAfterByte(
-      clusters.Value(),
+      clusters.value(),
       m_compositionStartByte + selectionStartByte + selectionLengthByte);
 
   m_value = std::move(candidate);
-  m_clusters = std::move(clusters).Value();
+  m_clusters = std::move(clusters).value();
   m_state.composition = TextRange{
       compositionStartCluster, compositionEndCluster - compositionStartCluster};
   m_state.selection = TextRange{selectionStartCluster,
@@ -315,11 +320,11 @@ auto TextEditingBuffer::CommitComposition(const NGIN::Text::String &text)
                     m_compositionEndByte - m_compositionStartByte, text.View());
   auto clusters = SegmentAndValidate(candidate);
   if (!clusters) {
-    return std::move(clusters).Error();
+    return std::unexpected(std::move(clusters).error());
   }
 
   m_value = std::move(candidate);
-  m_clusters = std::move(clusters).Value();
+  m_clusters = std::move(clusters).value();
   const auto caret = ClusterAtOrAfterByte(m_compositionStartByte + text.Size());
   m_state.selection = TextRange{caret, 0};
   m_state.composition = {};
@@ -382,11 +387,11 @@ auto TextEditingBuffer::CommitCandidate(NGIN::Text::String candidate,
     -> UIResult<void> {
   auto clusters = SegmentAndValidate(candidate);
   if (!clusters) {
-    return std::move(clusters).Error();
+    return std::unexpected(std::move(clusters).error());
   }
 
   m_value = std::move(candidate);
-  m_clusters = std::move(clusters).Value();
+  m_clusters = std::move(clusters).value();
   const auto caret = ClusterAtOrAfterByte(desiredCaretByte);
   m_state.selection = TextRange{caret, 0};
   m_state.composition = {};
@@ -406,33 +411,35 @@ auto TextEditingBuffer::SegmentAndValidate(const NGIN::Text::String &value)
     -> UIResult<std::vector<GraphemeCluster>> {
   auto boundaries = Utf8Boundaries(value);
   if (!boundaries) {
-    return std::move(boundaries).Error();
+    return std::unexpected(std::move(boundaries).error());
   }
 
   auto clusters = m_segmenter->Segment(value);
   if (!clusters) {
-    return std::move(clusters).Error();
+    return std::unexpected(std::move(clusters).error());
   }
 
   UIntSize expectedOffset = 0;
-  for (const auto &cluster : clusters.Value()) {
+  for (const auto &cluster : clusters.value()) {
     if (cluster.byteOffset != expectedOffset || cluster.byteLength == 0 ||
         cluster.byteLength > value.Size() - cluster.byteOffset ||
-        !boundaries.Value()[cluster.byteOffset] ||
-        !boundaries.Value()[cluster.byteOffset + cluster.byteLength]) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "Grapheme segmenter returned an invalid partition",
-                         "NGIN.UI", "TextEditingBuffer::Segment");
+        !boundaries.value()[cluster.byteOffset] ||
+        !boundaries.value()[cluster.byteOffset + cluster.byteLength]) {
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidState,
+                      "Grapheme segmenter returned an invalid partition",
+                      "NGIN.UI", "TextEditingBuffer::Segment"));
     }
     expectedOffset += cluster.byteLength;
   }
 
   if (expectedOffset != value.Size()) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Grapheme segmenter did not cover the complete text",
-                       "NGIN.UI", "TextEditingBuffer::Segment");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidState,
+                    "Grapheme segmenter did not cover the complete text",
+                    "NGIN.UI", "TextEditingBuffer::Segment"));
   }
 
-  return std::move(clusters).Value();
+  return std::move(clusters).value();
 }
 } // namespace NGIN::UI

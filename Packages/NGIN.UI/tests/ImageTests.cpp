@@ -68,41 +68,41 @@ TEST_CASE("logical image resources validate and retain RGBA pixels") {
       .size = PixelSize{2, 2},
       .rgba = std::vector<NGIN::Byte>(3),
   });
-  REQUIRE_FALSE(invalid.HasValue());
-  REQUIRE(invalid.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE_FALSE(invalid.has_value());
+  REQUIRE(invalid.error().code == UIErrorCode::InvalidArgument);
 
   auto resource = ImageResource::FromPixels(SolidPixels(PixelSize{3, 2}));
-  REQUIRE(resource.HasValue());
-  REQUIRE(resource.Value()->State() == ImageLoadState::Ready);
-  REQUIRE(resource.Value()->Size() == PixelSize{3, 2});
-  auto pixels = resource.Value()->CopyPixels();
-  REQUIRE(pixels.HasValue());
-  REQUIRE(pixels.Value().rgba.size() == 24);
+  REQUIRE(resource.has_value());
+  REQUIRE(resource.value()->State() == ImageLoadState::Ready);
+  REQUIRE(resource.value()->Size() == PixelSize{3, 2});
+  auto pixels = resource.value()->CopyPixels();
+  REQUIRE(pixels.has_value());
+  REQUIRE(pixels.value().rgba.size() == 24);
 }
 
 TEST_CASE("dynamic image revisions update a stable nearest-filter texture") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   auto resource = ImageResource::FromPixels(SolidPixels(PixelSize{4, 3}),
                                             TextureFilter::Nearest)
-                      .Value();
+                      .value();
   ImageTextureCache cache{renderer};
 
   const auto first = cache.Resolve(resource);
-  REQUIRE(first.HasValue());
+  REQUIRE(first.has_value());
   REQUIRE(renderer.Textures().size() == 1);
   CHECK(renderer.Textures().front().info.filter == TextureFilter::Nearest);
   const auto revision = resource->Revision();
 
   auto next = SolidPixels(PixelSize{4, 3});
   next.rgba[0] = NGIN::Byte{17};
-  REQUIRE(resource->UpdatePixels(std::move(next)).HasValue());
+  REQUIRE(resource->UpdatePixels(std::move(next)).has_value());
   CHECK(resource->Revision() == revision + 1);
   const auto updated = cache.Resolve(resource);
-  REQUIRE(updated.HasValue());
-  CHECK(updated.Value().texture == first.Value().texture);
+  REQUIRE(updated.has_value());
+  CHECK(updated.value().texture == first.value().texture);
   CHECK(renderer.Textures().size() == 1);
   CHECK(renderer.TextureUpdates().size() == 2);
   CHECK(std::to_integer<NGIN::UInt8>(
@@ -118,7 +118,7 @@ TEST_CASE("memory and file image sources decode asynchronously") {
   memory->Wait();
   REQUIRE(memory->State() == ImageLoadState::Ready);
   REQUIRE(memory->Size() == PixelSize{2, 1});
-  const auto memoryPixels = memory->CopyPixels().Value();
+  const auto memoryPixels = memory->CopyPixels().value();
   REQUIRE(std::to_integer<NGIN::UInt8>(memoryPixels.rgba[0]) == 255);
   REQUIRE(std::to_integer<NGIN::UInt8>(memoryPixels.rgba[5]) == 255);
 
@@ -149,7 +149,7 @@ TEST_CASE("memory and file image sources decode asynchronously") {
       ImageMemorySource{.encoded = std::move(binary)});
   binaryResource->Wait();
   REQUIRE(binaryResource->State() == ImageLoadState::Ready);
-  const auto binaryPixels = binaryResource->CopyPixels().Value();
+  const auto binaryPixels = binaryResource->CopyPixels().value();
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[0]) == 10);
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[1]) == 20);
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[2]) == 30);
@@ -166,7 +166,7 @@ TEST_CASE("standard image decoder loads PNG and JPEG as RGBA8") {
   pngResource->Wait();
   REQUIRE(pngResource->State() == ImageLoadState::Ready);
   REQUIRE(pngResource->Size() == PixelSize{2, 1});
-  const auto pngPixels = pngResource->CopyPixels().Value();
+  const auto pngPixels = pngResource->CopyPixels().value();
   CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[0]) == 255);
   CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[1]) == 0);
   CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[2]) == 0);
@@ -195,16 +195,16 @@ TEST_CASE("standard image decoder loads PNG and JPEG as RGBA8") {
   jpegResource->Wait();
   REQUIRE(jpegResource->State() == ImageLoadState::Ready);
   REQUIRE(jpegResource->Size() == PixelSize{1, 1});
-  const auto jpegPixels = jpegResource->CopyPixels().Value();
-  CHECK(std::abs(static_cast<int>(
-                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[0])) -
-                 24) <= 3);
-  CHECK(std::abs(static_cast<int>(
-                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[1])) -
-                 120) <= 3);
-  CHECK(std::abs(static_cast<int>(
-                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[2])) -
-                 220) <= 3);
+  const auto jpegPixels = jpegResource->CopyPixels().value();
+  CHECK(std::abs(
+            static_cast<int>(std::to_integer<NGIN::UInt8>(jpegPixels.rgba[0])) -
+            24) <= 3);
+  CHECK(std::abs(
+            static_cast<int>(std::to_integer<NGIN::UInt8>(jpegPixels.rgba[1])) -
+            120) <= 3);
+  CHECK(std::abs(
+            static_cast<int>(std::to_integer<NGIN::UInt8>(jpegPixels.rgba[2])) -
+            220) <= 3);
   CHECK(std::to_integer<NGIN::UInt8>(jpegPixels.rgba[3]) == 255);
 }
 
@@ -218,21 +218,20 @@ TEST_CASE("standard image decoder rejects malformed and cancelled work") {
       NGIN::Byte{0x0D}, NGIN::Byte{0x0A}, NGIN::Byte{0x1A}, NGIN::Byte{0x0A},
   };
   auto failed = decoder.Decode(malformed, active);
-  REQUIRE_FALSE(failed.HasValue());
-  CHECK(failed.Error().code == UIErrorCode::ResourceFailed);
+  REQUIRE_FALSE(failed.has_value());
+  CHECK(failed.error().code == UIErrorCode::ResourceFailed);
 
   constexpr std::string_view unknown{"not an image"};
-  const auto unknownBytes =
-      std::span{reinterpret_cast<const NGIN::Byte *>(unknown.data()),
-                unknown.size()};
+  const auto unknownBytes = std::span{
+      reinterpret_cast<const NGIN::Byte *>(unknown.data()), unknown.size()};
   auto unsupported = decoder.Decode(unknownBytes, active);
-  REQUIRE_FALSE(unsupported.HasValue());
-  CHECK(unsupported.Error().code == UIErrorCode::Unsupported);
+  REQUIRE_FALSE(unsupported.has_value());
+  CHECK(unsupported.error().code == UIErrorCode::Unsupported);
 
   std::atomic_bool cancelled{true};
   auto cancelledResult = decoder.Decode(malformed, cancelled);
-  REQUIRE_FALSE(cancelledResult.HasValue());
-  CHECK(cancelledResult.Error().code == UIErrorCode::InvalidState);
+  REQUIRE_FALSE(cancelledResult.has_value());
+  CHECK(cancelledResult.error().code == UIErrorCode::InvalidState);
 }
 
 TEST_CASE("generated image work observes cancellation") {
@@ -252,7 +251,7 @@ TEST_CASE("generated image work observes cancellation") {
   resource->Cancel();
   resource->Wait();
   REQUIRE(resource->State() == ImageLoadState::Cancelled);
-  REQUIRE_FALSE(resource->CopyPixels().HasValue());
+  REQUIRE_FALSE(resource->CopyPixels().has_value());
 }
 
 TEST_CASE("generated image callback failures become resource errors") {
@@ -273,15 +272,16 @@ TEST_CASE("image texture cache uploads lazily and recreates device resources") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  Testing::RecordingRenderBackend replacementRenderer;
+  REQUIRE(renderer.Initialize({}).has_value());
   auto resource =
-      ImageResource::FromPixels(SolidPixels(PixelSize{4, 3})).Value();
+      ImageResource::FromPixels(SolidPixels(PixelSize{4, 3})).value();
   ImageTextureCache cache{renderer};
 
   auto first = cache.Resolve(resource);
-  REQUIRE(first.HasValue());
-  REQUIRE(first.Value().state == ImageLoadState::Ready);
-  REQUIRE(first.Value().texture);
+  REQUIRE(first.has_value());
+  REQUIRE(first.value().state == ImageLoadState::Ready);
+  REQUIRE(first.value().texture);
   REQUIRE(renderer.TextureUpdates().size() == 1);
   CHECK(cache.Diagnostics().missCount == 1);
   CHECK(cache.Diagnostics().uploadCount == 1);
@@ -291,23 +291,22 @@ TEST_CASE("image texture cache uploads lazily and recreates device resources") {
   CHECK(cache.Diagnostics().maximumResidentBytes == 256ULL * 1024ULL * 1024ULL);
 
   auto cached = cache.Resolve(resource);
-  REQUIRE(cached.HasValue());
-  REQUIRE(cached.Value().texture == first.Value().texture);
+  REQUIRE(cached.has_value());
+  REQUIRE(cached.value().texture == first.value().texture);
   REQUIRE(renderer.TextureUpdates().size() == 1);
   CHECK(cache.Diagnostics().hitCount == 1);
 
   cache.OnDeviceLost();
   auto unavailable = cache.Resolve(resource);
-  REQUIRE_FALSE(unavailable.HasValue());
+  REQUIRE_FALSE(unavailable.has_value());
   CHECK(cache.Diagnostics().evictionCount == 1);
   CHECK(cache.Diagnostics().entryCount == 0);
 
-  Testing::RecordingRenderBackend replacementRenderer;
-  REQUIRE(replacementRenderer.Initialize({}).HasValue());
+  REQUIRE(replacementRenderer.Initialize({}).has_value());
   cache.OnDeviceRestored(replacementRenderer);
   auto recreated = cache.Resolve(resource);
-  REQUIRE(recreated.HasValue());
-  REQUIRE(recreated.Value().texture);
+  REQUIRE(recreated.has_value());
+  REQUIRE(recreated.value().texture);
   REQUIRE(renderer.TextureUpdates().size() == 1);
   REQUIRE(replacementRenderer.TextureUpdates().size() == 1);
   CHECK(cache.Diagnostics().missCount == 2);
@@ -319,19 +318,19 @@ TEST_CASE("image texture cache enforces entry and memory budgets") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
-  auto first = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
-  auto second = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
-  auto third = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
+  REQUIRE(renderer.Initialize({}).has_value());
+  auto first = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).value();
+  auto second = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).value();
+  auto third = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).value();
   ImageTextureCache cache{renderer, ImageTextureCacheOptions{
                                         .maximumEntries = 2,
                                         .maximumResidentBytes = 32,
                                     }};
 
-  REQUIRE(cache.Resolve(first).HasValue());
-  REQUIRE(cache.Resolve(second).HasValue());
-  REQUIRE(cache.Resolve(first).HasValue());
-  REQUIRE(cache.Resolve(third).HasValue());
+  REQUIRE(cache.Resolve(first).has_value());
+  REQUIRE(cache.Resolve(second).has_value());
+  REQUIRE(cache.Resolve(first).has_value());
+  REQUIRE(cache.Resolve(third).has_value());
   const auto bounded = cache.Diagnostics();
   CHECK(bounded.entryCount == 2);
   CHECK(bounded.peakEntryCount == 2);
@@ -340,21 +339,21 @@ TEST_CASE("image texture cache enforces entry and memory budgets") {
   CHECK(bounded.evictionCount == 1);
   CHECK(bounded.hitCount == 1);
 
-  REQUIRE(cache.Resolve(second).HasValue());
+  REQUIRE(cache.Resolve(second).has_value());
   CHECK(cache.Diagnostics().entryCount == 2);
   CHECK(cache.Diagnostics().evictionCount == 2);
   CHECK(cache.Diagnostics().missCount == 4);
 
   auto tooLarge =
-      ImageResource::FromPixels(SolidPixels(PixelSize{3, 3})).Value();
+      ImageResource::FromPixels(SolidPixels(PixelSize{3, 3})).value();
   auto rejected = cache.Resolve(tooLarge);
-  REQUIRE_FALSE(rejected.HasValue());
-  CHECK(rejected.Error().code == UIErrorCode::ResourceFailed);
+  REQUIRE_FALSE(rejected.has_value());
+  CHECK(rejected.error().code == UIErrorCode::ResourceFailed);
   CHECK(cache.Diagnostics().capacityFailureCount == 1);
   CHECK(cache.Diagnostics().entryCount == 2);
 
   third.reset();
-  REQUIRE(cache.Resolve(second).HasValue());
+  REQUIRE(cache.Resolve(second).has_value());
   CHECK(cache.Diagnostics().entryCount == 1);
   CHECK(cache.Diagnostics().evictionCount == 3);
 }
@@ -363,9 +362,9 @@ TEST_CASE("Image composes fit tint clipping and semantic description") {
   using namespace NGIN::UI;
 
   Testing::RecordingRenderBackend renderer;
-  REQUIRE(renderer.Initialize({}).HasValue());
+  REQUIRE(renderer.Initialize({}).has_value());
   auto resource =
-      ImageResource::FromPixels(SolidPixels(PixelSize{200, 100})).Value();
+      ImageResource::FromPixels(SolidPixels(PixelSize{200, 100})).value();
   ImageTextureCache cache{renderer};
   NodeProperties properties{};
   properties.layout.preferredSize = Size{100.0F, 100.0F};

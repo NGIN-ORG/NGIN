@@ -1,6 +1,7 @@
 #include <NGIN/UI/Application.hpp>
 
 #include "MotionInternal.hpp"
+#include "UIAsyncScheduler.hpp"
 
 #include <NGIN/Execution/WorkItem.hpp>
 #include <NGIN/Time/MonotonicClock.hpp>
@@ -18,115 +19,7 @@ namespace NGIN::UI {
 namespace {
 using DiagnosticsClock = std::chrono::steady_clock;
 
-class UIAsyncScheduler final {
-public:
-  struct DelayedEntry final {
-    MonotonicTime due{};
-    NGIN::Execution::WorkItem item{};
-  };
-
-  void Bind(IPlatformBackend &platform) noexcept { m_platform = &platform; }
-
-  void Execute(NGIN::Execution::WorkItem item) noexcept {
-    try {
-      {
-        std::scoped_lock lock{m_mutex};
-        m_ready.push_back(std::move(item));
-      }
-      Wake();
-    } catch (...) {
-      item.Invoke();
-    }
-  }
-
-  void ExecuteAt(NGIN::Execution::WorkItem item,
-                 const NGIN::Time::TimePoint resumeAt) {
-    const auto now = NGIN::Time::MonotonicClock::Now();
-    auto delay = MonotonicTime{0};
-    if (resumeAt > now) {
-      delay =
-          std::chrono::duration_cast<MonotonicTime>(std::chrono::nanoseconds{
-              resumeAt.ToNanoseconds() - now.ToNanoseconds()});
-    }
-    const auto platformNow =
-        m_platform != nullptr ? m_platform->MonotonicNow() : MonotonicTime{};
-    try {
-      {
-        std::scoped_lock lock{m_mutex};
-        m_delayed.push_back(DelayedEntry{
-            .due = platformNow + delay,
-            .item = std::move(item),
-        });
-      }
-      Wake();
-    } catch (...) {
-      item.Invoke();
-    }
-  }
-
-  [[nodiscard]] auto NextDeadline() const noexcept
-      -> std::optional<MonotonicTime> {
-    std::scoped_lock lock{m_mutex};
-    if (!m_ready.empty()) {
-      return MonotonicTime{0};
-    }
-    std::optional<MonotonicTime> result;
-    for (const auto &entry : m_delayed) {
-      if (!result || entry.due < *result) {
-        result = entry.due;
-      }
-    }
-    return result;
-  }
-
-  void RunReady(const MonotonicTime now) noexcept {
-    std::deque<NGIN::Execution::WorkItem> ready;
-    {
-      std::scoped_lock lock{m_mutex};
-      ready.swap(m_ready);
-      for (auto &entry : m_delayed) {
-        if (entry.due <= now) {
-          ready.push_back(std::move(entry.item));
-        }
-      }
-      std::erase_if(m_delayed, [now](const DelayedEntry &entry) {
-        return entry.due <= now;
-      });
-    }
-    for (auto &item : ready) {
-      item.Invoke();
-    }
-  }
-
-  void DrainReady(const MonotonicTime now) noexcept {
-    for (;;) {
-      const auto deadline = NextDeadline();
-      if (!deadline || (*deadline != MonotonicTime{0} && *deadline > now)) {
-        return;
-      }
-      RunReady(now);
-    }
-  }
-
-  void Shutdown() noexcept {
-    std::scoped_lock lock{m_mutex};
-    m_ready.clear();
-    m_delayed.clear();
-    m_platform = nullptr;
-  }
-
-private:
-  void Wake() noexcept {
-    if (m_platform != nullptr) {
-      m_platform->WakeEventLoop();
-    }
-  }
-
-  mutable std::mutex m_mutex{};
-  std::deque<NGIN::Execution::WorkItem> m_ready{};
-  std::vector<DelayedEntry> m_delayed{};
-  IPlatformBackend *m_platform{nullptr};
-};
+using Detail::UIAsyncScheduler;
 
 [[nodiscard]] auto
 ElapsedMilliseconds(const DiagnosticsClock::time_point start,
@@ -383,35 +276,36 @@ auto Window::FocusNext(const bool reverse) -> bool {
 auto Window::PerformSemanticAction(
     const SemanticActionRequest &request) noexcept -> UIResult<void> {
   if (m_implementation->closed) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Cannot act on a closed window", "NGIN.UI",
-                       "Window::PerformSemanticAction", Id().c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidState, "Cannot act on a closed window",
+                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
   }
   const auto *semantic = m_implementation->semanticTree.Find(request.node);
   if (semantic == nullptr) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "The semantic element is no longer available", "NGIN.UI",
-                       "Window::PerformSemanticAction", Id().c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "The semantic element is no longer available", "NGIN.UI",
+                    "Window::PerformSemanticAction", Id().c_str()));
   }
   if (!HasSemanticAction(semantic->actions, ActionFlag(request.action))) {
-    return MakeUIError(UIErrorCode::Unsupported,
-                       "The semantic element does not support this action",
-                       "NGIN.UI", "Window::PerformSemanticAction",
-                       Id().c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::Unsupported,
+                    "The semantic element does not support this action",
+                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
   }
   const auto target = m_implementation->tree.FindById(semantic->owner);
   if (!target) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "The semantic element owner was destroyed", "NGIN.UI",
-                       "Window::PerformSemanticAction", Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "The semantic element owner was destroyed",
+        "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
   }
   try {
     auto dispatched =
         m_implementation->inputRouter.PerformSemanticAction(target, request);
     if (!dispatched) {
-      return std::move(dispatched).Error();
+      return std::unexpected(std::move(dispatched).error());
     }
-    const auto &result = dispatched.Value();
+    const auto &result = dispatched.value();
     if (result.invalidation != InvalidationKind::None) {
       Invalidate(result.invalidation);
     } else if (result.callbackInvoked || result.activated) {
@@ -424,10 +318,10 @@ auto Window::PerformSemanticAction(
     }
     return {};
   } catch (...) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "The semantic action callback threw an exception",
-                       "NGIN.UI", "Window::PerformSemanticAction",
-                       Id().c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidState,
+                    "The semantic action callback threw an exception",
+                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
   }
 }
 
@@ -481,14 +375,14 @@ auto Window::Schedule(const std::chrono::milliseconds delay,
                       ScheduledAction action) noexcept
     -> UIResult<ScheduledActionId> {
   if (m_implementation->closed) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Cannot schedule work on a closed window", "NGIN.UI",
-                       "Window::Schedule", Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "Cannot schedule work on a closed window",
+        "NGIN.UI", "Window::Schedule", Id().c_str()));
   }
   if (!action) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Scheduled action must not be empty", "NGIN.UI",
-                       "Window::Schedule", Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidArgument, "Scheduled action must not be empty",
+        "NGIN.UI", "Window::Schedule", Id().c_str()));
   }
 
   try {
@@ -502,13 +396,13 @@ auto Window::Schedule(const std::chrono::milliseconds delay,
     m_implementation->platform->WakeEventLoop();
     return id;
   } catch (const std::bad_alloc &) {
-    return MakeUIError(UIErrorCode::OutOfMemory,
-                       "Scheduled action allocation failed", "NGIN.UI",
-                       "Window::Schedule", Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::OutOfMemory, "Scheduled action allocation failed",
+        "NGIN.UI", "Window::Schedule", Id().c_str()));
   } catch (...) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Scheduled action construction failed", "NGIN.UI",
-                       "Window::Schedule", Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "Scheduled action construction failed",
+        "NGIN.UI", "Window::Schedule", Id().c_str()));
   }
 }
 
@@ -539,6 +433,12 @@ struct Application::Implementation final : IAccessibilityActionSink {
   std::unique_ptr<IAccessibilityBackend> accessibility{};
   UIAsyncScheduler asyncScheduler{};
   NGIN::Async::CancellationSource lifetimeCancellation{};
+  NGIN::Async::TaskSupervisor<> asyncTasks{
+      NGIN::Async::AsyncEnvironment{
+          .executor = NGIN::Execution::ExecutorRef::From(asyncScheduler),
+          .cancellation = lifetimeCancellation.GetToken()},
+      256};
+
   std::vector<std::unique_ptr<Window>> windows{};
   std::mutex accessibilityMutex{};
   std::deque<AccessibilityActionRequest> accessibilityActions{};
@@ -557,9 +457,9 @@ struct Application::Implementation final : IAccessibilityActionSink {
       }
       return {};
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
-                         "The accessibility action queue is full", "NGIN.UI",
-                         "PostAccessibilityAction");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::OutOfMemory, "The accessibility action queue is full",
+          "NGIN.UI", "PostAccessibilityAction"));
     }
   }
 
@@ -586,13 +486,20 @@ Application::Application(std::unique_ptr<IPlatformBackend> platform,
 
 Application::~Application() {
   for (auto &window : m_implementation->windows) {
-    window->m_implementation->lifetimeCancellation.Cancel();
+    window->m_implementation->lifetimeCancellation.Cancel(
+        NGIN::Async::StopReason::RuntimeShutdown);
     Detail::UnmountMotionTree(window->m_implementation->tree);
     Detail::CloseMotionHost(window->m_implementation->motionHost);
   }
-  m_implementation->lifetimeCancellation.Cancel();
+  m_implementation->asyncTasks.Close();
+  m_implementation->lifetimeCancellation.Cancel(
+      NGIN::Async::StopReason::RuntimeShutdown);
+  m_implementation->asyncTasks.RequestStop(
+      NGIN::Async::StopReason::RuntimeShutdown);
   m_implementation->asyncScheduler.DrainReady(
       m_implementation->platform->MonotonicNow());
+  if (!m_implementation->asyncTasks.TryJoin())
+    std::terminate();
   m_implementation->asyncScheduler.Shutdown();
   static_cast<void>(m_implementation->renderer->WaitIdle());
   for (auto window = m_implementation->windows.rbegin();
@@ -630,16 +537,17 @@ auto Application::CreateDialogWindow(Window &owner,
         return candidate.get() == &owner;
       });
   if (!ownedByApplication || owner.IsClosed()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Dialog owner must be a live window in this application",
-                       m_implementation->platform->Name(), "CreateDialogWindow",
-                       info.id.c_str());
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Dialog owner must be a live window in this application",
+                    m_implementation->platform->Name(), "CreateDialogWindow",
+                    info.id.c_str()));
   }
   if (modal && owner.ActiveModalDialog() != nullptr) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Window already owns an active modal dialog",
-                       m_implementation->platform->Name(), "CreateDialogWindow",
-                       owner.Id().c_str());
+    return std::unexpected(MakeUIError(
+        UIErrorCode::InvalidState, "Window already owns an active modal dialog",
+        m_implementation->platform->Name(), "CreateDialogWindow",
+        owner.Id().c_str()));
   }
 
   auto dialogInfo = info;
@@ -648,23 +556,23 @@ auto Application::CreateDialogWindow(Window &owner,
   dialogInfo.modal = modal;
   auto created = CreateWindowInternal(std::move(dialogInfo), &owner);
   if (!created) {
-    return std::move(created).Error();
+    return std::unexpected(std::move(created).error());
   }
-  return static_cast<DialogWindow *>(created.Value());
+  return static_cast<DialogWindow *>(created.value());
 }
 
 auto Application::CreateWindowInternal(WindowCreateInfo info,
                                        Window *owner) noexcept
     -> UIResult<Window *> {
   if (info.id.Empty()) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Window id must not be empty",
-                       m_implementation->platform->Name(), "CreateWindow");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidArgument, "Window id must not be empty",
+                    m_implementation->platform->Name(), "CreateWindow"));
   }
   if (info.initialSize.IsEmpty()) {
-    return MakeUIError(
+    return std::unexpected(MakeUIError(
         UIErrorCode::InvalidArgument, "Window initial size must be non-zero",
-        m_implementation->platform->Name(), "CreateWindow", info.id.c_str());
+        m_implementation->platform->Name(), "CreateWindow", info.id.c_str()));
   }
 
   const auto duplicate = std::find_if(
@@ -673,91 +581,91 @@ auto Application::CreateWindowInternal(WindowCreateInfo info,
         return !window->IsClosed() && window->Id() == info.id;
       });
   if (duplicate != m_implementation->windows.end()) {
-    return MakeUIError(
+    return std::unexpected(MakeUIError(
         UIErrorCode::InvalidArgument, "A live window already uses this id",
-        m_implementation->platform->Name(), "CreateWindow", info.id.c_str());
+        m_implementation->platform->Name(), "CreateWindow", info.id.c_str()));
   }
 
   auto platformWindow = m_implementation->platform->CreateWindow(info);
   if (!platformWindow) {
-    return std::move(platformWindow).Error();
+    return std::unexpected(std::move(platformWindow).error());
   }
 
   auto surface = m_implementation->renderer->CreateSurface(
-      platformWindow.Value(), info.initialSize);
+      platformWindow.value(), info.initialSize);
   if (!surface) {
     static_cast<void>(
-        m_implementation->platform->DestroyWindow(platformWindow.Value()));
-    return std::move(surface).Error();
+        m_implementation->platform->DestroyWindow(platformWindow.value()));
+    return std::unexpected(std::move(surface).error());
   }
 
   if (info.initiallyVisible) {
-    auto shown = m_implementation->platform->ShowWindow(platformWindow.Value());
+    auto shown = m_implementation->platform->ShowWindow(platformWindow.value());
     if (!shown) {
       static_cast<void>(
-          m_implementation->renderer->DestroySurface(surface.Value()));
+          m_implementation->renderer->DestroySurface(surface.value()));
       static_cast<void>(
-          m_implementation->platform->DestroyWindow(platformWindow.Value()));
-      return std::move(shown).Error();
+          m_implementation->platform->DestroyWindow(platformWindow.value()));
+      return std::unexpected(std::move(shown).error());
     }
   }
 
   std::unique_ptr<Window> window;
   if (info.kind == WindowKind::Dialog && owner != nullptr) {
     window = std::unique_ptr<Window>(
-        new DialogWindow{info, platformWindow.Value(), surface.Value(),
+        new DialogWindow{info, platformWindow.value(), surface.value(),
                          *m_implementation->platform, *owner});
   } else {
     window = std::unique_ptr<Window>(
-        new Window{info, platformWindow.Value(), surface.Value(),
+        new Window{info, platformWindow.value(), surface.value(),
                    *m_implementation->platform, nullptr});
   }
   auto *result = window.get();
   m_implementation->windows.push_back(std::move(window));
   if (m_implementation->accessibility) {
     auto nativeWindow =
-        m_implementation->platform->QueryNativeWindow(platformWindow.Value());
+        m_implementation->platform->QueryNativeWindow(platformWindow.value());
     if (!nativeWindow) {
       static_cast<void>(
-          m_implementation->renderer->DestroySurface(surface.Value()));
+          m_implementation->renderer->DestroySurface(surface.value()));
       static_cast<void>(
-          m_implementation->platform->DestroyWindow(platformWindow.Value()));
+          m_implementation->platform->DestroyWindow(platformWindow.value()));
       m_implementation->windows.pop_back();
-      return std::move(nativeWindow).Error();
+      return std::unexpected(std::move(nativeWindow).error());
     }
     auto attached =
         m_implementation->accessibility->AttachWindow(AccessibilityWindowInfo{
-            .window = platformWindow.Value(),
-            .nativeWindow = nativeWindow.Value(),
+            .window = platformWindow.value(),
+            .nativeWindow = nativeWindow.value(),
             .title = info.title,
         });
     if (!attached) {
       static_cast<void>(
-          m_implementation->renderer->DestroySurface(surface.Value()));
+          m_implementation->renderer->DestroySurface(surface.value()));
       static_cast<void>(
-          m_implementation->platform->DestroyWindow(platformWindow.Value()));
+          m_implementation->platform->DestroyWindow(platformWindow.value()));
       m_implementation->windows.pop_back();
-      return std::move(attached).Error();
+      return std::unexpected(std::move(attached).error());
     }
     result->m_implementation->semanticTree =
         BuildSemanticTree(result->m_implementation->tree, info.title);
     ++result->m_implementation->semanticRevision;
     auto published =
         m_implementation->accessibility->Publish(AccessibilitySnapshot{
-            .window = platformWindow.Value(),
+            .window = platformWindow.value(),
             .revision = result->m_implementation->semanticRevision,
             .root = result->m_implementation->semanticTree.Root(),
             .nodes = result->m_implementation->semanticTree.Nodes(),
         });
     if (!published) {
       static_cast<void>(m_implementation->accessibility->DetachWindow(
-          platformWindow.Value()));
+          platformWindow.value()));
       static_cast<void>(
-          m_implementation->renderer->DestroySurface(surface.Value()));
+          m_implementation->renderer->DestroySurface(surface.value()));
       static_cast<void>(
-          m_implementation->platform->DestroyWindow(platformWindow.Value()));
+          m_implementation->platform->DestroyWindow(platformWindow.value()));
       m_implementation->windows.pop_back();
-      return std::move(published).Error();
+      return std::unexpected(std::move(published).error());
     }
   }
   if (owner != nullptr && info.modal) {
@@ -783,7 +691,7 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
   for (auto *owned : ownedWindows) {
     auto closed = CloseWindow(*owned);
     if (!closed) {
-      return std::move(closed).Error();
+      return std::unexpected(std::move(closed).error());
     }
   }
 
@@ -791,25 +699,26 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
     auto detached = m_implementation->accessibility->DetachWindow(
         window.m_implementation->platformHandle);
     if (!detached) {
-      m_implementation->accessibilityError = detached.Error();
+      m_implementation->accessibilityError = detached.error();
     }
   }
 
   auto destroyedSurface = m_implementation->renderer->DestroySurface(
       window.m_implementation->surfaceHandle);
   if (!destroyedSurface) {
-    return std::move(destroyedSurface).Error();
+    return std::unexpected(std::move(destroyedSurface).error());
   }
 
   auto destroyedWindow = m_implementation->platform->DestroyWindow(
       window.m_implementation->platformHandle);
   if (!destroyedWindow) {
-    return std::move(destroyedWindow).Error();
+    return std::unexpected(std::move(destroyedWindow).error());
   }
 
   Detail::UnmountMotionTree(window.m_implementation->tree);
   Detail::CloseMotionHost(window.m_implementation->motionHost);
-  window.m_implementation->lifetimeCancellation.Cancel();
+  window.m_implementation->lifetimeCancellation.Cancel(
+      NGIN::Async::StopReason::OwnerClosed);
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
   window.m_implementation->scheduledActions.clear();
@@ -871,7 +780,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
           ? m_implementation->platform->WaitEvents(collector, effectiveWait)
           : m_implementation->platform->PollEvents(collector);
   if (!eventResult) {
-    return std::move(eventResult).Error();
+    return std::unexpected(std::move(eventResult).error());
   }
 
   std::deque<AccessibilityActionRequest> accessibilityActions;
@@ -890,7 +799,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     }
     auto performed = window->PerformSemanticAction(request.semantic);
     if (!performed) {
-      m_implementation->accessibilityError = performed.Error();
+      m_implementation->accessibilityError = performed.error();
     }
   }
 
@@ -914,13 +823,13 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       try {
         action();
       } catch (const std::bad_alloc &) {
-        return MakeUIError(UIErrorCode::OutOfMemory,
-                           "Scheduled UI action allocation failed", "NGIN.UI",
-                           "Window::Schedule", window->Id().c_str());
+        return std::unexpected(MakeUIError(
+            UIErrorCode::OutOfMemory, "Scheduled UI action allocation failed",
+            "NGIN.UI", "Window::Schedule", window->Id().c_str()));
       } catch (...) {
-        return MakeUIError(UIErrorCode::InvalidState,
-                           "Scheduled UI action threw an exception", "NGIN.UI",
-                           "Window::Schedule", window->Id().c_str());
+        return std::unexpected(MakeUIError(
+            UIErrorCode::InvalidState, "Scheduled UI action threw an exception",
+            "NGIN.UI", "Window::Schedule", window->Id().c_str()));
       }
     }
     if (window->m_implementation->nextMotionDeadline &&
@@ -980,7 +889,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         auto resizedSurface = m_implementation->renderer->ResizeSurface(
             window->m_implementation->surfaceHandle, resized->size);
         if (!resizedSurface) {
-          return std::move(resizedSurface).Error();
+          return std::unexpected(std::move(resizedSurface).error());
         }
         window->m_implementation->pixelExtent = resized->size;
       }
@@ -1011,7 +920,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     if (window->IsCloseRequested()) {
       auto closed = CloseWindow(*window);
       if (!closed) {
-        return std::move(closed).Error();
+        return std::unexpected(std::move(closed).error());
       }
       continue;
     }
@@ -1030,9 +939,10 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         window->m_implementation->content(composer);
       }
       if (!composer.IsBalanced()) {
-        return MakeUIError(UIErrorCode::InvalidState,
-                           "Composition ended with an open element scope",
-                           "NGIN.UI", "Compose", window->Id().c_str());
+        return std::unexpected(
+            MakeUIError(UIErrorCode::InvalidState,
+                        "Composition ended with an open element scope",
+                        "NGIN.UI", "Compose", window->Id().c_str()));
       }
       window->m_implementation->lastReconcileStats =
           window->m_implementation->reconciler.Reconcile(
@@ -1086,13 +996,13 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         window->m_implementation->semanticsDirty = true;
       }
     } catch (const std::bad_alloc &) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
-                         "Animation state allocation failed", "NGIN.UI",
-                         "AdvanceMotion", window->Id().c_str());
+      return std::unexpected(MakeUIError(
+          UIErrorCode::OutOfMemory, "Animation state allocation failed",
+          "NGIN.UI", "AdvanceMotion", window->Id().c_str()));
     } catch (...) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "Animation advancement failed", "NGIN.UI",
-                         "AdvanceMotion", window->Id().c_str());
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidState, "Animation advancement failed",
+                      "NGIN.UI", "AdvanceMotion", window->Id().c_str()));
     }
     if (window->m_implementation->paintDirty) {
       window->m_implementation->paintDirty = false;
@@ -1141,7 +1051,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
                   .nodes = window->m_implementation->semanticTree.Nodes(),
               });
           if (!published) {
-            m_implementation->accessibilityError = published.Error();
+            m_implementation->accessibilityError = published.error();
           }
         } catch (...) {
           m_implementation->accessibilityError =
@@ -1159,7 +1069,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         window->SurfaceHandle(),
         window->m_implementation->preparedPacket.View());
     if (!rendered) {
-      return std::move(rendered).Error();
+      return std::unexpected(std::move(rendered).error());
     }
     frameTimings.renderMilliseconds =
         ElapsedMilliseconds(renderStarted, DiagnosticsClock::now());
@@ -1167,7 +1077,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     auto presented =
         m_implementation->renderer->Present(window->SurfaceHandle());
     if (!presented) {
-      return std::move(presented).Error();
+      return std::unexpected(std::move(presented).error());
     }
     frameTimings.presentMilliseconds =
         ElapsedMilliseconds(presentStarted, DiagnosticsClock::now());
@@ -1201,10 +1111,38 @@ auto Application::Run() noexcept -> UIResult<void> {
   while (!ShouldExit()) {
     auto pumped = PumpOnce(std::chrono::milliseconds{250});
     if (!pumped) {
-      return std::move(pumped).Error();
+      static_cast<void>(ShutdownTasks());
+      return pumped;
     }
   }
-  return {};
+  return ShutdownTasks();
+}
+
+auto Application::BackgroundTasks() noexcept
+    -> NGIN::Async::TaskSupervisor<> & {
+  return m_implementation->asyncTasks;
+}
+
+auto Application::ShutdownTasks() noexcept -> UIResult<void> {
+  auto &owner = m_implementation->asyncTasks;
+  owner.Close();
+  m_implementation->lifetimeCancellation.Cancel(
+      NGIN::Async::StopReason::RuntimeShutdown);
+  owner.RequestStop(NGIN::Async::StopReason::RuntimeShutdown);
+  for (;;) {
+    if (auto report = owner.TryJoin()) {
+      if (report->HasError())
+        return NGIN::Utilities::Unexpected<UIError>(
+            MakeUIError(UIErrorCode::InvalidState,
+                        "An application task failed; inspect "
+                        "BackgroundTasks().TakeResult()",
+                        "NGIN.UI", "ShutdownTasks"));
+      return {};
+    }
+    auto pumped = PumpOnce(std::chrono::milliseconds{250});
+    if (!pumped)
+      return pumped;
+  }
 }
 
 void Application::RequestExit() noexcept {
@@ -1261,7 +1199,7 @@ auto Application::CreateTaskContext(
                           });
   if (!owned) {
     NGIN::Async::CancellationSource invalidOwner;
-    invalidOwner.Cancel();
+    invalidOwner.Cancel(NGIN::Async::StopReason::OwnerClosed);
     context.BindLinkedCancellationToken(invalidOwner.GetToken());
     return context;
   }
@@ -1285,50 +1223,54 @@ auto Application::AccessibilityDiagnostics() const noexcept
 auto CreateApplication(ApplicationCreateInfo info) noexcept
     -> UIResult<std::unique_ptr<Application>> {
   if (!info.platform) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Platform backend is required", "", "CreateApplication");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Platform backend is required", "",
+                                       "CreateApplication"));
   }
   if (!info.renderer) {
-    return MakeUIError(UIErrorCode::InvalidArgument,
-                       "Renderer backend is required", "", "CreateApplication");
+    return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                       "Renderer backend is required", "",
+                                       "CreateApplication"));
   }
   if (!info.platform->ContractVersion().Supports(
           CurrentBackendContractVersion)) {
-    return MakeUIError(UIErrorCode::Unsupported,
-                       "Platform backend contract version is incompatible",
-                       info.platform->Name(), "ValidateBackendContract");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::Unsupported,
+                    "Platform backend contract version is incompatible",
+                    info.platform->Name(), "ValidateBackendContract"));
   }
   if (!info.renderer->ContractVersion().Supports(
           CurrentBackendContractVersion)) {
-    return MakeUIError(UIErrorCode::Unsupported,
-                       "Renderer backend contract version is incompatible",
-                       info.renderer->Name(), "ValidateBackendContract");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::Unsupported,
+                    "Renderer backend contract version is incompatible",
+                    info.renderer->Name(), "ValidateBackendContract"));
   }
   if (!HasPlatformCapability(info.platform->Capabilities(),
                              RequiredPlatformCapabilities)) {
-    return MakeUIError(
+    return std::unexpected(MakeUIError(
         UIErrorCode::Unsupported,
         "Platform backend lacks required multiple-window capability",
-        info.platform->Name(), "ValidateBackendCapabilities");
+        info.platform->Name(), "ValidateBackendCapabilities"));
   }
   if (!HasRenderCapability(info.renderer->Capabilities(),
                            RequiredRenderCapabilities)) {
-    return MakeUIError(
+    return std::unexpected(MakeUIError(
         UIErrorCode::Unsupported,
         "Renderer backend lacks required scissor or 32-bit index capability",
-        info.renderer->Name(), "ValidateBackendCapabilities");
+        info.renderer->Name(), "ValidateBackendCapabilities"));
   }
 
   auto platformInitialized = info.platform->Initialize(
       PlatformInitInfo{.applicationName = info.applicationName});
   if (!platformInitialized) {
-    return std::move(platformInitialized).Error();
+    return std::unexpected(std::move(platformInitialized).error());
   }
 
   auto rendererInitialized = info.renderer->Initialize(
       RenderInitInfo{.enableValidation = info.enableRendererValidation});
   if (!rendererInitialized) {
-    return std::move(rendererInitialized).Error();
+    return std::unexpected(std::move(rendererInitialized).error());
   }
 
   auto application = std::unique_ptr<Application>(
@@ -1339,7 +1281,7 @@ auto CreateApplication(ApplicationCreateInfo info) noexcept
         application->m_implementation->accessibility->Initialize(
             *application->m_implementation);
     if (!accessibilityInitialized) {
-      return std::move(accessibilityInitialized).Error();
+      return std::unexpected(std::move(accessibilityInitialized).error());
     }
   }
   return application;

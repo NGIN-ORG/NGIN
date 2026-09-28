@@ -22,7 +22,8 @@ namespace NGIN::UI {
 /// @brief Records backend-neutral drawing commands for a custom element.
 class DisplayListBuilder;
 
-/// @brief Persistent, type-safe state storage keyed by a custom element instance.
+/// @brief Persistent, type-safe state storage keyed by a custom element
+/// instance.
 class CustomStateStore final {
 public:
   CustomStateStore() = default;
@@ -40,10 +41,10 @@ public:
       const auto found = m_entries.find(ownedKey);
       if (found != m_entries.end()) {
         if (found->second->Type() != std::type_index{typeid(T)}) {
-          return MakeUIError(
+          return std::unexpected(MakeUIError(
               UIErrorCode::InvalidState,
               "Custom state key was reused with a different type", "NGIN.UI",
-              "CustomStateStore::GetOrCreate", ownedKey.c_str());
+              "CustomStateStore::GetOrCreate", ownedKey.c_str()));
         }
         return &static_cast<Entry<T> &>(*found->second).value;
       }
@@ -53,13 +54,14 @@ public:
       m_entries.emplace(ownedKey, std::move(entry));
       return value;
     } catch (const std::bad_alloc &) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
-                         "Custom state allocation failed", "NGIN.UI",
-                         "CustomStateStore::GetOrCreate");
+      return std::unexpected(MakeUIError(
+          UIErrorCode::OutOfMemory, "Custom state allocation failed", "NGIN.UI",
+          "CustomStateStore::GetOrCreate"));
     } catch (...) {
-      return MakeUIError(UIErrorCode::InvalidState,
-                         "Custom state construction threw an exception",
-                         "NGIN.UI", "CustomStateStore::GetOrCreate");
+      return std::unexpected(
+          MakeUIError(UIErrorCode::InvalidState,
+                      "Custom state construction threw an exception", "NGIN.UI",
+                      "CustomStateStore::GetOrCreate"));
     }
   }
 
@@ -115,7 +117,8 @@ private:
   std::unordered_map<std::string, std::unique_ptr<EntryBase>> m_entries{};
 };
 
-/// @brief Hover, press, focus, enablement, and pointer position for custom paint.
+/// @brief Hover, press, focus, enablement, and pointer position for custom
+/// paint.
 struct CustomInteractionState final {
   bool hovered{false};
   bool pressed{false};
@@ -126,10 +129,11 @@ struct CustomInteractionState final {
 /// @brief Runtime services and retained state supplied to a custom element.
 class CustomElementContext final {
 public:
-  CustomElementContext(CustomStateStore &state, ElementId identity,
-                       Rect arrangedBounds, CustomInteractionState interaction,
-                       F32 scaleFactor, MotionTransform windowTransform = {},
-                       const Detail::MotionState *motionState = nullptr) noexcept;
+  CustomElementContext(
+      CustomStateStore &state, ElementId identity, Rect arrangedBounds,
+      CustomInteractionState interaction, F32 scaleFactor,
+      MotionTransform windowTransform = {},
+      const Detail::MotionState *motionState = nullptr) noexcept;
 
   template <typename T, typename... Args>
   [[nodiscard]] auto State(std::string_view key, Args &&...args) noexcept
@@ -149,18 +153,18 @@ public:
   [[nodiscard]] auto ScaleFactor() const noexcept -> F32;
   /// @brief Reads the current value of a built-in or custom motion property.
   template <AnimatableValue T>
-  [[nodiscard]] auto MotionValue(
-      const AnimationProperty<T> &property) const noexcept -> T {
+  [[nodiscard]] auto
+  MotionValue(const AnimationProperty<T> &property) const noexcept -> T {
     auto result = property.DefaultValue();
-    static_cast<void>(Detail::CopyMotionValue(
-        m_motionState, property.Id(), typeid(T), &result));
+    static_cast<void>(Detail::CopyMotionValue(m_motionState, property.Id(),
+                                              typeid(T), &result));
     return result;
   }
 
   /// @brief Reports whether a built-in or custom property is still moving.
   template <AnimatableValue T>
-  [[nodiscard]] auto IsMotionActive(
-      const AnimationProperty<T> &property) const noexcept -> bool {
+  [[nodiscard]] auto
+  IsMotionActive(const AnimationProperty<T> &property) const noexcept -> bool {
     return Detail::IsMotionPropertyActive(m_motionState, property.Id());
   }
 
@@ -179,7 +183,8 @@ private:
   const Detail::MotionState *m_motionState{nullptr};
 };
 
-/// @brief Drawing surface, bounds, scale, and interaction data for custom paint.
+/// @brief Drawing surface, bounds, scale, and interaction data for custom
+/// paint.
 class PaintContext final {
 public:
   PaintContext(DisplayListBuilder &builder, Size extent) noexcept;

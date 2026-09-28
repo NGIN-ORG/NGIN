@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Async/Task.hpp>
+#include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/State.hpp>
@@ -66,6 +67,7 @@ enum class CommandInvocation : UInt8 {
   RejectedRunning,
   RejectedQueueFull,
   RejectedExpired,
+  RejectedOwner,
 };
 
 /// @brief Complete observable state of a command.
@@ -151,8 +153,11 @@ public:
       NGIN::Utilities::Callable<NGIN::Async::Task<void, CommandError>(
           NGIN::Async::TaskContext &)>;
 
+  /// The owner and executor must remain alive through all submissions and
+  /// admitted work.
   AsyncCommand(
-      NGIN::Async::TaskContext context, Action action, bool enabled = true,
+      NGIN::Async::TaskSupervisor<> &owner, NGIN::Async::TaskContext context,
+      Action action, bool enabled = true,
       CommandConcurrencyPolicy concurrency = CommandConcurrencyPolicy::Reject,
       UIntSize queueCapacity = 1, InvalidationScheduler scheduler = {});
   AsyncCommand(const AsyncCommand &) = delete;
@@ -179,7 +184,7 @@ private:
   static void CancelStorage(const std::shared_ptr<Storage> &storage) noexcept;
   static void SetEnabledStorage(const std::shared_ptr<Storage> &storage,
                                 bool enabled);
-  static void StartRun(const std::shared_ptr<Storage> &storage);
+  [[nodiscard]] static bool StartRun(const std::shared_ptr<Storage> &storage);
   static void FinishRun(const std::shared_ptr<Storage> &storage,
                         const std::shared_ptr<Run> &run,
                         CommandOutcome outcome);
