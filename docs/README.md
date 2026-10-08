@@ -55,3 +55,5 @@ See the [libraries index](libraries/README.md) for `NGIN.Base`, `NGIN.Core`,
 Active repository implementation plans live under [`docs/plans`](plans/). Git
 history preserves superseded designs. Release and migration material is kept
 when it defines a supported or in-progress repository transition.
+
+- [Async coroutine API and propagation redesign (draft)](plans/async-coroutine-redesign.md)
