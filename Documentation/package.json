@@ -16,6 +16,6 @@
   },
   "devDependencies": {
     "@jothepro/doxygen-awesome-css": "https://codeload.github.com/jothepro/doxygen-awesome-css/tar.gz/refs/tags/v2.4.2",
-    "vitepress": "2.0.0-alpha.15"
+    "vitepress": "2.0.0-alpha.20"
   }
 }
