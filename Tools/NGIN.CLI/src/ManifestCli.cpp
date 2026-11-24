@@ -378,6 +378,32 @@ namespace NGIN::CLI
             std::unique_ptr<LoadedComposition> composition{};
         };
 
+        auto ExplainFileRules(const SemanticProject &project, const SelectionFacts &selection, const std::string &path)
+            -> std::vector<GraphProvenance>
+        {
+            std::vector<GraphProvenance> evidence{};
+            const auto record = [&](const BuildItemDeclaration &rule, const std::string &condition) {
+                if (rule.kind != BuildItemKind::Source && rule.kind != BuildItemKind::Header &&
+                    rule.kind != BuildItemKind::CxxModule && rule.kind != BuildItemKind::Resource) return;
+                if (!GlobMatchesPortable(rule.pattern, path)) return;
+                auto reason = condition + (rule.operation == BuildItemOperation::Remove ? "Remove " :
+                                           rule.operation == BuildItemOperation::Update ? "Update " : "Include ") + rule.pattern;
+                if (rule.exclude && GlobMatchesPortable(*rule.exclude, path)) reason += " (excluded by " + *rule.exclude + ")";
+                evidence.push_back({.kind = "BuildRule", .owner = project.name, .document = rule.source.path.generic_string(),
+                                    .line = rule.source.begin.line, .column = rule.source.begin.column, .reason = reason});
+            };
+            const auto effective = ApplyProjectRefinements(project, selection);
+            if (effective.Succeeded())
+                for (const auto &rule : effective.value->build.declarations) record(rule, "");
+            for (const auto &when : project.refinements)
+                if (!RefinementMatches(when.semantic.selector, selection))
+                    for (const auto &rule : when.build.declarations)
+                        record(rule, "inactive When" + (when.semantic.selector.configuration ?
+                            " Configuration=" + *when.semantic.selector.configuration : std::string{}) +
+                            " at line " + std::to_string(when.semantic.source.begin.line) + ": ");
+            return evidence;
+        }
+
         struct LoadedComposition
         {
             std::optional<ResolvedCompositionGraph> graph{};
@@ -389,6 +415,7 @@ namespace NGIN::CLI
             bool allowSymlinks{false};
             bool providerLockRequired{false};
             std::optional<std::string> selectedRun{};
+            std::vector<GraphProvenance> fileRules{};
             std::vector<LoadedProjectReference> projectReferences{};
             std::vector<ManifestDiagnostic> diagnostics{};
         };
@@ -653,6 +680,9 @@ namespace NGIN::CLI
                 if (!parsed.Succeeded()) throw std::runtime_error(parsed.diagnostics[0].message);
                 selection.options[name] = *parsed.value;
             }
+            if (command == "explain" && !arguments.positional.empty())
+                loaded.fileRules = ExplainFileRules(*project.value, selection,
+                    fs::path{arguments.positional.front()}.lexically_normal().generic_string());
             loaded.selectedRun = requested.run;
             std::vector<const PackageProvider *> providerViews{};
             for (const auto &provider : providers) providerViews.push_back(provider.get());
@@ -1160,7 +1190,7 @@ namespace NGIN::CLI
                                            .actionExport = action->actionExport,
                                            .toolExport = action->toolExport,
                                            .source = {}};
-                ActionExecutionContext execution{.locked = locked, .nonInteractive = arguments.quiet};
+                ActionExecutionContext execution{.locked = locked, .nonInteractive = arguments.quiet || arguments.launchPlan};
                 if (!trustAction.hostInstance.providerResult.root.empty())
                     execution.executableOrigin =
                         PortablePath{.value = trustAction.hostInstance.providerResult.root.generic_string(),
@@ -1180,7 +1210,7 @@ namespace NGIN::CLI
                 else if (!explanation.Allowed())
                     throw std::runtime_error("Action execution denied for '" + action->identity +
                                              "': " + explanation.reason);
-                if (!arguments.quiet && arguments.format != "json")
+                if (!arguments.quiet && !arguments.launchPlan && arguments.format != "json")
                     std::cout << "Authorized Action " << action->identity << ": " << explanation.reason << '\n';
             }
             for (auto &child : prepared.projectDependencies)
@@ -1355,10 +1385,10 @@ namespace NGIN::CLI
                 fs::is_regular_file(prepared.binary / "compile_commands.json") && fs::is_regular_file(statePath) &&
                 ReadText(statePath) == configureState)
             {
-                EmitEditorEvent("configure-skip", prepared.build.targetName);
+                if (!quietOutput) EmitEditorEvent("configure-skip", prepared.build.targetName);
                 return;
             }
-            EmitEditorEvent("configure-start", prepared.build.targetName);
+            if (!quietOutput) EmitEditorEvent("configure-start", prepared.build.targetName);
             PrepareIsolatedPackages(prepared, quietOutput);
             auto command = "cmake -S " + QuoteProcessArgument(prepared.generated) + " -B " +
                            QuoteProcessArgument(prepared.binary) +
@@ -1385,7 +1415,7 @@ namespace NGIN::CLI
             else
                 Execute(command);
             WriteText(statePath, configureState);
-            EmitEditorEvent("configure-end", prepared.build.targetName);
+            if (!quietOutput) EmitEditorEvent("configure-end", prepared.build.targetName);
         }
 
         auto ConfigureTree(PreparedBuild &prepared, const bool force = false) -> void
@@ -1394,14 +1424,16 @@ namespace NGIN::CLI
             Configure(prepared, false, force);
         }
 
-        auto Build(PreparedBuild &prepared) -> void
+        auto Build(PreparedBuild &prepared, const bool quiet = false) -> void
         {
-            for (auto &child : prepared.projectDependencies) Build(*child);
-            Configure(prepared);
-            EmitEditorEvent("build-start", prepared.build.targetName);
-            Execute("cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
-                    QuoteProcessArgument(prepared.build.targetName));
-            EmitEditorEvent("build-end", prepared.build.targetName);
+            for (auto &child : prepared.projectDependencies) Build(*child, quiet);
+            Configure(prepared, quiet);
+            if (!quiet) EmitEditorEvent("build-start", prepared.build.targetName);
+            const auto command = "cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
+                                 QuoteProcessArgument(prepared.build.targetName);
+            if (quiet) ExecuteQuietly(command, prepared.output / "diagnostics/build.log");
+            else Execute(command);
+            if (!quiet) EmitEditorEvent("build-end", prepared.build.targetName);
         }
 
         [[nodiscard]] auto ProductArtifact(const PreparedBuild &prepared) -> fs::path
@@ -1439,9 +1471,9 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto Stage(PreparedBuild prepared) -> PreparedStage
+        [[nodiscard]] auto Stage(PreparedBuild prepared, const bool reuse = false, const bool quiet = false) -> PreparedStage
         {
-            Build(prepared);
+            if (!reuse) Build(prepared, quiet);
             StagePlanBindings bindings{.projectRoot = prepared.composition.projectDirectory,
                                        .stageRoot = prepared.output / "stage",
                                        .packageRoots = prepared.composition.packageRoots,
@@ -1478,13 +1510,31 @@ namespace NGIN::CLI
             for (auto &[_, item] : destinations) stage.plan->items.push_back(std::move(item));
             std::ranges::sort(stage.plan->items, {}, &StagePlanItem::identity);
             stage.plan->plan.identity = FingerprintStagePlan(*stage.plan);
-            EmitEditorEvent("stage-start", prepared.build.targetName);
-            const auto executed = ExecuteStagePlan(*stage.plan);
-            if (PrintDiagnostics(executed.diagnostics, prepared.composition.projectDirectory) != 0)
-                throw std::runtime_error("staging failed");
-            EmitEditorEvent("stage-end", prepared.build.targetName, {}, stage.plan->items.size());
+            if (!reuse)
+            {
+                if (!quiet) EmitEditorEvent("stage-start", prepared.build.targetName);
+                const auto executed = ExecuteStagePlan(*stage.plan);
+                if (PrintDiagnostics(executed.diagnostics, prepared.composition.projectDirectory) != 0)
+                    throw std::runtime_error("staging failed");
+                if (!quiet) EmitEditorEvent("stage-end", prepared.build.targetName, {}, stage.plan->items.size());
+            }
             return PreparedStage{
                 .build = std::move(prepared), .bindings = std::move(bindings), .plan = std::move(*stage.plan)};
+        }
+
+        template<typename Plan>
+        auto PrintLaunchPlan(const Plan &plan, const fs::path &cwd, const std::vector<std::string> &args) -> int
+        {
+            if (!fs::is_regular_file(plan.executable))
+                throw std::runtime_error("staged executable is missing: " + plan.executable);
+            CanonicalValue::Array arguments{};
+            for (const auto &argument : args) arguments.emplace_back(argument);
+            CanonicalValue::Object environment{};
+            for (const auto &[key, value] : plan.environment) environment.emplace(key, value);
+            std::cout << SerializeCanonical(CanonicalValue::Object{
+                {"kind", "NGIN.Launch"}, {"version", std::int64_t{1}}, {"program", plan.executable},
+                {"cwd", cwd.generic_string()}, {"args", std::move(arguments)}, {"environment", std::move(environment)}}) << '\n';
+            return 0;
         }
     } // namespace
 
@@ -1503,7 +1553,9 @@ namespace NGIN::CLI
                 for (++index; index < argc; ++index) result.trailing.emplace_back(argv[index]);
                 break;
             }
-            if (argument == "--project")
+            if (argument == "--launch-plan") result.launchPlan = true;
+            else if (argument == "--no-stage") result.noStage = true;
+            else if (argument == "--project")
                 result.projectPath = value(index, argument);
             else if (argument == "--workspace")
                 result.workspacePath = value(index, argument);
@@ -1576,6 +1628,9 @@ namespace NGIN::CLI
             else
                 result.positional.push_back(argument);
         }
+        if (result.noStage && !result.launchPlan) throw std::runtime_error("--no-stage requires --launch-plan");
+        if (result.launchPlan && (std::string_view{argv[1]} != "run" && std::string_view{argv[1]} != "test"))
+            throw std::runtime_error("--launch-plan requires run or test");
         return result;
     }
 
@@ -2294,11 +2349,31 @@ namespace NGIN::CLI
 
     auto ExplainComposition(const fs::path &root, const CliArguments &arguments) -> int
     {
-        if (arguments.positional.empty()) throw std::runtime_error("explain requires a graph identity");
+        if (arguments.positional.empty()) throw std::runtime_error("explain requires a project-relative file or graph identity");
         const auto project = FindProject(root, arguments);
         auto resolved = Resolve(project, arguments, "explain");
         if (PrintDiagnostics(resolved.diagnostics, project) != 0 || !resolved.graph) return 1;
-        const auto explanation = ExplainCompositionIdentity(*resolved.graph, arguments.positional.front());
+        auto explanation = ExplainCompositionIdentity(*resolved.graph, arguments.positional.front());
+        if (!explanation)
+        {
+            const auto path = fs::path{arguments.positional.front()}.lexically_normal();
+            const auto &graph = resolved.graph->Data();
+            const auto item = std::ranges::find_if(graph.buildItems, [&](const auto &candidate) {
+                return candidate.path == path.generic_string() &&
+                    (candidate.kind == "Source" || candidate.kind == "Header" || candidate.kind == "Resource" || candidate.kind == "CxxModule");
+            });
+            if (path.is_relative() && !path.empty() && *path.begin() != ".." &&
+                (fs::is_regular_file(project.parent_path() / path) || item != graph.buildItems.end()))
+            {
+                const bool included = item != graph.buildItems.end();
+                explanation = GraphExplanation{.identity = path.generic_string(), .category = "BuildMembership",
+                    .value = std::string(included ? "Included" : "Not included") + " in " + graph.selection.configuration,
+                    .provenance = std::move(resolved.fileRules)};
+                if (included && (explanation->provenance.empty() || item->provenance.reason != "authored build item"))
+                    explanation->provenance.push_back(item->provenance);
+                else if (explanation->provenance.empty()) explanation->value += ": no matching Build rule selected this file";
+            }
+        }
         if (!explanation.has_value())
             throw std::runtime_error("unknown graph identity '" + arguments.positional.front() + "'");
 
@@ -2376,7 +2451,7 @@ namespace NGIN::CLI
 
     auto RunProject(const fs::path &root, const CliArguments &arguments) -> int
     {
-        auto staged = Stage(PrepareBuild(root, arguments, "run"));
+        auto staged = Stage(PrepareBuild(root, arguments, "run"), arguments.noStage, arguments.launchPlan);
         auto run = DeriveRunPlan(*staged.build.composition.graph, staged.plan, staged.bindings,
                                  staged.build.composition.selectedRun);
         if (PrintDiagnostics(run.diagnostics, staged.build.composition.projectDirectory) != 0 || !run.Succeeded())
@@ -2386,6 +2461,7 @@ namespace NGIN::CLI
                                      "but none is configured");
         auto processArguments = run.plan->arguments;
         processArguments.insert(processArguments.end(), arguments.trailing.begin(), arguments.trailing.end());
+        if (arguments.launchPlan) return PrintLaunchPlan(*run.plan, run.plan->workingDirectory, processArguments);
         EmitEditorEvent("run-start", staged.build.build.targetName,
                         fs::path{run.plan->executable}.filename().string());
         ExecuteProcess(run.plan->executable, processArguments, fs::path{run.plan->workingDirectory},
@@ -2396,6 +2472,8 @@ namespace NGIN::CLI
 
     auto TestProject(const fs::path &root, const CliArguments &arguments) -> int
     {
+        if (arguments.launchPlan && arguments.projectPath && IsCMakeProject(*arguments.projectPath))
+            throw std::runtime_error("CMake tests do not expose a native launch plan");
         if (arguments.projectPath.has_value() && IsCMakeProject(*arguments.projectPath))
             return TestCMakeProject(CMakeOperationRequest{.projectRoot = *arguments.projectPath,
                                                           .workspaceManifest = arguments.workspacePath,
@@ -2404,7 +2482,7 @@ namespace NGIN::CLI
                                                           .configuration = arguments.configuration,
                                                           .tests = arguments.tests.empty() ? arguments.positional
                                                                                            : arguments.tests});
-        auto staged = Stage(PrepareBuild(root, arguments, "test"));
+        auto staged = Stage(PrepareBuild(root, arguments, "test"), arguments.noStage, arguments.launchPlan);
         std::vector<std::string> registrations{};
         if (!arguments.positional.empty())
             registrations.push_back(arguments.positional.front());
@@ -2412,6 +2490,8 @@ namespace NGIN::CLI
             for (const auto &registration : staged.build.composition.graph->Data().tests)
                 registrations.push_back(registration.name);
         if (registrations.empty()) throw std::runtime_error("project has no Test registration");
+        if (arguments.launchPlan && registrations.size() != 1)
+            throw std::runtime_error("select one test registration for --launch-plan");
         for (const auto &name : registrations)
         {
             auto test = DeriveTestPlan(*staged.build.composition.graph, staged.plan, name);
@@ -2420,6 +2500,7 @@ namespace NGIN::CLI
                 throw std::runtime_error("TestPlan derivation failed");
             auto processArguments = test.plan->arguments;
             processArguments.insert(processArguments.end(), arguments.trailing.begin(), arguments.trailing.end());
+            if (arguments.launchPlan) return PrintLaunchPlan(*test.plan, staged.bindings.stageRoot, processArguments);
             EmitEditorEvent("test-start", name, fs::path{test.plan->executable}.filename().string());
             ExecuteProcess(test.plan->executable, processArguments, staged.bindings.stageRoot,
                            test.plan->environment, test.plan->timeoutSeconds);

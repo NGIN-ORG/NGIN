@@ -39,12 +39,13 @@ the view title as needed.
 
 The **Active Project** is explicitly selected per NGIN workspace and receives a
 filled-check icon in the Workspace tree. It is the default for Build, tasks,
-F5, and Ctrl+F5. Libraries may be selected; Run and Debug remain available only
+F5, and Ctrl+F5. NGIN supplies the shortcuts when there is no selected VS Code
+debug configuration. Libraries may be selected; Run and Debug remain available only
 when that project has Run intent.
 
-When the current editor file belongs to another product, file-scoped Build,
-Analyze, and Format actions use that owner without silently changing the Active
-Project. Ambiguous ownership is chosen once and remembered. Running or
+File actions such as Analyze, Format, and Explain Build Membership use the
+owner of the selected file. Opening a library file keeps Build, Run, and F5
+pointed at the Active Project. Ambiguous ownership is chosen once and remembered. Running or
 debugging another project from its row is a one-time target.
 
 **Build Context** contains Configuration, Target, Toolchain, Profile, and
@@ -64,6 +65,10 @@ The CMake project and Tests rows expose Build Project through their context
 menus. The Tests row can run the full CTest suite, and each built test row can
 run only that test. A CTest `_NOT_BUILT` placeholder offers Build Project;
 building refreshes the model and replaces placeholders with runnable tests.
+
+Use **Copy CLI Command** in Project Actions to reproduce a Build, Run, or Test
+selection in your shell (PowerShell on Windows). Choose **Explain Build
+Membership** from a file’s NGIN menu to see matching rules and source locations.
 
 ## Files and authoring
 
@@ -113,6 +118,15 @@ Build, Run, Debug, Test, Benchmark, and analysis configure automatically when
 generated state is missing or stale. Lifecycle work uses cancellable progress,
 Problems, NGIN Output, native tasks, native Testing, and the platform C++ debug
 adapter. Opening a file never triggers Configure merely to populate the tree.
+
+**Run Project** opens the program in the integrated terminal with standard
+input. **Run with Arguments** accepts quoted arguments such as
+`--name "two words"`. F5 uses the same CLI launch plan with the native debugger.
+For a saved NGIN debug configuration, use `"type": "ngin", "request": "launch"`.
+
+Expand a native project in Test Explorer to run or debug an individual named
+registration. Its source link opens the Test declaration in the project manifest.
+Running the project reports a result for each registration.
 
 Compile-database-backed C++ configuration and structured analyzer diagnostics
 remain active. Project analyzers and formatters require workspace trust and one

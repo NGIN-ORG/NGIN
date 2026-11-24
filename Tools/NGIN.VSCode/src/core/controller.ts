@@ -10,6 +10,7 @@ import type {
   NginDiagnostic,
   ProjectCandidate
 } from '../model';
+import { parseLaunchPlan } from './debugConfiguration';
 import { CliFailure, NginCli } from './cli';
 import { lifecycleArguments, selectionArguments } from './commandArguments';
 import { discoverAll, chooseInitialProject } from './discovery';
@@ -616,6 +617,28 @@ export class NginController implements vscode.Disposable {
     }
   }
 
+  async prepareLaunch(context: NginContext, command: 'run' | 'test', extra: string[], reuse = false) {
+    const result = await this.execute(command, ['--launch-plan', ...(reuse ? ['--no-stage'] : []), ...extra],
+      false, context, { announceFailure: false });
+    if (!result) throw new Error(this.snapshot.lastOperation?.message ?? `Could not prepare ${context.projectName}.`);
+    return parseLaunchPlan(result.stdout);
+  }
+
+  recordTerminalExit(context: NginContext, startedAt: number, code: number | undefined): void {
+    const completedAt = Date.now();
+    this.lastOperationValue = {
+      projectId: context.projectId, projectManifest: context.projectManifest,
+      command: 'run', state: code === 0 ? 'succeeded' : 'failed',
+      completedAt, durationMs: completedAt - startedAt
+    };
+    this.emit();
+  }
+
+  commandArguments(command: string, context: NginContext, extra: string[] = []): string[] {
+    return context.projectSystem === 'CMake'
+      ? this.cmakeLifecycleArguments(command, context, extra) : lifecycleArguments(command, context, extra);
+  }
+
   async execute(
     command: string,
     extra: string[] = [],
@@ -624,16 +647,16 @@ export class NginController implements vscode.Disposable {
     options: ExecuteOptions = {}
   ): Promise<CliResult | undefined> {
     const context = contextOverride ?? this.requireContext();
+    const preparing = extra[0] === '--launch-plan';
+    const operationName = preparing ? 'prepare launch' : command;
     const operation = async (token: vscode.CancellationToken): Promise<CliResult | undefined> => {
         const startedAt = Date.now();
-        this.busyValue = command;
+        this.busyValue = operationName;
         this.busyProjectIdValue = context.projectId;
         this.busyProjectManifestValue = context.projectManifest;
         this.emit();
         try {
-          const args = context.projectSystem === 'CMake'
-            ? this.cmakeLifecycleArguments(command, context, extra)
-            : lifecycleArguments(command, context, extra);
+          const args = this.commandArguments(command, context, extra);
           const result = await this.cli.run(
             args,
             context.workspaceFolder,
@@ -643,7 +666,7 @@ export class NginController implements vscode.Disposable {
               requireTrust: true,
               exclusive: true,
               revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false),
-              ...(['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish'].includes(command)
+              ...(!preparing && ['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish'].includes(command)
                 ? { presentation: 'lifecycle' as const, label: context.projectName }
                 : {})
             }
@@ -663,14 +686,14 @@ export class NginController implements vscode.Disposable {
           const completedAt = Date.now();
           this.lastOperationValue = {
             projectId: context.projectId, projectManifest: context.projectManifest,
-            command, state: 'succeeded', completedAt,
+            command: operationName, state: 'succeeded', completedAt,
             durationMs: completedAt - startedAt
           };
           return result;
         } catch (error) {
           this.lastOperationValue = {
             projectId: context.projectId, projectManifest: context.projectManifest,
-            command, state: 'failed', completedAt: Date.now(),
+            command: operationName, state: 'failed', completedAt: Date.now(),
             durationMs: Date.now() - startedAt,
             message: error instanceof Error ? error.message : String(error)
           };
@@ -702,7 +725,7 @@ export class NginController implements vscode.Disposable {
       }
     }
     return vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: operationLabel(command, context.projectName), cancellable: true },
+      { location: vscode.ProgressLocation.Window, title: preparing ? `Preparing ${context.projectName}` : operationLabel(command, context.projectName), cancellable: true },
       async (_progress, token) => operation(token)
     );
   }

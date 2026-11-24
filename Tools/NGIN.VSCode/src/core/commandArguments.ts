@@ -35,3 +35,30 @@ export function lifecycleArguments(command: string, context: NginContext, extra:
   args.push(...extra);
   return args;
 }
+
+// Split program arguments without passing them through a shell.
+export function programArguments(input: string): string[] {
+  const args: string[] = [];
+  let word = '', quote = '', started = false;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (quote && c === quote) {
+      quote = '';
+    } else if (!quote && (c === '"' || c === "'")) {
+      quote = c;
+    } else if (!quote && /\s/u.test(c)) {
+      if (started) args.push(word);
+      word = '';
+      started = false;
+      continue;
+    } else if (c === '\\' && input[i + 1] === '"' && quote !== "'") {
+      word += input[++i];
+    } else {
+      word += c;
+    }
+    started = true;
+  }
+  if (quote) throw new Error('Close the quoted argument.');
+  if (started) args.push(word);
+  return args;
+}

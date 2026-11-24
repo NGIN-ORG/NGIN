@@ -44,6 +44,8 @@ namespace NGIN::CLI
         std::vector<std::string> optionAssignments{};
         std::vector<std::string> positional{};
         std::vector<std::string> trailing{};
+        bool launchPlan{false};
+        bool noStage{false};
         bool quiet{false};
         bool check{false};
         bool effective{false};

@@ -4,6 +4,12 @@ Run `ngin` without arguments for the command list supported by the current
 executable. Every command uses one authored grammar, lowers it to Manifest IR,
 and resolves semantic work through the Composition Graph.
 
+Use `ngin run --help` or `ngin help run` for usage and an example.
+Nested commands support the same syntax, for example `ngin package add --help`.
+In Bash, enable completion for commands, subcommands, and their options with
+`source <(ngin completion bash)`. Arguments after `--` go to the application,
+including `--help`.
+
 ## Selection
 
 Project commands accept:
@@ -85,7 +91,7 @@ ngin validate
 ngin inspect --effective
 ngin inspect --format json
 ngin graph --format json
-ngin explain <graph-identity> [--format json]
+ngin explain <project-relative-file|graph-identity> [--format json]
 ngin diff --against <other.nginproj> [--format json]
 ```
 
@@ -95,6 +101,11 @@ including matching `When` additions, built-in defaults, implicit Runs, and
 registration provenance. `graph` emits the canonical resolved Composition
 Graph. `diff` returns `0` for equivalent graphs and `2` for semantic changes.
 
+From `Examples/Hello.Native`, run `ngin explain src/main.cpp` to see which
+rule includes the file and where it was written. For a file outside the build,
+the explanation reports matching exclusions or inactive rules for the selected
+configuration. Add `--format json` for structured provenance.
+
 ## Build and deployment
 
 ```text
@@ -102,7 +113,7 @@ ngin configure [--output <dir>]
 ngin build [--output <dir>]
 ngin stage [--output <dir>]
 ngin run [--output <dir>] [-- process arguments]
-ngin test [--output <dir>] [-- process arguments]
+ngin test [registration] [--output <dir>] [-- process arguments]
 ngin benchmark [--output <dir>] [-- process arguments]
 ngin publish [PublishName] [--output <dir>]
 ```
@@ -111,6 +122,11 @@ The current build adapter generates CMake. Stage, Run, Test, Benchmark, and
 Publish each consume their own backend-neutral typed plan. An Executable has an
 implicit default Run. Test and Benchmark execute their respective registrations
 and do not change the product artifact kind.
+
+To prepare an invocation for an external launcher, use `ngin run --launch-plan`
+or `ngin test NAME --launch-plan`. These build and stage the selected product,
+then print a JSON invocation without starting the application. Add `--no-stage`
+to reuse an existing build and stage. See the [launch contract](editor-protocol.md#launch).
 
 ## Actions
 

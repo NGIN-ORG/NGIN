@@ -1,3 +1,4 @@
+import { NginDebugProvider } from '../../../providers/debug';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,7 @@ export async function run(): Promise<void> {
   assert.equal(extension.isActive, true);
 
   const commands = await vscode.commands.getCommands(true);
-  for (const command of ['ngin.selectProject', 'ngin.setDefaultProject', 'ngin.setLaunchProduct', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newFile', 'ngin.newFolder', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.newClass', 'ngin.newModule', 'ngin.newCppItem', 'ngin.renameItem', 'ngin.moveItem', 'ngin.deleteItem', 'ngin.duplicateItem', 'ngin.importItems', 'ngin.locateActiveFile', 'ngin.toggleIgnoredFiles', 'ngin.configure', 'ngin.build', 'ngin.rebuild', 'ngin.clean', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.runCMakeTests', 'ngin.runCMakeTest', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.selectConfigurePreset', 'ngin.buildCMakeTarget', 'ngin.openCMakeDeclaration', 'ngin.showCMakeArtifacts', 'ngin.openCMakeProject', 'ngin.refreshCMakeProject', 'ngin.openDevelopmentProject', 'ngin.showConsumingProjects', 'ngin.showExportedTargets', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.revealProjectFile', 'ngin.openFile', 'ngin.copyFilePath', 'ngin.showGraph', 'ngin.openDashboard', 'ngin.openOutputDirectory']) {
+  for (const command of ['ngin.explainMembership', 'ngin.copyCliCommand', 'ngin.selectProject', 'ngin.setDefaultProject', 'ngin.setLaunchProduct', 'ngin.projectActions', 'ngin.checkSetup', 'ngin.createProject', 'ngin.showFilesView', 'ngin.showProjectView', 'ngin.newFile', 'ngin.newFolder', 'ngin.newSourceFile', 'ngin.newHeaderFile', 'ngin.newClass', 'ngin.newModule', 'ngin.newCppItem', 'ngin.renameItem', 'ngin.moveItem', 'ngin.deleteItem', 'ngin.duplicateItem', 'ngin.importItems', 'ngin.locateActiveFile', 'ngin.toggleIgnoredFiles', 'ngin.configure', 'ngin.build', 'ngin.rebuild', 'ngin.clean', 'ngin.run', 'ngin.runWithArguments', 'ngin.debug', 'ngin.test', 'ngin.runCMakeTests', 'ngin.runCMakeTest', 'ngin.benchmark', 'ngin.selectRun', 'ngin.selectProfile', 'ngin.selectConfigurePreset', 'ngin.buildCMakeTarget', 'ngin.openCMakeDeclaration', 'ngin.showCMakeArtifacts', 'ngin.openCMakeProject', 'ngin.refreshCMakeProject', 'ngin.openDevelopmentProject', 'ngin.showConsumingProjects', 'ngin.showExportedTargets', 'ngin.lock', 'ngin.analyzeFile', 'ngin.changeMembership', 'ngin.revealOwningProject', 'ngin.revealProjectFile', 'ngin.openFile', 'ngin.copyFilePath', 'ngin.showGraph', 'ngin.openDashboard', 'ngin.openOutputDirectory']) {
     assert.ok(commands.includes(command), `${command} is registered`);
   }
   for (const command of ['ngin.renameFile', 'ngin.duplicateFile', 'ngin.deleteFile', 'ngin.revealFile']) {
@@ -90,6 +91,33 @@ export async function run(): Promise<void> {
 
   const hostedSource = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Hosted', 'src', 'main.cpp'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostedSource));
+  const terminalExit = new Promise<number | undefined>((resolve, reject) => {
+    const subscription = vscode.tasks.onDidEndTaskProcess(event => {
+      if (event.execution.task.definition.type !== 'ngin' || event.execution.task.definition.command !== 'run') return;
+      clearTimeout(timer);
+      subscription.dispose();
+      resolve(event.exitCode);
+    });
+    const timer = setTimeout(() => { subscription.dispose(); reject(new Error('Interactive Run task timed out')); }, 45_000);
+  });
+  const launched = await Promise.all([terminalExit, vscode.commands.executeCommand('ngin.run')]);
+  assert.equal(launched[0], 0, 'running with another source open launches the active project in a terminal');
+  // F5 selection can be exercised without installing a native debug adapter.
+  const active = { manifest: manifest.fsPath, name: 'Hello.Native' };
+  let preparedProject: string | undefined;
+  const debug = new NginDebugProvider({
+    snapshot: { context: providerContext }, launchProduct: active, projects: [active],
+    contextForProject: () => providerContext,
+    graphForContext: async () => composition,
+    prepareLaunch: async (context: NginContext) => {
+      preparedProject = context.projectManifest;
+      return { program: '/selected/app', cwd: '/selected', args: [], environment: {} };
+    }
+  } as unknown as NginController, {} as import('../../../providers/sourceAnalysis').SourceAnalysisProvider);
+  const configuration = await debug.resolveDebugConfiguration(undefined,
+    { type: 'ngin', request: 'launch', name: 'F5' });
+  assert.equal(configuration?.program, '/selected/app');
+  assert.equal(preparedProject, manifest.fsPath, 'F5 keeps the selected application while editing another project');
   await vscode.commands.executeCommand('ngin.revealOwningProject', hostedSource);
   const tasksAfterReveal = await vscode.tasks.fetchTasks({ type: 'ngin' });
   assert.ok(tasksAfterReveal.some(task => task.name.includes('Hello.Native')),

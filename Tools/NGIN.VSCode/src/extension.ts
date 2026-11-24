@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CliFailure, NginCli } from './core/cli';
-import { dependencyLockPath, selectionArguments } from './core/commandArguments';
+import { dependencyLockPath, programArguments, selectionArguments } from './core/commandArguments';
 import { NginController } from './core/controller';
 import { displayOptionValue } from './core/graph';
 import {
@@ -133,12 +134,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (action === 'Build Project') await vscode.commands.executeCommand('ngin.build', project);
   };
   const effectiveProject = async (argument?: unknown): Promise<ProjectCandidate | undefined> => {
-    const requested = projectArgument(argument);
-    if (requested) return requested;
-    const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-    return activeFile
-      ? await sourceAnalysis.projectForFile(activeFile, false) ?? controller.fallbackProject(activeFile)
-      : controller.launchProduct;
+    return projectArgument(argument) ?? controller.launchProduct;
   };
   let cliVerified = false;
   const updateContextKeys = async (): Promise<void> => {
@@ -665,39 +661,68 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (await ensureDependencyLock(context)) return controller.execute('format', ['--file', uri.fsPath], false, context);
     return undefined;
   });
-  register(extensionContext, 'ngin.run', async (argument?: unknown) => {
-    const selected = await effectiveProject(argument);
-    if (!selected) throw new Error('No NGIN project is selected.');
-    if (!canRun(selected)) return explainNotRunable(selected);
-    let context = sourceAnalysis.contextForProject(selected);
-    const graph = await controller.graphForContext(context, true);
-    if (!graph) return;
-    if (graph.runs.length > 1 && !context.run) {
-      if (!await debug.selectRun(selected)) return;
-      context = sourceAnalysis.contextForProject(selected);
-    }
-    await controller.execute('run', [], false, context);
+  register(extensionContext, 'ngin.copyCliCommand', async (argument?: unknown) => {
+    const project = await effectiveProject(argument);
+    if (!project) return;
+    const command = await vscode.window.showQuickPick(
+      project.projectSystem === 'CMake' ? ['build', 'test'] : ['build', ...(canRun(project) ? ['run'] : []), 'test'],
+      { title: 'Copy CLI Command' });
+    if (!command) return;
+    const context = sourceAnalysis.contextForProject(project);
+    const executable = await cli.resolveExecutable(context.workspaceFolder);
+    const windows = process.platform === 'win32';
+    const quote = (value: string) => "'" + value.replace(/'/g, windows ? "''" : "'\\''") + "'";
+    const words = [executable, ...controller.commandArguments(command, context)].map(quote);
+    await vscode.env.clipboard.writeText((windows ? '& ' : '') + words.join(' '));
+    void vscode.window.setStatusBarMessage(windows ? 'Copied PowerShell command' : 'Copied shell command', 3000);
   });
-  register(extensionContext, 'ngin.runWithArguments', async (argument?: unknown) => {
-    const selected = await effectiveProject(argument);
-    if (!selected) throw new Error('No NGIN project is selected.');
-    if (!canRun(selected)) return explainNotRunable(selected);
-    let context = sourceAnalysis.contextForProject(selected);
+  register(extensionContext, 'ngin.explainMembership', async (argument?: unknown) => {
+    const uri = resourceArgument(argument);
+    if (!uri) return;
+    const project = projectArgument(argument) ?? await sourceAnalysis.projectForFile(uri.fsPath, true);
+    if (!project || project.projectSystem === 'CMake') throw new Error('Select a file inside an NGIN product.');
+    const context = sourceAnalysis.contextForProject(project);
+    const result = await cli.run(['explain', path.relative(project.directory, uri.fsPath),
+      ...selectionArguments(context)], context.workspaceFolder);
+    const document = await vscode.workspace.openTextDocument({ content: result.stdout });
+    await vscode.window.showTextDocument(document, { preview: true });
+  });
+  const runInTerminal = async (argument: unknown, prompt: boolean) => {
+    const project = await effectiveProject(argument);
+    if (!project) throw new Error('Select an NGIN project to run.');
+    if (!canRun(project)) return explainNotRunable(project);
+    let context = sourceAnalysis.contextForProject(project);
     const graph = await controller.graphForContext(context, true);
     if (!graph) return;
-    if (graph.runs.length > 1 && !context.run) {
-      if (!await debug.selectRun(selected)) return;
-      context = sourceAnalysis.contextForProject(selected);
+    if (graph.runs.length > 1 && !context.run && !graph.runs.some(run => run.default)) {
+      if (!await debug.selectRun(project)) return;
+      context = sourceAnalysis.contextForProject(project);
     }
-    const args = await vscode.window.showInputBox({
-      title: `Run ${context.projectName} with arguments`,
-      prompt: 'Arguments appended to the selected run configuration',
-      placeHolder: '--example value'
+    let args: string[] = [];
+    if (prompt) {
+      const value = await vscode.window.showInputBox({ title: `Run ${project.name} with arguments`,
+        placeHolder: '--name "two words"', validateInput: text => {
+          try { programArguments(text); return; }
+          catch (error) { return String(error); }
+        } });
+      if (value === undefined) return;
+      args = programArguments(value);
+    }
+    const plan = await controller.prepareLaunch(context, 'run', args.length ? ['--', ...args] : []);
+    const task = new vscode.Task({ type: 'ngin', command: 'run', launchId: randomUUID() }, vscode.TaskScope.Workspace,
+      project.name, 'NGIN', new vscode.ProcessExecution(plan.program, plan.args, { cwd: plan.cwd, env: plan.environment }));
+    task.presentationOptions = { focus: true, reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated };
+    const startedAt = Date.now();
+    const listener = vscode.tasks.onDidEndTaskProcess(event => {
+      if (event.execution.task.definition.launchId !== task.definition.launchId) return;
+      listener.dispose();
+      controller.recordTerminalExit(context, startedAt, event.exitCode);
     });
-    if (args === undefined) return;
-    const trailing = args.trim() ? ['--', ...args.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(value => value.replace(/^"|"$/g, '')) ?? []] : [];
-    await controller.execute('run', trailing, false, context);
-  });
+    try { return await vscode.tasks.executeTask(task); }
+    catch (error) { listener.dispose(); throw error; }
+  };
+  register(extensionContext, 'ngin.run', argument => runInTerminal(argument, false));
+  register(extensionContext, 'ngin.runWithArguments', argument => runInTerminal(argument, true));
   register(extensionContext, 'ngin.publish', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
     if (!project) throw new Error('No NGIN project is available.');
@@ -708,13 +733,11 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     await controller.execute('publish', selected ? [selected] : [], false, context);
   });
   register(extensionContext, 'ngin.debug', async (argument?: unknown) => {
-    const project = projectArgument(argument);
-    const owner = project ?? await sourceAnalysis.projectForFile(vscode.window.activeTextEditor?.document.uri.fsPath ?? '', false);
-    const selected = owner ?? controller.launchProduct;
+    const selected = await effectiveProject(argument);
     if (!selected) throw new Error('No NGIN project is available to debug.');
     if (!canRun(selected)) return explainNotRunable(selected);
     return vscode.debug.startDebugging(undefined, {
-      type: 'ngin', request: 'run', name: `NGIN: Debug ${selected.name}`, project: selected.manifest, preStage: true
+      type: 'ngin', request: 'launch', name: `NGIN: Debug ${selected.name}`, project: selected.manifest, preStage: true
     });
   });
 

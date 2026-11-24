@@ -8,7 +8,7 @@
   </style>
   <rect class="bg" width="640" height="260" rx="8"/>
   <rect class="panel" x="116" y="20" width="408" height="198" rx="5"/>
-  <text class="text" x="142" y="50" font-weight="600">NGIN: Hello.Native</text><text class="muted" x="142" y="72">Project owning the active file</text>
+  <text class="text" x="142" y="50" font-weight="600">NGIN: Hello.Native</text><text class="muted" x="142" y="72">Active Project</text>
   <line class="line" x1="140" y1="84" x2="500" y2="84"/>
   <text class="muted" x="142" y="106">LIFECYCLE</text>
   <text class="text" x="158" y="130">⚒  Build Project</text><text class="muted" x="402" y="130">Hello.Native</text>

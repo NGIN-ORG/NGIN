@@ -126,7 +126,7 @@
           {
             "id": "buildProject",
             "title": "Build, run, and debug",
-            "description": "Use a project row or [open Project Actions](command:ngin.projectActions) to build and run. Press F5 to debug the project owning the active file.",
+            "description": "Use a project row or [open Project Actions](command:ngin.projectActions) to build and run. Press F5 to debug the Active Project.",
             "media": { "image": "media/walkthrough/build.svg", "altText": "NGIN Project Actions showing lifecycle commands and build-context selection from one status item." },
             "completionEvents": ["onContext:ngin.hasSuccessfulBuild", "onContext:ngin.hasSuccessfulRun"]
           },
@@ -141,6 +141,8 @@
       }
     ],
     "commands": [
+      { "command": "ngin.copyCliCommand", "title": "Copy CLI Command", "category": "NGIN", "enablement": "ngin.hasProject" },
+      { "command": "ngin.explainMembership", "title": "Explain Build Membership", "category": "NGIN", "enablement": "ngin.hasProject" },
       {
         "command": "ngin.refresh",
         "title": "Refresh Workspace",
@@ -684,6 +686,8 @@
         }
       ],
       "view/item/context": [
+        { "command": "ngin.explainMembership", "when": "view == ngin.projects && viewItem =~ /^nginProjectFile/", "group": "4_file@1" },
+        { "command": "ngin.copyCliCommand", "when": "view == ngin.projects && viewItem =~ /^nginProductRoot/", "group": "2_project@8" },
         {
           "command": "ngin.openDevelopmentProject",
           "when": "view == ngin.projects && (viewItem == nginWorkspacePackageDevelopment || viewItem == nginDirectPackageDevelopment || viewItem == nginTransitivePackageDevelopment)",
@@ -987,6 +991,7 @@
         }
       ],
       "ngin.sourceMenu": [
+        { "command": "ngin.explainMembership", "group": "2_membership@2" },
         {
           "command": "ngin.analyzeFile",
           "when": "resourceExtname =~ /\\.(c|cc|cpp|cxx|h|hh|hpp|hxx|ixx|cppm)$/",
@@ -1117,6 +1122,18 @@
         }
       }
     },
+    "keybindings": [
+      {
+        "command": "ngin.debug",
+        "key": "f5",
+        "when": "isWorkspaceTrusted && ngin.canRun && !ngin.busy && debugState == inactive && !debugConfigurationType"
+      },
+      {
+        "command": "ngin.run",
+        "key": "ctrl+f5",
+        "when": "isWorkspaceTrusted && ngin.canRun && !ngin.busy && debugState == inactive && !debugConfigurationType"
+      }
+    ],
     "taskDefinitions": [
       {
         "type": "ngin",
@@ -1130,6 +1147,7 @@
               "configure",
               "build",
               "stage",
+              "run",
               "test",
               "benchmark",
               "restore"
@@ -1160,11 +1178,11 @@
         "type": "ngin",
         "label": "NGIN Native",
         "configurationAttributes": {
-          "run": {
+          "launch": {
             "properties": {
               "project": {
                 "type": "string",
-                "description": "Optional .nginproj path; defaults to the project owning the active source file, then the default project."
+                "description": "Optional .nginproj path; defaults to the Active Project."
               },
               "configuration": {
                 "type": "string",
@@ -1185,6 +1203,8 @@
                 },
                 "default": []
               },
+              "run": { "type": "string", "description": "Name of the NGIN Run to launch." },
+              "testName": { "type": "string", "description": "Registration to debug when test is true." },
               "preStage": {
                 "type": "boolean",
                 "default": true,
@@ -1201,7 +1221,7 @@
         "initialConfigurations": [
           {
             "type": "ngin",
-            "request": "run",
+            "request": "launch",
             "name": "NGIN: Debug Current Project",
             "preStage": true
           }

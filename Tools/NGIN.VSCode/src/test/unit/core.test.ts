@@ -1,3 +1,4 @@
+import { programArguments } from '../../core/commandArguments';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
@@ -16,7 +17,7 @@ import { sameCMakeSnapshotSet, selectCMakeCompileGroup } from '../../core/cmakeC
 import { parseActionDiagnostics } from '../../core/actionDiagnostics';
 import { parseCliDiagnostics, parseCompilerDiagnostics } from '../../core/diagnostics';
 import { graphOwnsFile, projectsForFile } from '../../core/projectOwnership';
-import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../../core/debugConfiguration';
+import { createNativeDebugConfiguration, parseLaunchPlan } from '../../core/debugConfiguration';
 import { displayOptionValue, parseCompositionGraph } from '../../core/graph';
 import { insertBuildItem, kindForPath, updateExactBuildItemPaths, updateProjectAttributes } from '../../core/manifestEdits';
 import { parseAttributes, parseWorkspaceChoices, parseWorkspaceProjectRules } from '../../core/manifestText';
@@ -253,16 +254,11 @@ test('project tree keeps context and readiness compact', () => {
   }).status, 'built');
 });
 
-test('status presentation explains active-file, fallback, busy, and issue states', () => {
+test('status presentation explains active project, busy, and issue states', () => {
   const project: ProjectCandidate = {
     manifest: path.resolve('workspace', 'App.nginproj'), directory: path.resolve('workspace'), name: 'App'
   };
   const context = projectContext(project);
-  const active = statusPresentation({ context, project, reason: 'activeFile' });
-  assert.equal(active.text, '$(project) App · Debug');
-  assert.match(active.tooltip, /owns the active file/u);
-  assert.match(active.accessibilityLabel, /current file project/u);
-
   const fallback = statusPresentation({
     context, project, reason: 'launch',
     lastOperation: { command: 'build', state: 'succeeded', completedAt: 1, durationMs: 1250 }
@@ -591,42 +587,16 @@ test('source ownership prefers the deepest project and exposes true ambiguities'
   assert.equal(graphOwnsFile(value, context, path.join(root, 'nested', 'src', 'other.cpp')), false);
 });
 
-test('native debug configuration uses staged graph run intent', () => {
-  const root = path.resolve('workspace');
-  const context: NginContext = {
-    workspaceFolder: root,
-    projectManifest: path.join(root, 'App.nginproj'),
-    projectName: 'App', configuration: 'Debug', target: 'host', toolchain: 'auto', options: {},
-    outputDirectory: path.join(root, 'build', 'App')
-  };
-  const value = graph();
-  value.runs = [{
-    identity: 'App:Run:Default', name: 'Default', default: true, executableKind: 'Product', executable: 'App',
-    workingDirectory: 'work', arguments: ['from-graph'], environment: { APP_MODE: 'test', PATH: 'existing' }, secrets: {}
-  }];
-  const configuration = createNativeDebugConfiguration(value, context, path.join(context.outputDirectory, 'stage', 'bin', 'App.exe'), {
-    args: ['from-user'], stopAtEntry: true
-  }, 'win32', ';');
-  assert.equal(configuration.type, 'cppvsdbg');
-  assert.deepEqual(configuration.args, ['from-graph', 'from-user']);
-  assert.equal(configuration.cwd, path.resolve(context.outputDirectory, 'stage', 'work'));
-  assert.equal(configuration.environment.find(item => item.name === 'APP_MODE')?.value, 'test');
-  assert.match(configuration.environment.find(item => item.name === 'PATH')?.value ?? '', /stage[\\/]lib;existing$/);
-});
-
-test('native test debugging uses TestPlan arguments without a Run definition', () => {
-  const root = path.resolve('workspace');
-  const context: NginContext = {
-    workspaceFolder: root, projectManifest: path.join(root, 'Tests.nginproj'), projectName: 'Tests',
-    configuration: 'Debug', target: 'host', toolchain: 'auto', options: {}, outputDirectory: path.join(root, 'build')
-  };
-  const value = graph();
-  value.tests = [{ identity: 'Tests:Test:default', name: 'default', arguments: ['--reporter', 'console'] }];
-  const configuration = createNativeTestDebugConfiguration(value, context, path.join(root, 'build', 'stage', 'bin', 'Tests.exe'), {
-    args: ['--filter', 'smoke']
-  }, 'win32', ';');
-  assert.deepEqual(configuration.args, ['--reporter', 'console', '--filter', 'smoke']);
-  assert.equal(configuration.cwd, path.join(root, 'build', 'stage'));
+test('native debugging preserves the CLI executable, cwd, argument boundaries and environment', () => {
+  const plan = parseLaunchPlan(JSON.stringify({ kind: 'NGIN.Launch', version: 1, program: '/tools/runner',
+    cwd: '/project/work', args: ['two words', '', '--help'], environment: { MODE: 'debug' } }));
+  const config = createNativeDebugConfiguration(plan, { args: ['obsolete'], nginTestSession: 'selected-test' }, 'linux', '/bin/gdb');
+  assert.equal(config.request, 'launch');
+  assert.equal(config.program, '/tools/runner');
+  assert.equal(config.cwd, '/project/work');
+  assert.deepEqual(config.args, ['two words', '', '--help']);
+  assert.deepEqual(config.environment, [{ name: 'MODE', value: 'debug' }]);
+  assert.throws(() => parseLaunchPlan('{"kind":"NGIN.Launch","version":2}'), /invalid launch plan/);
 });
 
 test('editor protocol rejects incompatible envelopes and preserves plan preconditions', () => {
@@ -779,4 +749,10 @@ test('Run and Debug require Run intent', () => {
   const resolved = graph();
   resolved.runs = [];
   assert.equal(projectCanRun(application, resolved, application.manifest), false);
+});
+
+test('program argument input preserves quoted, empty, and literal arguments', () => {
+  assert.deepEqual(programArguments(`--name "two words" '' '$HOME' C:\\apps`),
+    ['--name', 'two words', '', '$HOME', 'C:\\apps']);
+  assert.throws(() => programArguments('"unfinished'), /Close the quoted argument/);
 });

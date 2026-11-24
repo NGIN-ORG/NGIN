@@ -1,3 +1,4 @@
+#include "CommandHelp.hpp"
 #include "ManifestCli.hpp"
 
 #include <filesystem>
@@ -9,63 +10,40 @@
 #define NGIN_CLI_VERSION "0.0.0-dev"
 #endif
 
-namespace
-{
-    auto Help() -> void
-    {
-        std::cout << R"(usage: ngin <command> [options]
-
-Selection:
-  --project <file.nginproj>   --workspace <file.ngin>
-  --configuration <name>     --target <name>     --toolchain <name>
-  --run <name>               --profile <name>    --option <Name=Value>
-  --configure-preset <name>  --build-preset <name>  --test-preset <name>
-
-Authoring:
-  new <executable|library> <Name>
-  add package <Name> [--exact V|--version V|--at-least V --before V]
-                     [--export Kind:Name] [--option Name=Value]
-  add project-reference <Path>
-  add action <Package::Action> --kind <Generate|Analyze|Format|Validate|Custom>
-  package add|update|remove <Name> [version and activation options]
-  format [--check]
-  schema --format json
-  editor workspace
-  editor snapshot
-  editor plan --intent <CreateItems|IncludeItems|ExcludeItems|RenameItems|MoveItems|DeleteItems|
-                        AddPackage|ChangePackageRequirement|RemovePackage>
-              [--item <Kind|Visibility|relative-path>] [--from path] [--to path]
-              [--package name] [--version V|--exact V] [--precondition sha256:...]
-
-Resolution:
-  validate
-  inspect --effective | --format json
-  graph --format json
-  explain <graph-identity>
-  diff --against <other.nginproj> [--format json]
-
-Execution commands are driven by typed plans: configure, build, stage, run,
-test, benchmark, publish, analyze, format, restore, and package lock.
-
-CMake workspace projects use configure --configure-preset, build
---build-preset or --configure-preset [--target], and test --test-preset or
---configure-preset [--test-name].
-
-Tooling integration:
-  analyze --file <source> [--file <source>...] [--format json]
-  tooling format --file <source> [--file <source>...]
-)";
-    }
-}
-
 auto main(const int argc, char **argv) -> int
 {
     try
     {
-        if (argc < 2) { Help(); return 0; }
+        if (argc < 2) { NGIN::CLI::PrintHelp(); return 0; }
         const std::string command = argv[1];
         if (command == "--version" || command == "version") { std::cout << "ngin " << NGIN_CLI_VERSION << '\n'; return 0; }
-        if (command == "--help" || command == "help") { Help(); return 0; }
+        const auto helpName = [&](const int first, const int end) {
+            std::string name{};
+            for (int i = first; i < end && argv[i][0] != '-'; ++i)
+            {
+                if (!name.empty() && name != "add" && name != "editor" && name != "package" && name != "tooling") break;
+                if (!name.empty()) name += ' ';
+                name += argv[i];
+            }
+            return name;
+        };
+        if (command == "--help" || command == "help")
+        {
+            NGIN::CLI::PrintHelp(helpName(2, argc));
+            return 0;
+        }
+        for (int i = 2; i < argc && std::string_view{argv[i]} != "--"; ++i)
+            if (std::string_view{argv[i]} == "--help")
+            {
+                NGIN::CLI::PrintHelp(helpName(1, i));
+                return 0;
+            }
+        if (command == "completion")
+        {
+            if (argc != 3 || std::string_view{argv[2]} != "bash") throw std::runtime_error("usage: ngin completion bash");
+            NGIN::CLI::PrintBashCompletion();
+            return 0;
+        }
         const auto root = std::filesystem::current_path();
         if (command == "new")
         {

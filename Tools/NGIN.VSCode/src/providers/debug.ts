@@ -1,9 +1,7 @@
-import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { NginController } from '../core/controller';
-import { createNativeDebugConfiguration, createNativeTestDebugConfiguration } from '../core/debugConfiguration';
-import { stagedExecutablePath } from '../core/paths';
+import { createNativeDebugConfiguration } from '../core/debugConfiguration';
 import type { ProjectCandidate } from '../model';
 import type { SourceAnalysisProvider } from './sourceAnalysis';
 
@@ -16,14 +14,7 @@ interface NginDebugConfiguration extends vscode.DebugConfiguration {
   run?: string;
   preStage?: boolean;
   test?: boolean;
-}
-
-async function fileExists(candidate: string): Promise<boolean> {
-  try {
-    return (await fs.stat(candidate)).isFile();
-  } catch {
-    return false;
-  }
+  testName?: string;
 }
 
 export class NginDebugProvider implements vscode.DebugConfigurationProvider {
@@ -33,7 +24,7 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
   ) {}
 
   provideDebugConfigurations(): vscode.ProviderResult<vscode.DebugConfiguration[]> {
-    return [{ type: 'ngin', request: 'run', name: 'NGIN: Debug Current Project', preStage: true }];
+    return [{ type: 'ngin', request: 'launch', name: 'NGIN: Debug Current Project', preStage: true }];
   }
 
   async selectRun(project = this.controller.launchProduct): Promise<string | undefined> {
@@ -66,8 +57,6 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
     _folder: vscode.WorkspaceFolder | undefined,
     configuration: NginDebugConfiguration
   ): Promise<vscode.DebugConfiguration | undefined> {
-    const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const activeOwner = activeFile ? await this.sourceAnalysis.projectForFile(activeFile, true) : undefined;
     const base = this.controller.snapshot.context ?? (this.controller.launchProduct
       ? this.sourceAnalysis.contextForProject(this.controller.launchProduct) : undefined);
     const requested = configuration.project && base
@@ -75,51 +64,33 @@ export class NginDebugProvider implements vscode.DebugConfigurationProvider {
       : configuration.project ? path.resolve(configuration.project) : undefined;
     const project = requested
       ? this.controller.projects.find(candidate => path.resolve(candidate.manifest) === requested)
-      : activeOwner ?? this.controller.launchProduct;
+      : this.controller.launchProduct;
     if (!project) throw new Error(configuration.project
       ? `NGIN debug project is not discovered: ${configuration.project}`
-      : 'No NGIN project owns the active source file and no project is selected.');
+      : 'Select an NGIN project to debug.');
     const context = this.controller.contextForProject(project, {
       configuration: configuration.configuration,
       target: configuration.target,
       toolchain: configuration.toolchain
     });
 
-    let graph = await this.controller.graphForContext(context, true);
+    const graph = await this.controller.graphForContext(context, true);
     if (!graph) return undefined;
     const hostOperatingSystem = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
     if (graph.selection.targetOperatingSystem !== hostOperatingSystem) {
       throw new Error(`Local NGIN debugging requires a ${hostOperatingSystem} target; the active graph targets ${graph.selection.targetOperatingSystem}.`);
     }
-    if (configuration.preStage !== false) {
-      const staged = await this.controller.execute('stage', [], false, context);
-      if (!staged) return undefined;
+    let run = configuration.run ?? context.run;
+    if (!configuration.test && !run && graph.runs.length > 1 && !graph.runs.some(candidate => candidate.default)) {
+      run = await this.selectRun(project);
+      if (!run) return undefined;
     }
-
-    if (!configuration.test && !configuration.run && context.run
-      && graph.runs.some(run => (run.name ?? run.identity) === context.run)) {
-      configuration.run = context.run;
-    }
-    if (!configuration.test && !configuration.run && graph.runs.length > 1) {
-      const remembered = context.run;
-      configuration.run = graph.runs.find(run => (run.name ?? run.identity) === remembered)
-        ? remembered
-        : await vscode.window.showQuickPick(
-          graph.runs.map(run => ({ label: run.name ?? run.identity, description: run.default ? 'default' : undefined })),
-          { title: `Select a Run for ${graph.product.name}` }
-        ).then(value => value?.label);
-      if (!configuration.run) return undefined;
-      await this.controller.updateProjectSelection(project, { run: configuration.run, profile: undefined });
-    }
-    const program = stagedExecutablePath(context, graph.product.name, graph.selection.targetOperatingSystem);
-    if (!await fileExists(program)) {
-      throw new Error(`The staged executable was not found at ${program}. Run NGIN: Stage and inspect the NGIN output.`);
-    }
+    const command = configuration.test ? 'test' : 'run';
+    const extra = configuration.testName ? [configuration.testName] : [];
+    if (configuration.args?.length) extra.push('--', ...configuration.args);
+    const plan = await this.controller.prepareLaunch(
+      { ...context, run }, command, extra, configuration.preStage === false);
     const configuredDebugger = vscode.workspace.getConfiguration('ngin').get<string>('debug.miDebuggerPath', '').trim();
-    if (configuration.test) {
-      return createNativeTestDebugConfiguration(
-        graph, context, program, configuration, process.platform, path.delimiter, configuredDebugger);
-    }
-    return createNativeDebugConfiguration(graph, context, program, configuration, process.platform, path.delimiter, configuredDebugger);
+    return { ...configuration, ...createNativeDebugConfiguration(plan, configuration, process.platform, configuredDebugger) };
   }
 }

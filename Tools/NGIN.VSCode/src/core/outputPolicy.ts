@@ -9,7 +9,7 @@ export interface OutputPolicy {
 
 function machineReadableCommand(args: readonly string[]): boolean {
   const format = args.indexOf('--format');
-  return args.includes('--quiet')
+  return args.includes('--launch-plan') || args.includes('--quiet')
     || args[0] === '--version'
     || (format >= 0 && args[format + 1]?.toLowerCase() === 'json');
 }

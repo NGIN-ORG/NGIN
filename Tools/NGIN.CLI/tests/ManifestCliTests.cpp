@@ -429,7 +429,7 @@ TEST_CASE("every checked-in authored manifest uses the direct grammar")
     }
     std::ranges::sort(manifests);
     manifests.erase(std::unique(manifests.begin(), manifests.end()), manifests.end());
-    REQUIRE(manifests.size() == 53);
+    REQUIRE(manifests.size() == 54);
     for (const auto &path : manifests)
     {
         INFO(path.string());
@@ -509,4 +509,63 @@ TEST_CASE("Workspace package discovery supplies a Directory provider")
     REQUIRE(InspectComposition(temp.path(), arguments) == 0);
     REQUIRE_THAT(output.Text(), ContainsSubstring(R"("providerKind":"Directory")"));
     REQUIRE_THAT(output.Text(), ContainsSubstring(R"("source":"workspace")"));
+}
+
+TEST_CASE("explain resolves project-relative files in the selected configuration")
+{
+    TempDir temp{};
+    const auto project = temp.path() / "App.nginproj";
+    WriteFile(project, R"xml(<Executable Name="App">
+  <Build><Source Include="code/**/*.cpp" Exclude="code/disabled.cpp" /></Build>
+  <When Configuration="Debug"><Build><Source Include="extras/debug.cpp" /></Build></When>
+</Executable>)xml");
+    for (const auto file : {"code/main.cpp", "code/disabled.cpp", "extras/debug.cpp", "notes.txt"})
+        WriteFile(temp.path() / file, "");
+    CliArguments arguments{};
+    arguments.projectPath = project.string();
+    arguments.configuration = "Release";
+    const auto explain = [&](const std::string &file) {
+        arguments.positional = {file};
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(ExplainComposition(temp.path(), arguments) == 0);
+        return output.Text();
+    };
+    CHECK_THAT(explain("code/main.cpp"), ContainsSubstring("Included in Release"));
+    CHECK_THAT(explain("code/disabled.cpp"), ContainsSubstring("excluded by code/disabled.cpp"));
+    CHECK_THAT(explain("extras/debug.cpp"), ContainsSubstring("inactive When Configuration=Debug"));
+    CHECK_THAT(explain("notes.txt"), ContainsSubstring("no matching Build rule"));
+    arguments.configuration = "Debug";
+    CHECK_THAT(explain("extras/debug.cpp"), ContainsSubstring("Included in Debug"));
+}
+
+TEST_CASE("launch plans preserve argument boundaries and select one native test")
+{
+    TempDir temp{};
+    const auto project = temp.path() / "App.nginproj";
+    WriteFile(project, R"xml(<Executable Name="App">
+  <Run Name="local"><Argument>two words</Argument><Environment Name="MODE" Value="local" /></Run>
+  <Test Name="first"><Argument>one</Argument></Test>
+  <Test Name="second"><Argument>two</Argument></Test>
+</Executable>)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 17; }");
+    CliArguments args{};
+    args.projectPath = project.string();
+    args.launchPlan = true;
+    args.run = "local";
+    args.trailing = {"", "--help"};
+    {
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(RunProject(temp.path(), args) == 0);
+        CHECK(output.Text().starts_with('{'));
+        CHECK_THAT(output.Text(), ContainsSubstring(R"("args":["two words","","--help"])"));
+        CHECK_THAT(output.Text(), ContainsSubstring(R"("MODE":"local")"));
+    }
+    args.run.reset();
+    args.trailing.clear();
+    args.noStage = true;
+    REQUIRE_THROWS_WITH(TestProject(temp.path(), args), ContainsSubstring("select one test registration"));
+    args.positional = {"second"};
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(TestProject(temp.path(), args) == 0);
+    CHECK_THAT(output.Text(), ContainsSubstring(R"("args":["two"])"));
 }

@@ -34,9 +34,7 @@ export async function openProjectActions(
   analysis: SourceAnalysisProvider,
   requested?: ProjectCandidate
 ): Promise<void> {
-  const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-  const owner = !requested && activeFile ? await analysis.projectForFile(activeFile, false) : undefined;
-  const project = requested ?? owner ?? controller.launchProduct;
+  const project = requested ?? controller.launchProduct;
   if (!project) {
     const selected = await vscode.window.showQuickPick([
       { label: '$(new-folder) Create NGIN Project', command: 'ngin.createProject' },
@@ -76,7 +74,7 @@ export async function openProjectActions(
   });
   const selected = await vscode.window.showQuickPick(quickPickItems(descriptors), {
     title: `NGIN: ${project.name}`,
-    placeHolder: owner ? 'Project owning the current file' : project.manifest === controller.launchProduct?.manifest ? 'Active Project' : undefined,
+    placeHolder: project.manifest === controller.launchProduct?.manifest ? 'Active Project' : undefined,
     matchOnDescription: true,
     matchOnDetail: true
   });

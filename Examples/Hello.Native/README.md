@@ -20,3 +20,8 @@ Hello.Native running
 
 This is the best starting point for learning project manifests, generated CMake,
 staging, and launch behavior.
+
+From this example directory, try `ngin run --help` and
+`ngin explain src/main.cpp`. The explanation points to the source glob in
+`Hello.Native.nginproj`. In VS Code, select **Hello.Native** as the Active
+Project and choose **Run Project** to launch it in the integrated terminal.

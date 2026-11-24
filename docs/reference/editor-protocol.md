@@ -86,3 +86,17 @@ nested-product boundary crossings.
 Package requests use `--package` and optionally `--version` or `--exact`.
 They only mutate direct requirements: transitive packages remain read-only and
 retain graph provenance for Explain workflows.
+
+## Launch
+
+`ngin run --launch-plan` and `ngin test NAME --launch-plan` emit an
+`NGIN.Launch` version 1 object on stdout. Both accept the normal selection,
+output directory, and trailing arguments. Requesting a plan builds and stages
+the application, so editors must require a trusted workspace. With
+`--no-stage`, the caller is responsible for having already staged the selected
+context. Launch failures return nonzero.
+
+The object contains `program` and `cwd` as absolute paths, `args` as an ordered
+array of strings, and `environment` as string overrides for the inherited
+environment. Pass these directly to the process or debugger. An unresolved
+secret prevents emission of a Run invocation.

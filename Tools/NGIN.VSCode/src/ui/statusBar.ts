@@ -6,7 +6,6 @@ import type { SourceAnalysisProvider } from '../providers/sourceAnalysis';
 export class StatusBarController implements vscode.Disposable {
   private readonly item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private readonly disposables: vscode.Disposable[];
-  private generation = 0;
 
   constructor(private readonly controller: NginController, private readonly analysis: SourceAnalysisProvider) {
     this.item.name = 'NGIN project context';
@@ -23,7 +22,6 @@ export class StatusBarController implements vscode.Disposable {
   }
 
   private async update(): Promise<void> {
-    const generation = ++this.generation;
     const enabled = vscode.workspace.getConfiguration('ngin').get<boolean>('statusBar.enabled', true);
     if (!enabled) {
       this.item.hide();
@@ -36,10 +34,7 @@ export class StatusBarController implements vscode.Disposable {
         ? project.id === snapshot.busyProjectId
         : project.manifest === snapshot.busyProjectManifest)
       : undefined;
-    const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const owner = !busyProject && activeFile ? await this.analysis.projectForFile(activeFile, false) : undefined;
-    if (generation !== this.generation) return;
-    const project = busyProject ?? owner ?? this.controller.launchProduct;
+    const project = busyProject ?? this.controller.launchProduct;
     if (!project) {
       this.item.hide();
       return;
@@ -57,7 +52,7 @@ export class StatusBarController implements vscode.Disposable {
     const presentation = statusPresentation({
       context,
       project,
-      reason: busyProject ? 'operation' : owner ? 'activeFile' : 'launch',
+      reason: busyProject ? 'operation' : 'launch',
       operation: busyProject ? snapshot.busy : undefined,
       graphError: current ? snapshot.graphError : undefined,
       analysisState: summary.state,

@@ -46,6 +46,7 @@ export function projectActionDescriptors(state: ProjectActionState): ProjectActi
     return result;
   }
 
+  result.push({ group: 'Project', label: 'Copy CLI Command', command: 'ngin.copyCliCommand', icon: 'copy', argument: project });
   if (project.projectSystem === 'CMake') {
     if (state.trusted !== false) {
       result.push(
