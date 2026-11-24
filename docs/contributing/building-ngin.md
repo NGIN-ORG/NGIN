@@ -12,6 +12,29 @@ NGIN uses CMake presets for repository development.
 Reflection metadata generation has no additional compiler-library dependency;
 it preprocesses annotated headers with the target's selected C++ compiler.
 
+## Submodules
+
+To check out the dependency commits recorded by this repository:
+
+```bash
+git submodule update --init --recursive
+```
+
+This normally leaves submodules with a detached HEAD, which is expected for
+pinned dependency checkouts. To develop on the first-party libraries or update
+them to the latest `main`, start with clean submodule working trees and run:
+
+```bash
+git submodule foreach 'git switch main'
+git submodule update --remote --merge
+```
+
+The first-party submodules explicitly select `main` in `.gitmodules`.
+`--remote` fetches that branch instead of using the recorded dependency commit;
+`--merge` keeps the current branch attached. Review and test dependency updates,
+then commit the changed submodule pointers in this repository. Commit any library
+source changes inside the corresponding submodule first.
+
 ## Configure and build
 
 ```bash
