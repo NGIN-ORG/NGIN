@@ -26,7 +26,10 @@ struct EditorPlanRequest {
   std::optional<std::string> packageName{};
   std::optional<std::string> version{};
   bool exactVersion{false};
+  std::vector<std::string> exports{};
 };
+
+[[nodiscard]] auto ExportSelectionElement(const std::string &selection) -> std::string;
 
 [[nodiscard]] auto SerializeEditorProductSnapshot(
     const std::filesystem::path &projectPath,

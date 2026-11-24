@@ -11,9 +11,9 @@ import {
   type OffsetEdit
 } from './core/manifestEdits';
 import { relativeManifestPath } from './core/manifestText';
-import { isWithin } from './core/paths';
+import { isWithin, pathsEqual } from './core/paths';
 import { attributeChoices, childElementNames, documentRoots, loadManifestMetadata } from './core/manifestMetadata';
-import { createProjectTemplate, type CustomProjectLayout, type ProjectLayout, type ProjectProductKind } from './core/projectTemplates';
+import { type CustomProjectLayout, type ProjectLayout, type ProjectProductKind } from './core/projectTemplates';
 import { projectCanRun } from './core/projectCapabilities';
 import { graphOwnsFile } from './core/projectOwnership';
 import type { ProjectFileEntry } from './core/projectFiles';
@@ -25,13 +25,14 @@ import { NginFileDecorationProvider } from './providers/fileDecorations';
 import { NginTaskProvider } from './providers/tasks';
 import { NginTestingProvider } from './providers/testing';
 import { AnalyzerCodeActionProvider, ManifestCodeActionProvider } from './providers/codeActions';
+import { registerManifestNavigation } from './manifestNavigation';
 import { registerManifestCompletion } from './manifestCompletion';
 import { ProjectsTreeProvider } from './ui/tree';
 import { StatusBarController } from './ui/statusBar';
 import { openProjectActions } from './ui/projectActions';
 import { back, inputStep, pickStep } from './ui/inputFlow';
 import { OperationCoordinator } from './core/operationCoordinator';
-import { AuthoringService } from './features/authoring';
+import { AuthoringService, type PlanRequest } from './features/authoring';
 
 async function openJson(title: string, value: unknown): Promise<void> {
   const document = await vscode.workspace.openTextDocument({
@@ -172,6 +173,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     cppTools,
     testing,
     registerManifestCompletion(extensionContext),
+    registerManifestNavigation(cli, controller),
     vscode.window.registerFileDecorationProvider(decorations),
     vscode.tasks.registerTaskProvider('ngin', tasks),
     vscode.debug.registerDebugConfigurationProvider('ngin', debug),
@@ -206,7 +208,15 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   register(extensionContext, 'ngin.openOutputDirectory', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
     if (!project) throw new Error('No NGIN project is available.');
-    const output = vscode.Uri.file(sourceAnalysis.contextForProject(project).outputDirectory);
+    const context = sourceAnalysis.contextForProject(project);
+    await controller.resolveDirectory(context);
+    const directory = project.projectSystem === 'CMake'
+      ? (await controller.refreshCMakeProject(project))?.cmake.buildDirectory : context.outputDirectory;
+    if (!directory) {
+      await vscode.window.showInformationMessage('Select a configure preset to locate the CMake output directory.');
+      return;
+    }
+    const output = vscode.Uri.file(directory);
     if (!await exists(output)) {
       const action = await vscode.window.showInformationMessage(`No output exists for ${project.name} yet.`, 'Build Project');
       if (action === 'Build Project') await vscode.commands.executeCommand('ngin.build', project);
@@ -239,6 +249,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     vscode.env.openExternal(vscode.Uri.parse('https://github.com/NGIN-ORG/NGIN/blob/main/Tools/NGIN.VSCode/README.md')));
   register(extensionContext, 'ngin.openWalkthrough', () =>
     vscode.commands.executeCommand('workbench.action.openWalkthrough', 'ngin.ngin-tools#ngin.gettingStarted'));
+  register(extensionContext, 'ngin.openCppExtension', () => vscode.commands.executeCommand('extension.open', 'ms-vscode.cpptools'));
   register(extensionContext, 'ngin.checkSetup', async (argument?: unknown) => {
     const project = await effectiveProject(argument);
     const workspaceFolder = project
@@ -263,17 +274,35 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     cliVerified = cliReady;
     await vscode.commands.executeCommand('setContext', 'ngin.cliReady', cliReady);
     const context = project ? sourceAnalysis.contextForProject(project) : undefined;
-    const graph = context ? await controller.graphForContext(context, false) : undefined;
+    const checks: Array<{ id: string; ok: boolean; message: string }> = [];
+    if (context && cliReady && vscode.workspace.isTrusted) {
+      const operation = await vscode.window.showQuickPick(['build', 'debug'], { title: 'Check setup for which operation?' });
+      if (!operation) return;
+      const args = ['doctor', operation, '--format', 'json', ...selectionArguments(context)];
+      const debuggerPath = vscode.workspace.getConfiguration('ngin').get<string>('debug.miDebuggerPath', '').trim();
+      if (operation === 'debug' && debuggerPath) args.push('--debugger', debuggerPath);
+      if (context.configurePreset) args.push('--configure-preset', context.configurePreset);
+      try {
+        const result = await cli.run(args, workspaceFolder, { requireTrust: true });
+        checks.push(...JSON.parse(result.stdout).checks);
+      } catch (error) {
+        if (!(error instanceof CliFailure)) throw error;
+        try { checks.push(...JSON.parse(error.result.stdout).checks); }
+        catch { checks.push({ id: 'cli', ok: false, message: error.message }); }
+      }
+      if (operation === 'debug' && project?.projectSystem !== 'CMake') {
+        const installed = Boolean(vscode.extensions.getExtension('ms-vscode.cpptools'));
+        checks.push({ id: 'adapter', ok: installed, message: installed ? 'C++ debug adapter installed' : 'Install the Microsoft C/C++ debug adapter' });
+      }
+    }
     const items: Array<vscode.QuickPickItem & { command?: string }> = [
-      { label: 'Setup status', kind: vscode.QuickPickItemKind.Separator },
       { label: `${cliReady ? '$(pass)' : '$(error)'} NGIN CLI`, description: version, detail: executable },
-      { label: `${vscode.workspace.isTrusted ? '$(pass)' : '$(warning)'} Workspace trust`, description: vscode.workspace.isTrusted ? 'Trusted' : 'Trust is required to run project tools' },
-      { label: `${project ? '$(pass)' : '$(warning)'} Project discovery`, description: project ? project.name : 'No NGIN project found' },
-      ...(project ? [{
-        label: `${graph ? '$(pass)' : '$(error)'} Project model`,
-        description: graph ? `${graph.product.artifactKind} · ${context?.configuration}` : 'Could not resolve the Composition Graph',
-        detail: !graph && controller.snapshot.graphError ? controller.snapshot.graphError.split(/\r?\n/u)[0] : undefined
-      }] : []),
+      { label: vscode.workspace.isTrusted ? '$(pass) Workspace trusted' : '$(warning) Trust workspace to check build tools' },
+      { label: project ? `$(pass) ${project.name}` : '$(warning) No project discovered' },
+      ...checks.map(check => ({
+        label: `${check.ok ? '$(pass)' : '$(error)'} ${check.message}`,
+        command: !check.ok ? ({ preset: 'ngin.selectConfigurePreset', configure: 'ngin.configure', adapter: 'ngin.openCppExtension' } as Record<string, string>)[check.id] : undefined
+      })),
       { label: 'Actions', kind: vscode.QuickPickItemKind.Separator },
       { label: '$(settings-gear) Open NGIN Settings', description: 'Configure the CLI path and extension behavior', command: 'ngin.openSettings' },
       { label: '$(refresh) Refresh Workspace', description: 'Discover projects and reload the model', command: 'ngin.refresh' },
@@ -281,11 +310,11 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     ];
     const selected = await vscode.window.showQuickPick(items, {
       title: 'NGIN: Check Setup',
-      placeHolder: cliReady && project && graph ? 'Setup is ready' : 'Choose an action to resolve setup issues',
+      placeHolder: cliReady && project && vscode.workspace.isTrusted && checks.every(check => check.ok) ? 'Setup is ready' : 'Choose an action to resolve setup issues',
       matchOnDescription: true,
       matchOnDetail: true
     });
-    if (selected?.command) await vscode.commands.executeCommand(selected.command);
+    if (selected?.command) await vscode.commands.executeCommand(selected.command, project);
   });
 
   register(extensionContext, 'ngin.createProject', async () => {
@@ -315,8 +344,8 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         const value = await inputStep({
           title: 'Create NGIN project', step, totalSteps: 5, value: name,
           prompt: 'Project name', placeholder: 'MyApp',
-          validate: candidate => /^[A-Za-z_][A-Za-z0-9_.-]*$/u.test(candidate.trim())
-            ? undefined : 'Use a name beginning with a letter or underscore.'
+          validate: candidate => /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(candidate.trim())
+            ? undefined : 'Begin with a letter or digit. Use letters, digits, dots, hyphens, and underscores.'
         });
         if (value === undefined) return;
         if (value === back) continue;
@@ -391,14 +420,20 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const directory = path.resolve(folder.uri.fsPath, relativeDirectory);
     const manifest = vscode.Uri.file(path.join(directory, `${name}.nginproj`));
     if (await exists(manifest)) throw new Error(`A project manifest already exists at ${manifest.fsPath}.`);
-    const template = createProjectTemplate(name, type, layout, customLayout);
-    await vscode.workspace.fs.createDirectory(vscode.Uri.file(directory));
-    await vscode.workspace.fs.writeFile(manifest, new TextEncoder().encode(template.manifest));
-    for (const [relative, contents] of Object.entries(template.files)) {
-      const file = vscode.Uri.file(path.join(directory, ...relative.split('/')));
-      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(file.fsPath)));
-      await vscode.workspace.fs.writeFile(file, new TextEncoder().encode(contents));
+    const args = ['new', type.toLowerCase(), name, '--layout', layout, '--format', 'json'];
+    if (layout === 'custom' && customLayout) args.push('--source-root', customLayout.sourceRoot, '--header-root', customLayout.headerRoot);
+    const result = await cli.run(args, folder.uri.fsPath, { requireTrust: true });
+    const plan = JSON.parse(result.stdout);
+    if (plan.kind !== 'NGIN.ProjectTemplate' || typeof plan.files?.[`${name}.nginproj`] !== 'string')
+      throw new Error('Invalid project template returned by NGIN.');
+    const edit = new vscode.WorkspaceEdit();
+    for (const [relative, contents] of Object.entries(plan.files)) {
+      const uri = vscode.Uri.file(path.resolve(directory, relative));
+      if (!isWithin(directory, uri.fsPath) || typeof contents !== 'string') throw new Error('Invalid template file.');
+      if (await exists(uri)) throw new Error(`A file already exists at ${uri.fsPath}.`);
+      edit.createFile(uri, { overwrite: false, contents: new TextEncoder().encode(contents) });
     }
+    if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not create the project.');
     await controller.refreshDiscovery();
     const project = controller.projects.find(candidate => path.resolve(candidate.manifest) === path.resolve(manifest.fsPath));
     if (project) await controller.selectProject(project);
@@ -624,6 +659,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     return controller.execute('lock', [], false, project ? sourceAnalysis.contextForProject(project) : undefined);
   });
   const ensureDependencyLock = async (context = controller.requireContext()): Promise<boolean> => {
+    await controller.resolveDirectory(context);
     const lock = dependencyLockPath(context);
     try {
       await vscode.workspace.fs.stat(vscode.Uri.file(lock));
@@ -672,6 +708,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const executable = await cli.resolveExecutable(context.workspaceFolder);
     const windows = process.platform === 'win32';
     const quote = (value: string) => "'" + value.replace(/'/g, windows ? "''" : "'\\''") + "'";
+    await controller.resolveDirectory(context);
     const words = [executable, ...controller.commandArguments(command, context)].map(quote);
     await vscode.env.clipboard.writeText((windows ? '& ' : '') + words.join(' '));
     void vscode.window.setStatusBarMessage(windows ? 'Copied PowerShell command' : 'Copied shell command', 3000);
@@ -742,7 +779,12 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   });
 
   const clean = async (confirm: boolean, current = controller.requireContext()): Promise<boolean> => {
-    if (!isWithin(current.workspaceFolder, current.outputDirectory) || current.outputDirectory === current.workspaceFolder) {
+    await controller.resolveDirectory(current);
+    const override = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(current.projectManifest))
+      .get<string>('build.outputRoot', '').trim();
+    const underOverride = override && pathsEqual(path.dirname(current.outputDirectory), path.resolve(current.workspaceFolder, override));
+    if ((!underOverride && !isWithin(current.workspaceFolder, current.outputDirectory)) ||
+      isWithin(current.outputDirectory, current.workspaceFolder) || isWithin(current.outputDirectory, current.projectManifest)) {
       throw new Error(`Refusing to clean unsafe output path: ${current.outputDirectory}`);
     }
     if (confirm) {
@@ -903,12 +945,16 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
   };
   const applyPackagePlan = async (
     project: ProjectCandidate,
-    request: { intent: 'AddPackage' | 'ChangePackageRequirement' | 'RemovePackage'; package: string; version?: string; exact?: boolean }
+    request: PlanRequest & { package: string }
   ): Promise<void> => {
     const current = sourceAnalysis.contextForProject(project);
     const plan = await authoring.plan(current, request);
     if (plan.state !== 'ready') {
       throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The package authoring plan was rejected.');
+    }
+    if (request.intent === 'AddPackage') {
+      const xml = plan.textEdits.map(edit => edit.text).join('\n');
+      if (await vscode.window.showInformationMessage(`Add ${request.package} to ${current.projectName}?`, { modal: true, detail: xml }, 'Apply') !== 'Apply') return;
     }
     await authoring.apply(current, plan);
     controller.invalidateConfiguration();
@@ -919,18 +965,33 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     const project = await effectiveProject(argument);
     if (!project) throw new Error('No NGIN project is available.');
     let name = '';
+    let selectedExport: string | undefined;
     let constraint: 'default' | 'version' | 'exact' = 'default';
     let version = '';
     let step = 1;
     while (step <= 3) {
       if (step === 1) {
-        const value = await inputStep({
-          title: 'Add package', step, totalSteps: 3, value: name, prompt: 'Package name',
-          placeholder: 'Example.Package', validate: candidate => candidate.trim() ? undefined : 'Enter a package name.'
+        const packages = project.workspaceManifest ? JSON.parse((await cli.run(
+          ['package', 'search', '--workspace', project.workspaceManifest, '--format', 'json'], project.directory)).stdout) as
+          Array<{ name: string; version: string; exports: Array<{ name: string; kind: string; default: boolean; capabilities: string[] }> }> : [];
+        const choices = packages.flatMap(pkg => {
+          const defaults = pkg.exports.filter(e => e.default).map(e => e.name);
+          const choices = [{ label: pkg.name, name: pkg.name, selectedExport: undefined as string | undefined,
+            description: pkg.version, detail: `Default exports: ${defaults.join(', ') || 'none'}` }];
+          for (const e of pkg.exports) choices.push({
+            label: `${pkg.name} / ${e.name}`, name: pkg.name, selectedExport: `${e.kind}:${e.name}`,
+            description: e.kind, detail: [e.default ? 'Default export' : 'Explicit export', ...e.capabilities].join(' · ')
+          });
+          return choices;
         });
-        if (value === undefined) return;
-        if (value === back) continue;
-        name = value.trim();
+        choices.push({ label: 'Enter another package name…', name: '', selectedExport: undefined, description: '', detail: '' });
+        const selected = await vscode.window.showQuickPick(choices, {
+          title: 'Add Package', placeHolder: 'Search packages, exports or capabilities', matchOnDetail: true
+        });
+        if (!selected) return;
+        name = selected.name || (await vscode.window.showInputBox({ prompt: 'Package name', value: name }))?.trim() || '';
+        selectedExport = selected.selectedExport;
+        if (!name) return;
         step++;
         continue;
       }
@@ -958,7 +1019,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
       step++;
     }
     await applyPackagePlan(project, {
-      intent: 'AddPackage', package: name,
+      intent: 'AddPackage', package: name, selectedExport,
       version: constraint === 'default' ? undefined : version,
       exact: constraint === 'exact'
     });

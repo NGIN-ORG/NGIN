@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { ManifestOffsets } from '../core/manifestOffsets';
 import { selectionArguments } from '../core/commandArguments';
 import {
   encodeEditorItem,
@@ -23,6 +24,7 @@ export interface PlanRequest {
   package?: string;
   version?: string;
   exact?: boolean;
+  selectedExport?: string;
 }
 
 export class AuthoringService {
@@ -48,6 +50,7 @@ export class AuthoringService {
     if (request.from) args.push('--from', request.from);
     if (request.to) args.push('--to', request.to);
     if (request.package) args.push('--package', request.package);
+    if (request.selectedExport) args.push('--export', request.selectedExport);
     if (request.version) args.push(request.exact ? '--exact' : '--version', request.version);
     args.push(...selectionArguments(context));
     const result = await this.cli.run(args, context.workspaceFolder, { cwd: path.dirname(context.projectManifest) });
@@ -63,15 +66,16 @@ export class AuthoringService {
       throw new Error(plan.diagnostics.map(value => value.message).join('\n') || 'The NGIN authoring plan was rejected.');
     }
     await this.operations.write(context.projectManifest, async () => {
-      const documents = new Map<string, vscode.TextDocument>();
+      const documents = new Map<string, ManifestOffsets>();
       for (const precondition of plan.preconditions) {
         const document = await vscode.workspace.openTextDocument(vscode.Uri.file(precondition.path));
         if (document.isDirty) throw new Error(`Save or revert ${path.basename(precondition.path)} before applying this authoring plan.`);
-        const actual = `sha256:${createHash('sha256').update(document.getText()).digest('hex')}`;
+        const offsets = await ManifestOffsets.read(document);
+        const actual = `sha256:${createHash('sha256').update(offsets.bytes).digest('hex')}`;
         if (actual !== precondition.sha256) {
           throw new Error(`${path.basename(precondition.path)} changed after the authoring plan was produced. Review the operation again.`);
         }
-        documents.set(precondition.path, document);
+        documents.set(precondition.path, offsets);
       }
       const edit = new vscode.WorkspaceEdit();
       for (const operation of plan.filesystem) {
@@ -86,10 +90,9 @@ export class AuthoringService {
         }
       }
       for (const change of plan.textEdits) {
-        const document = documents.get(change.path)
-          ?? await vscode.workspace.openTextDocument(vscode.Uri.file(change.path));
-        edit.replace(document.uri,
-          new vscode.Range(document.positionAt(change.start), document.positionAt(change.end)), change.text);
+        const offsets = documents.get(change.path);
+        if (!offsets || offsets.document.isDirty) throw new Error(`Review the plan for ${change.path} again.`);
+        edit.replace(offsets.document.uri, offsets.range(change.start, change.end), change.text);
       }
       if (!await vscode.workspace.applyEdit(edit)) throw new Error('VS Code could not apply the NGIN authoring plan.');
       this.operations.invalidate();

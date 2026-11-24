@@ -25,12 +25,9 @@ import {
   compileCommandsPath,
   contextKey,
   isProjectConfigurationPath,
-  isWithin,
-  projectOutputDirectory,
-  safePathComponent
+  isWithin
 } from '../../core/paths';
 import { classifyPhysicalEntry, productFileId, semanticFileIndex } from '../../core/projectFiles';
-import { createProjectTemplate } from '../../core/projectTemplates';
 import { attributeChoices, loadManifestMetadata } from '../../core/manifestMetadata';
 import { describeCliFailure, shouldLoadGraph, unsupportedSelectionOption } from '../../core/cliCompatibility';
 import { projectCanRun } from '../../core/projectCapabilities';
@@ -512,9 +509,8 @@ test('headers use the closest compile command and browse paths are aggregated', 
 
 test('selection keys are deterministic and output paths are bounded', () => {
   const project: ProjectCandidate = { manifest: path.resolve('App.nginproj'), directory: path.resolve('.'), name: 'My App' };
-  const output = projectOutputDirectory(path.resolve('.'), project, 'Debug', 'host', 'default');
+  const output = path.resolve('.ngin/build/App-variant');
   assert.ok(isWithin(path.resolve('.'), output));
-  assert.equal(safePathComponent('My App/Debug'), 'My_App_Debug');
   const base = {
     workspaceFolder: path.resolve('.'), projectManifest: project.manifest, projectName: project.name,
     configuration: 'Debug', target: 'host', toolchain: 'auto', options: { B: '2', A: '1' }, outputDirectory: output
@@ -678,30 +674,6 @@ test('product file projection separates physical existence from semantic classif
     path.join(generatedDirectory, 'generated.hpp'));
   assert.equal(semantics.generated.find(item => item.name === 'action.cpp')?.state, 'generated');
   assert.match(productFileId(root, 'src/main.cpp'), /src\/main\.cpp/u);
-});
-
-test('project templates use the direct product model', () => {
-  const app = createProjectTemplate('Hello.App', 'Executable');
-  assert.match(app.manifest, /<Executable Name="Hello\.App">/);
-  assert.doesNotMatch(app.manifest, /<Run/);
-  assert.ok(app.files['src/main.cpp']);
-  const library = createProjectTemplate('Math', 'Library');
-  assert.match(library.manifest, /Kind="Static"/);
-  assert.ok(library.files['include/Math/Math.hpp']);
-  const colocated = createProjectTemplate('Math', 'Shared', 'colocated');
-  assert.ok(colocated.files['Math.hpp']);
-  assert.ok(colocated.files['Math.cpp']);
-  assert.match(colocated.manifest, /Kind="Shared"/u);
-  const publicPrivate = createProjectTemplate('Math', 'Plugin', 'public-private');
-  assert.ok(publicPrivate.files['Source/Math/Public/Math.hpp']);
-  assert.ok(publicPrivate.files['Source/Math/Private/Math.cpp']);
-  const interfaceLibrary = createProjectTemplate('Math', 'Interface', 'split');
-  assert.deepEqual(Object.keys(interfaceLibrary.files), ['include/Math/Math.hpp']);
-  assert.doesNotMatch(interfaceLibrary.manifest, /<Source/u);
-  assert.match(interfaceLibrary.manifest, /Visibility="Interface"/u);
-  const custom = createProjectTemplate('Math', 'Static', 'custom', { headerRoot: 'API', sourceRoot: 'Implementation' });
-  assert.ok(custom.files['API/Math.hpp']);
-  assert.ok(custom.files['Implementation/Math.cpp']);
 });
 
 test('manifest metadata choices are consumed without editor-side fallbacks', () => {

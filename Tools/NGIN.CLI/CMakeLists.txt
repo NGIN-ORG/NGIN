@@ -56,6 +56,8 @@ _ngin_cli_apply_defaults(ngin_cli_semantics)
 
 add_library(ngin_cli_commands STATIC
   src/ActionDiagnostics.cpp
+  src/ProjectScaffold.cpp
+  src/WorkspaceCatalog.cpp
   src/ManifestCli.cpp
 )
 target_link_libraries(ngin_cli_commands PUBLIC ngin_cli_semantics ngin_cli_authoring)

@@ -239,6 +239,10 @@ TEST_CASE("editor protocol snapshots roles and plans context-aware minimal membe
                ContainsSubstring(R"(<Package Name=\"Example.Package\" Version=\"1.2.3\" />)"));
     CHECK_THAT(packageOutput.Text(), ContainsSubstring(R"("state":"ready")"));
 
+    packageRequest.exportSelections = {"Library:Widgets"};
+    REQUIRE(PlanEditorAuthoring(temp.path(), packageRequest) == 0);
+    CHECK_THAT(packageOutput.Text(), ContainsSubstring(R"(<Library Name=\"Widgets\" /></Package>)"));
+
     const auto emptyProject = temp.path() / "Empty.nginproj";
     WriteFile(emptyProject, R"xml(<Executable Name="Empty" />)xml");
     CliArguments emptyRequest{};
@@ -568,4 +572,75 @@ TEST_CASE("launch plans preserve argument boundaries and select one native test"
     ScopedStreamCapture output{std::cout};
     REQUIRE(TestProject(temp.path(), args) == 0);
     CHECK_THAT(output.Text(), ContainsSubstring(R"("args":["two"])"));
+}
+
+TEST_CASE("scaffolding rejects invalid layout roots before creating files")
+{
+    TempDir temp;
+    CliArguments args;
+    args.layout = "custom";
+    args.headerRoot = "../outside";
+    REQUIRE_THROWS(NewProject(temp.path(), "static", "Demo", args));
+    CHECK_FALSE(fs::exists(temp.path() / "Demo"));
+}
+
+TEST_CASE("native output directory follows effective build selection and explicit overrides")
+{
+    TempDir temp;
+    REQUIRE(NewProject(temp.path(), "executable", "App") == 0);
+    auto project = temp.path() / "App/App.nginproj";
+    WriteFile(project, R"(<Executable Name="App"><Options><Boolean Name="Trace" Default="false" /></Options></Executable>)");
+    CliArguments args;
+    args.projectPath = project.string();
+    const auto context = [&] {
+        ScopedStreamCapture output{std::cout};
+        REQUIRE(PrintBuildContext(temp.path(), args) == 0);
+        return output.Text();
+    };
+    const auto baseline = context();
+    args.optionAssignments = {"Trace=false"};
+    CHECK(context() == baseline);
+    args.optionAssignments = {"Trace=true"};
+    CHECK(context() != baseline);
+    args.optionAssignments.clear();
+    WriteFile(project.parent_path() / "src/main.cpp", "int main() { return 0; }\n");
+    CHECK(context() == baseline);
+    args.configuration = "Release";
+    CHECK(context() != baseline);
+    args.outputPath = (temp.path() / "explicit").string();
+    CHECK_THAT(context(), ContainsSubstring((temp.path() / "explicit").generic_string()));
+}
+
+TEST_CASE("workspace catalog searches capabilities and indexes explicit export references")
+{
+    ScopedStreamCapture output{std::cout};
+    CliArguments args;
+    args.workspacePath = (RepoRoot() / "NGIN.ngin").string();
+    args.format = "json";
+    args.positional = {"ngin.ui.backend"};
+    REQUIRE(WorkspaceCatalog(RepoRoot(), args, false) == 0);
+    CHECK_THAT(output.Text(), ContainsSubstring("NGIN.UI.Backend.SDL3"));
+    CHECK_THAT(output.Text(), ContainsSubstring("\"capabilities\":[\"NGIN.UI.Backend\"]"));
+    CHECK_THAT(output.Text(), !ContainsSubstring("NGIN.Tooling.ClangTidy"));
+    args.positional.clear();
+    REQUIRE(WorkspaceCatalog(RepoRoot(), args, true) == 0);
+    CHECK_THAT(output.Text(), ContainsSubstring("Hello.IO.nginproj"));
+    CHECK_THAT(output.Text(), ContainsSubstring("NGIN.Base.nginpkg"));
+}
+
+TEST_CASE("doctor reports missing CMake preset and native debug launch prerequisites")
+{
+    TempDir temp;
+    WriteFile(temp.path() / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(Demo)\n");
+    CliArguments args;
+    args.projectPath = temp.path().string();
+    args.format = "json";
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(Doctor(temp.path(), args) == 1);
+    CHECK_THAT(output.Text(), ContainsSubstring("Select a CMake configure preset"));
+    REQUIRE(NewProject(temp.path(), "interface", "Headers") == 0);
+    args.projectPath = (temp.path() / "Headers/Headers.nginproj").string();
+    args.positional = {"debug"};
+    REQUIRE(Doctor(temp.path(), args) == 1);
+    CHECK_THAT(output.Text(), ContainsSubstring("\"id\":\"launch\""));
 }

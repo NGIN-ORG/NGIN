@@ -199,6 +199,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   private async ensureTooling(context: NginContext): Promise<boolean> {
+    await this.controller.resolveDirectory(context);
     if (!vscode.workspace.isTrusted) return false;
     const key = this.contextKey(context);
     const consent = this.extensionContext.workspaceState.get<Record<string, boolean>>(toolingStateKey, {});
@@ -229,6 +230,7 @@ export class SourceAnalysisProvider implements vscode.Disposable {
   }
 
   private async createLock(context: NginContext): Promise<void> {
+    await this.controller.resolveDirectory(context);
     await this.cli.run(lifecycleArguments('lock', context, ['--quiet']), context.workspaceFolder, {
       cwd: path.dirname(context.projectManifest), requireTrust: true, exclusive: true
     });

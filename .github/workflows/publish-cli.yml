@@ -94,6 +94,9 @@ jobs:
       - name: Build bootstrap CLI
         run: cmake --build --preset release
 
+      - name: Build and consume CLI project templates
+        run: python Tools/NGIN.CLI/tests/test_scaffolds.py build/release/Tools/NGIN.CLI/ngin
+
       - name: Publish Linux artifacts
         if: runner.os == 'Linux'
         run: |

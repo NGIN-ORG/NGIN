@@ -1,12 +1,7 @@
 import * as path from 'node:path';
-import type { NginContext, ProjectCandidate } from '../model';
+import type { NginContext } from '../model';
 
 export const generatedDirectoryPattern = '**/{.git,.ngin,build,out,node_modules}/**';
-
-export function safePathComponent(value: string): string {
-  const sanitized = value.replace(/[^A-Za-z0-9_.-]+/g, '_');
-  return sanitized || 'default';
-}
 
 export function normalizeForComparison(value: string): string {
   const normalized = path.normalize(value);
@@ -19,6 +14,7 @@ export function pathsEqual(left: string | undefined, right: string | undefined):
 }
 
 export function isWithin(parent: string, candidate: string): boolean {
+  if (!parent || !candidate) return false;
   const relative = path.relative(path.resolve(parent), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
 }
@@ -39,21 +35,6 @@ export function contextKey(context: NginContext): string {
     profile: context.profile,
     options
   });
-}
-
-export function projectOutputDirectory(
-  workspaceFolder: string,
-  project: ProjectCandidate,
-  configuration: string,
-  target: string,
-  toolchain: string,
-  configuredRoot?: string
-): string {
-  const root = configuredRoot
-    ? path.resolve(workspaceFolder, configuredRoot)
-    : path.join(workspaceFolder, '.ngin', 'build');
-  const selection = [configuration, target, toolchain].map(safePathComponent).join('.');
-  return path.join(root, safePathComponent(project.name), selection);
 }
 
 export function compileCommandsPath(context: NginContext): string {

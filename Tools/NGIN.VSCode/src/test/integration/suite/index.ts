@@ -1,5 +1,7 @@
 import { NginDebugProvider } from '../../../providers/debug';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -29,6 +31,17 @@ export async function run(): Promise<void> {
   const manifest = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Native', 'Hello.Native.nginproj'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifest));
   await vscode.commands.executeCommand('ngin.refresh');
+  const io = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(workspace, 'Examples/Hello.IO/Hello.IO.nginproj')));
+  const use = io.positionAt(io.getText().indexOf('Name="IO"') + 6);
+  const definitions = await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeDefinitionProvider', io.uri, use);
+  const definition = definitions.find(location => location.uri.fsPath.endsWith('NGIN.Base.nginpkg'));
+  assert.ok(definition, 'F12 resolves a typed library export to its package');
+  const basePackage = await vscode.workspace.openTextDocument(definition.uri);
+  assert.match(basePackage.getText(definition.range), /Name="IO"/);
+  const references = await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeReferenceProvider',
+    definition.uri, definition.range.start);
+  assert.ok(references.some(location => location.uri.fsPath === io.uri.fsPath && location.range.contains(use)),
+    'references from the declaration include the original typed use');
   await vscode.commands.executeCommand('ngin.setLaunchProduct', {
     manifest: manifest.fsPath,
     directory: path.dirname(manifest.fsPath),
@@ -87,7 +100,14 @@ export async function run(): Promise<void> {
   await fs.rm(providerOutput, { recursive: true, force: true });
 
   const tasks = await vscode.tasks.fetchTasks({ type: 'ngin' });
-  assert.ok(tasks.some(task => task.definition.command === 'build'), 'active project supplies a build task');
+  const build = tasks.find(task => task.definition.command === 'build')?.execution as vscode.ProcessExecution | undefined;
+  assert.ok(build, 'active project supplies a build task');
+  const outputFlag = build.args.indexOf('--output');
+  assert.ok(outputFlag >= 0);
+  const selection = build.args.slice(1, outputFlag);
+  const cliContext = await promisify(execFile)(build.process, ['context', ...selection], { cwd: workspace });
+  assert.equal(build.args[outputFlag + 1], JSON.parse(cliContext.stdout).outputDirectory,
+    'editor tasks and the CLI select the same native build directory');
 
   const hostedSource = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Hosted', 'src', 'main.cpp'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostedSource));

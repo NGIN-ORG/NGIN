@@ -8,8 +8,10 @@ Read [`Hello.Native.nginproj`](Hello.Native.nginproj) and
 
 ```bash
 ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
-ngin build --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug --output build/manual/Hello.Native
-ngin run --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug --output build/manual/Hello.Native
+ngin doctor build --project Examples/Hello.Native/Hello.Native.nginproj
+ngin context --project Examples/Hello.Native/Hello.Native.nginproj
+ngin build --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
+ngin run --project Examples/Hello.Native/Hello.Native.nginproj --configuration Debug
 ```
 
 Expected application output:

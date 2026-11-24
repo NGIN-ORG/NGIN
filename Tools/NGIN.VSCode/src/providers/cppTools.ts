@@ -110,6 +110,7 @@ export class NginCppConfigurationProvider implements CustomConfigurationProvider
   }
 
   private async loadEntries(context: NginContext): Promise<CompileCommandEntry[]> {
+    if (!context.outputDirectory) return [];
     const candidate = compileCommandsPath(context);
     try {
       const stat = await fs.stat(candidate);

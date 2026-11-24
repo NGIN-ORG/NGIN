@@ -30,6 +30,7 @@ export class NginTaskProvider implements vscode.TaskProvider {
 
   private async createTask(definition: NginTaskDefinition, selectedContext = this.controller.requireContext()): Promise<vscode.Task> {
     const context = selectedContext;
+    await this.controller.resolveDirectory(context);
     const executable = await this.cli.resolveExecutable(context.workspaceFolder);
     const args = this.controller.commandArguments(definition.command, context);
     const execution = new vscode.ProcessExecution(executable, args, { cwd: context.projectSystem === 'CMake' ? context.projectManifest : path.dirname(context.projectManifest) });

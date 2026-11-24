@@ -18,21 +18,25 @@ namespace NGIN::CLI
         "--project --workspace --configuration --target --toolchain --run --profile --option";
 
     inline constexpr CommandHelp Commands[] = {
-        {"run", "[--run NAME] [-- ARGS...]", "Build, stage and run an application.", "run --project App.nginproj -- \"two words\"", "--output --launch-plan --no-stage", true},
-        {"build", "[--output DIR]", "Build the selected product.", "build --configuration Release", "--output --configure-preset --build-preset", true},
-        {"test", "[NAME] [-- ARGS...]", "Run all registrations or one named test.", "test smoke", "--output --launch-plan --no-stage --test-preset --test-name --configure-preset", true},
-        {"new", "<executable|library> NAME", "Create a C++ project.", "new executable Hello", ""},
-        {"configure", "[--output DIR]", "Generate and configure backend build files.", "configure", "--output --configure-preset", true},
-        {"stage", "[--output DIR]", "Build and assemble runtime files.", "stage", "--output", true},
-        {"benchmark", "[NAME]", "Run a benchmark registration.", "benchmark", "--output", true},
-        {"publish", "[NAME]", "Prepare a publication.", "publish", "--output", true},
+        {"run", "[--run NAME] [-- ARGS...]", "Build, stage and run an application.", "run --project App.nginproj -- \"two words\"", "--output --output-root --launch-plan --no-stage", true},
+        {"build", "[--output DIR]", "Build the selected product.", "build --configuration Release", "--output --output-root --configure-preset --build-preset", true},
+        {"test", "[NAME] [-- ARGS...]", "Run all registrations or one named test.", "test smoke", "--output --output-root --launch-plan --no-stage --test-preset --test-name --configure-preset", true},
+        {"context", "", "Show the effective native build directory.", "context", "--output --output-root", true},
+        {"doctor", "<build|debug>", "Check the selected operation and its prerequisites.", "doctor build", "--configure-preset --debugger --format", true},
+        {"package search", "[QUERY]", "Search workspace packages, exports and capabilities.", "package search NGIN.UI.Backend", "--workspace --format"},
+        {"editor symbols", "", "Resolve workspace manifest references.", "editor symbols --workspace NGIN.ngin", "--workspace"},
+        {"new", "<executable|library|static|shared|interface|plugin> NAME", "Create a C++ project.", "new executable Hello", "--layout --source-root --header-root --format"},
+        {"configure", "[--output DIR]", "Generate and configure backend build files.", "configure", "--output --output-root --configure-preset", true},
+        {"stage", "[--output DIR]", "Build and assemble runtime files.", "stage", "--output --output-root", true},
+        {"benchmark", "[NAME]", "Run a benchmark registration.", "benchmark", "--output --output-root", true},
+        {"publish", "[NAME]", "Prepare a publication.", "publish", "--output --output-root", true},
         {"validate", "", "Check the authored manifest.", "validate", "", true},
         {"explain", "<FILE|IDENTITY>", "Explain project-relative file membership or graph provenance.", "explain src/main.cpp", "--format", true},
         {"graph", "[--format json]", "Display the resolved Composition Graph.", "graph --format json", "--format", true},
         {"inspect", "[--effective]", "Inspect the project and its selected rules.", "inspect --effective", "--effective --format", true},
         {"diff", "--against PROJECT", "Compare resolved projects.", "diff --against Other.nginproj", "--against --format", true},
         {"format", "[--check]", "Format a manifest or check its formatting.", "format --check", "--check", true},
-        {"analyze", "[--file PATH]...", "Run selected analyzer actions.", "analyze --file src/main.cpp", "--file --lock --output --format", true},
+        {"analyze", "[--file PATH]...", "Run selected analyzer actions.", "analyze --file src/main.cpp", "--file --lock --output --output-root --format", true},
         {"tooling format", "[--file PATH]...", "Run selected source formatters.", "tooling format --file src/main.cpp", "--file --lock --output", true},
         {"restore", "", "Resolve package dependencies.", "restore", "", true},
         {"package lock", "[--output FILE]", "Record exact dependency instances.", "package lock", "--output", true},
@@ -46,7 +50,7 @@ namespace NGIN::CLI
         {"schema", "--format json", "Print manifest editor metadata.", "schema --format json", "--format"},
         {"editor workspace", "", "Discover workspace projects.", "editor workspace", "--workspace"},
         {"editor snapshot", "", "Inspect a project for an editor.", "editor snapshot --project App.nginproj", "--configure-preset", true},
-        {"editor plan", "--intent INTENT", "Preview a manifest authoring operation.", "editor plan --intent IncludeItems --item 'Source|Private|src/main.cpp'", "--intent --item --from --to --package --version --exact --precondition", true},
+        {"editor plan", "--intent INTENT", "Preview a manifest authoring operation.", "editor plan --intent IncludeItems --item 'Source|Private|src/main.cpp'", "--intent --item --from --to --package --version --exact --export --precondition", true},
         {"completion", "bash", "Generate a Bash completion script.", "completion bash", ""},
         {"version", "", "Print the CLI version.", "version", ""},
         {"help", "[COMMAND]", "Show command usage.", "help run", ""}
@@ -97,7 +101,7 @@ namespace NGIN::CLI
                 if (entry.name.starts_with(std::string(group) + " ")) std::cout << entry.name.substr(entry.name.find(' ') + 1) << ' ';
             std::cout << "' ;;\n";
         }
-        std::cout << "    new) words='executable library' ;;\n    completion) words=bash ;;\n  esac; fi\n"
+        std::cout << "    new) words='executable library static shared interface plugin' ;;\n    completion) words=bash ;;\n  esac; fi\n"
                      "  COMPREPLY=(); while IFS= read -r candidate; do COMPREPLY+=(\"$candidate\"); done < <(compgen -W \"$words\" -- \"$cur\")\n}\ncomplete -o default -F _ngin_complete ngin\n";
     }
 }

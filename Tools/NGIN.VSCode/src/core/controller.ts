@@ -16,7 +16,7 @@ import { lifecycleArguments, selectionArguments } from './commandArguments';
 import { discoverAll, chooseInitialProject } from './discovery';
 import { projectsForFile } from './projectOwnership';
 import { parseCompositionGraph } from './graph';
-import { contextKey, projectOutputDirectory } from './paths';
+import { contextKey } from './paths';
 import { parseCompilerDiagnostics } from './diagnostics';
 import { shouldLoadGraph } from './cliCompatibility';
 import { resolveWorkspaceChoice } from './selectionChoices';
@@ -206,6 +206,8 @@ export class NginController implements vscode.Disposable {
   }
 
   async refreshDiscovery(preserveSelection = true): Promise<void> {
+    this.resolvedDirectories.clear();
+    this.directoryRequests.clear();
     const previous = this.contextValue;
     const previousLaunch = this.launchProjectValue?.manifest;
     this.backgroundGraphCache.clear();
@@ -220,7 +222,40 @@ export class NginController implements vscode.Disposable {
     else this.emit();
   }
 
+  private readonly resolvedDirectories = new Map<string, string>();
+  private readonly directoryRequests = new Map<string, Promise<string>>();
+
+  async resolveDirectory(context: NginContext): Promise<void> {
+    if (context.projectSystem === 'CMake') return;
+    const key = contextKey(context);
+    const cached = this.resolvedDirectories.get(key);
+    if (cached) { context.outputDirectory = cached; return; }
+    let request = this.directoryRequests.get(key);
+    if (!request) {
+      const configuredRoot = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(context.projectManifest))
+        .get<string>('build.outputRoot', '').trim();
+      const args = ['context', ...selectionArguments(context)];
+      if (configuredRoot) args.push('--output-root', path.resolve(context.workspaceFolder, configuredRoot));
+      request = this.cli.run(args, context.workspaceFolder).then(result => {
+        const directory = JSON.parse(result.stdout).outputDirectory;
+        if (typeof directory !== 'string' || !path.isAbsolute(directory))
+          throw new Error('NGIN did not return an absolute build directory.');
+        return directory;
+      });
+      this.directoryRequests.set(key, request);
+    }
+    try {
+      const directory = await request;
+      if (this.directoryRequests.get(key) === request) this.resolvedDirectories.set(key, directory);
+      context.outputDirectory = directory;
+    } finally {
+      if (this.directoryRequests.get(key) === request) this.directoryRequests.delete(key);
+    }
+  }
+
   contextForProject(project: ProjectCandidate, selection: Partial<PersistedSelection | NginContext> = {}): NginContext {
+    project = this.projects.find(candidate => candidate.manifest === project.manifest &&
+      (!project.workspaceManifest || candidate.workspaceManifest === project.workspaceManifest)) ?? project;
     const remembered = this.projectSelections[this.projectKey(project)] ?? this.projectSelections[project.manifest] ?? {};
     const choices = project.workspaceChoices;
     const configuration = project.projectSystem === 'CMake'
@@ -239,14 +274,13 @@ export class NginController implements vscode.Disposable {
       selection.toolchain ?? remembered.toolchain,
       choices?.toolchains,
       choices?.defaults.toolchain
-    ) ?? 'auto';
+    ) ?? (project.workspaceManifest ? '' : 'default');
     const rememberedRun = remembered.runs
       ? remembered.runs[runSelectionKey(configuration, target, toolchain)]
       : remembered.run;
     const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(project.manifest));
     const workspaceFolder = folder?.uri.fsPath ?? project.directory;
-    const outputRoot = vscode.workspace.getConfiguration('ngin', vscode.Uri.file(project.manifest)).get<string>('build.outputRoot', 'build/ngin');
-    return {
+    const context: NginContext = {
       projectId: project.id,
       projectSystem: project.projectSystem ?? 'Ngin',
       workspaceFolder,
@@ -259,9 +293,11 @@ export class NginController implements vscode.Disposable {
       run: selection.run || rememberedRun,
       profile: selection.profile ?? remembered.profile,
       options: { ...(selection.options ?? remembered.options ?? {}) },
-      outputDirectory: projectOutputDirectory(workspaceFolder, project, configuration, target, toolchain, outputRoot),
+      outputDirectory: '',
       configurePreset: selection.configurePreset ?? remembered.configurePreset
     };
+    context.outputDirectory = this.resolvedDirectories.get(contextKey(context)) ?? '';
+    return context;
   }
 
   projectsForFile(file: string): ProjectCandidate[] {
@@ -379,6 +415,8 @@ export class NginController implements vscode.Disposable {
   }
 
   invalidateConfiguration(): void {
+    this.resolvedDirectories.clear();
+    this.directoryRequests.clear();
     this.configurationInvalidatedAt = Date.now();
     this.configuredValue = false;
     this.emit();
@@ -452,6 +490,7 @@ export class NginController implements vscode.Disposable {
     }
     const generation = ++this.graphGeneration;
     try {
+      await this.resolveDirectory(context);
       const result = await this.cli.run(
         ['graph', ...selectionArguments(context), '--format', 'json'],
         context.workspaceFolder,
@@ -491,6 +530,7 @@ export class NginController implements vscode.Disposable {
     if (existing) return existing;
     const request = (async (): Promise<CompositionGraph | undefined> => {
       try {
+        await this.resolveDirectory(context);
         const result = await this.cli.run(
           ['graph', ...selectionArguments(context), '--format', 'json'],
           context.workspaceFolder,
@@ -656,6 +696,7 @@ export class NginController implements vscode.Disposable {
         this.busyProjectManifestValue = context.projectManifest;
         this.emit();
         try {
+          await this.resolveDirectory(context);
           const args = this.commandArguments(command, context, extra);
           const result = await this.cli.run(
             args,

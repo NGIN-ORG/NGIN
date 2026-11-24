@@ -47,9 +47,11 @@ auto main(const int argc, char **argv) -> int
         const auto root = std::filesystem::current_path();
         if (command == "new")
         {
-            if (argc != 4) throw std::runtime_error("new requires a kind and name");
-            return NGIN::CLI::NewProject(root, argv[2], argv[3]);
+            if (argc < 4) throw std::runtime_error("new requires a kind and name");
+            return NGIN::CLI::NewProject(root, argv[2], argv[3], NGIN::CLI::ParseCliArguments(argc, argv, 4));
         }
+        if (command == "doctor") return NGIN::CLI::Doctor(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
+        if (command == "context") return NGIN::CLI::PrintBuildContext(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "validate") return NGIN::CLI::ValidateManifest(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "schema") return NGIN::CLI::PrintSchema(NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "editor")
@@ -57,6 +59,7 @@ auto main(const int argc, char **argv) -> int
             if (argc < 3) throw std::runtime_error("editor requires workspace, snapshot, or plan");
             const std::string operation = argv[2];
             const auto arguments = NGIN::CLI::ParseCliArguments(argc, argv, 3);
+            if (operation == "symbols") return NGIN::CLI::WorkspaceCatalog(root, arguments, true);
             if (operation == "workspace") return NGIN::CLI::PrintEditorWorkspaceSnapshot(root, arguments);
             if (operation == "snapshot") return NGIN::CLI::PrintEditorProductSnapshot(root, arguments);
             if (operation == "plan") return NGIN::CLI::PlanEditorAuthoring(root, arguments);
@@ -87,6 +90,8 @@ auto main(const int argc, char **argv) -> int
         if (command == "restore") return NGIN::CLI::RestorePackages(root, NGIN::CLI::ParseCliArguments(argc, argv, 2));
         if (command == "package")
         {
+            if (argc >= 3 && std::string{argv[2]} == "search")
+                return NGIN::CLI::WorkspaceCatalog(root, NGIN::CLI::ParseCliArguments(argc, argv, 3), false);
             if (argc >= 3 && std::string{argv[2]} == "lock")
                 return NGIN::CLI::WriteDependencyLock(root, NGIN::CLI::ParseCliArguments(argc, argv, 3));
             if (argc >= 3 && std::string{argv[2]} == "verify-lock")

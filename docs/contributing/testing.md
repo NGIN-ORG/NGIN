@@ -11,6 +11,14 @@ cmake --build build/dev --target NGINCliTests
 
 On Windows, use `NGINCliTests.exe`.
 
+CI and CLI packaging also build every project kind in every supported layout,
+compare the preview with the files written, and compile a separate consumer
+of each library header. Run this check against a specific CLI binary with:
+
+```bash
+python3 Tools/NGIN.CLI/tests/test_scaffolds.py build/dev/Tools/NGIN.CLI/ngin
+```
+
 ## Workspace flow
 
 ```bash

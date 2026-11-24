@@ -44,6 +44,11 @@ namespace NGIN::CLI
         std::vector<std::string> optionAssignments{};
         std::vector<std::string> positional{};
         std::vector<std::string> trailing{};
+        std::string layout{"split"};
+        std::string sourceRoot{"src"};
+        std::string headerRoot{"include"};
+        std::optional<std::string> outputRoot{};
+        std::optional<std::string> debugger{};
         bool launchPlan{false};
         bool noStage{false};
         bool quiet{false};
@@ -54,7 +59,11 @@ namespace NGIN::CLI
     [[nodiscard]] auto ParseCliArguments(int argc, char **argv, int first) -> CliArguments;
     [[nodiscard]] auto FindProject(const fs::path &root, const CliArguments &arguments) -> fs::path;
 
-    auto NewProject(const fs::path &root, std::string_view kind, std::string_view name) -> int;
+    auto NewProject(const fs::path &root, std::string_view kind, std::string_view name, const CliArguments &arguments = {}) -> int;
+    auto WorkspaceCatalog(const fs::path &workspace, const CliArguments &arguments, bool navigation) -> int;
+    auto PrintBuildContext(const fs::path &root, const CliArguments &arguments) -> int;
+    auto Doctor(const fs::path &root, const CliArguments &arguments) -> int;
+    auto FindWorkspace(const fs::path &start, const CliArguments &arguments) -> std::optional<fs::path>;
     auto ValidateManifest(const fs::path &root, const CliArguments &arguments) -> int;
     auto FormatManifest(const fs::path &root, const CliArguments &arguments) -> int;
     auto PrintSchema(const CliArguments &arguments) -> int;

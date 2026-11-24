@@ -51,8 +51,8 @@ selection that conflicts with a profile is an error.
 ## Authoring and formatting
 
 ```text
-ngin new executable <Name>
-ngin new library <Name>
+ngin new <executable|static|shared|interface|plugin> <Name> [--layout split|colocated|public-private|custom]
+ngin package search [query] [--workspace NGIN.ngin] [--format json]
 ngin add package <Name> [--exact V|--version V|version interval flags]
                         [--export Kind:Name] [--option Name=Value]
 ngin add project-reference <Path>
@@ -65,6 +65,13 @@ ngin editor snapshot
 ngin editor plan --intent <CreateItems|IncludeItems|ExcludeItems|RenameItems|MoveItems|DeleteItems|AddPackage|ChangePackageRequirement|RemovePackage>
                  --item <Kind|Visibility|relative-path>
 ```
+
+The default scaffold layout is `split`. Use `--layout custom --source-root DIR
+--header-root DIR` to choose project-relative roots. `library` is an alias for
+`static`. Add `--format json` to preview the complete relative path-to-content
+map without creating any files. Package search matches workspace package names,
+export names, and provided capabilities case-insensitively. JSON results include
+the version, manifest, typed exports, default selections, and capabilities.
 
 `--version` is a compatibility request. Readable interval flags are
 `--at-least`, `--after`, `--at-most`, and `--before`; they author a structured
@@ -108,7 +115,24 @@ configuration. Add `--format json` for structured provenance.
 
 ## Build and deployment
 
+Native lifecycle commands default to `.ngin/build/<manifest-stem>-<variant>` under
+the workspace root (the project directory for standalone projects). The variant
+includes the project identity and effective configuration, target, toolchain,
+and option values. Equivalent profiles share a directory. Source edits and Run
+selection reuse it. Use `ngin context` to obtain the absolute `outputDirectory`
+as JSON. `--output-root` relocates the variants and `--output` selects an exact
+directory. CMake projects continue to use the configure preset's binary directory.
+
+`ngin doctor` checks prerequisites for the chosen operation without building.
+The JSON report contains `operation`, `ready`, and checks with `id`, `ok`, and
+`message`. A failed check produces a nonzero exit status. Native debug checks
+include launch selection and the host debugger. Pass `--debugger` to select a
+custom GDB or LLDB executable. CMake build checks use the selected preset and
+configured state.
+
 ```text
+ngin context [--output-root <dir> | --output <dir>]
+ngin doctor build|debug [--format json] [--configure-preset NAME] [--debugger PATH]
 ngin configure [--output <dir>]
 ngin build [--output <dir>]
 ngin stage [--output <dir>]

@@ -1070,8 +1070,8 @@
         },
         "ngin.build.outputRoot": {
           "type": "string",
-          "default": ".ngin/build",
-          "description": "Workspace-relative or absolute root for extension-driven build output."
+          "default": "",
+          "description": "Optional build root override. Empty uses the same effective build directory as the CLI."
         },
         "ngin.output.verbosity": {
           "type": "string",

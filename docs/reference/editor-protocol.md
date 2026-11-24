@@ -15,6 +15,22 @@ ngin editor plan --project App.nginproj --configuration Debug \
 Responses are deterministic JSON envelopes. Consumers reject unsupported
 versions rather than guessing at missing fields.
 
+## Manifest navigation and creation
+
+`ngin editor symbols --workspace NGIN.ngin` returns `NGIN.EditorSymbols`,
+protocol version 1. Each entry in `links` contains a `source` and a `definition`
+with an absolute manifest `path` and half-open UTF-8 byte offsets `start` and
+`end`. Editors can group links by definition for Find All References. The
+index covers authored workspace projects and local packages. Save a modified
+manifest to refresh its on-disk ranges.
+
+`ngin new KIND NAME --layout LAYOUT --format json` returns
+`NGIN.ProjectTemplate` with a `files` object mapping relative paths to file
+contents. The editor can check every destination before applying a workspace
+edit. For package authoring, `editor plan --intent AddPackage --package NAME`
+accepts repeatable `--export Kind:Name` selections and returns the exact text
+edits for preview.
+
 ## Product snapshot
 
 `NGIN.EditorProductSnapshot` version 1 contains:

@@ -43,6 +43,22 @@
 
 namespace NGIN::CLI
 {
+    [[nodiscard]] auto FindWorkspace(const fs::path &start, const CliArguments &arguments)
+        -> std::optional<fs::path>
+    {
+        if (arguments.workspacePath) return fs::weakly_canonical(*arguments.workspacePath);
+        auto directory = fs::is_directory(start) ? start : start.parent_path();
+        while (!directory.empty())
+        {
+            const auto candidate = directory / "NGIN.ngin";
+            if (fs::is_regular_file(candidate)) return fs::weakly_canonical(candidate);
+            const auto parent = directory.parent_path();
+            if (parent == directory) break;
+            directory = parent;
+        }
+        return std::nullopt;
+    }
+
     namespace
     {
         [[nodiscard]] auto EditorEventsEnabled() -> bool
@@ -212,16 +228,7 @@ namespace NGIN::CLI
             const auto [attributes, versionChild] = VersionMarkup(arguments);
             std::string children = versionChild;
             for (const auto &selection : arguments.exportSelections)
-            {
-                const auto separator = selection.find(':');
-                if (separator == std::string::npos) throw std::runtime_error("--export expects Kind:Name");
-                const auto kind = selection.substr(0, separator);
-                if (kind != "Library" && kind != "Tool" && kind != "Plugin" && kind != "Generator" &&
-                    kind != "Analyzer" && kind != "Formatter" && kind != "Validator" && kind != "Action" &&
-                    kind != "Asset")
-                    throw std::runtime_error("unknown export kind '" + kind + "'");
-                children += "      <" + kind + " Name=\"" + EscapeXml(selection.substr(separator + 1)) + "\" />\n";
-            }
+                children += "      " + ExportSelectionElement(selection) + "\n";
             for (const auto &assignment : arguments.optionAssignments)
             {
                 const auto separator = assignment.find('=');
@@ -249,22 +256,6 @@ namespace NGIN::CLI
             return errors;
         }
 
-        [[nodiscard]] auto FindWorkspace(const fs::path &start, const CliArguments &arguments)
-            -> std::optional<fs::path>
-        {
-            if (arguments.workspacePath) return fs::weakly_canonical(*arguments.workspacePath);
-            auto directory = fs::is_directory(start) ? start : start.parent_path();
-            while (!directory.empty())
-            {
-                const auto candidate = directory / "NGIN.ngin";
-                if (fs::is_regular_file(candidate)) return fs::weakly_canonical(candidate);
-                const auto parent = directory.parent_path();
-                if (parent == directory) break;
-                directory = parent;
-            }
-            return std::nullopt;
-        }
-
         [[nodiscard]] auto HostTarget() -> Target
         {
             Target result{.name = "host", .aliases = {"native"}};
@@ -289,6 +280,14 @@ namespace NGIN::CLI
             result.architecture = "unknown";
 #endif
             return result;
+        }
+
+        auto CompilerExecutable(const std::string &compiler) -> std::string
+        {
+            if (compiler == "MSVC" || compiler == "msvc") return "cl";
+            if (compiler == "Clang" || compiler == "clang") return "clang++";
+            if (compiler == "GCC" || compiler == "gcc") return "g++";
+            return compiler;
         }
 
         [[nodiscard]] auto DefaultToolchain() -> Toolchain
@@ -414,6 +413,7 @@ namespace NGIN::CLI
             WorkspaceStageCollisionPolicy stageCollision{WorkspaceStageCollisionPolicy::Error};
             bool allowSymlinks{false};
             bool providerLockRequired{false};
+            fs::path outputDirectory{};
             std::optional<std::string> selectedRun{};
             std::vector<GraphProvenance> fileRules{};
             std::vector<LoadedProjectReference> projectReferences{};
@@ -456,7 +456,8 @@ namespace NGIN::CLI
             bool allowNonHermeticProviders = true;
             auto workspaceRoot = projectPath.parent_path();
             bool foundWorkspace = false;
-            if (const auto workspacePath = FindWorkspace(projectPath, arguments))
+            const auto workspacePath = FindWorkspace(projectPath, arguments);
+            if (workspacePath)
             {
                 foundWorkspace = true;
                 const auto workspaceAuthored = ParseAuthoredManifest(*workspacePath);
@@ -683,6 +684,23 @@ namespace NGIN::CLI
             if (command == "explain" && !arguments.positional.empty())
                 loaded.fileRules = ExplainFileRules(*project.value, selection,
                     fs::path{arguments.positional.front()}.lexically_normal().generic_string());
+            CanonicalValue::Object options{};
+            for (const auto &[name, value] : selection.options) options.emplace(name, CanonicalOptionValue(value));
+            const auto compilerOverride = selection.toolchain.compiler == "default" && !selection.toolchain.toolchainFile
+                ? std::getenv("CXX") : nullptr;
+            const auto variant = CanonicalFingerprint("BuildDirectory", {
+                {"environmentCompiler", compilerOverride ? compilerOverride : ""},
+                {"project", projectPath.generic_string()},
+                {"configuration", selection.configuration.name}, {"optimization", selection.configuration.optimization},
+                {"debugSymbols", selection.configuration.debugSymbols}, {"lto", selection.configuration.linkTimeOptimization},
+                {"targetName", selection.target.name}, {"toolchainName", selection.toolchain.name},
+                {"target", CanonicalTargetIdentity(selection.target)}, {"toolchain", CanonicalToolchainIdentity(selection.toolchain)},
+                {"workspace", workspacePath.value_or(fs::path{}).generic_string()},
+                {"options", std::move(options)}});
+            const fs::path outputRoot = arguments.outputRoot ? fs::absolute(*arguments.outputRoot) : workspaceRoot / ".ngin/build";
+            loaded.outputDirectory = arguments.outputPath ? fs::weakly_canonical(*arguments.outputPath)
+                : outputRoot / (projectPath.stem().string() + "-" + variant.substr(7, 20));
+            if (command == "context") return loaded;
             loaded.selectedRun = requested.run;
             std::vector<const PackageProvider *> providerViews{};
             for (const auto &provider : providers) providerViews.push_back(provider.get());
@@ -1039,7 +1057,11 @@ namespace NGIN::CLI
             if (plan.targetKind == "StaticLibrary")
                 artifact = binary / ("lib" + plan.targetName + ".a");
             else if (plan.targetKind == "SharedLibrary")
+#if defined(__APPLE__)
+                artifact = binary / ("lib" + plan.targetName + ".dylib");
+#else
                 artifact = binary / ("lib" + plan.targetName + ".so");
+#endif
             else if (plan.targetKind == "ModuleLibrary")
                 artifact = binary / ("lib" + plan.targetName + ".so");
 #endif
@@ -1052,8 +1074,8 @@ namespace NGIN::CLI
             if (plan.targetKind == "StaticLibrary" || plan.targetKind == "SharedLibrary")
                 return binary / (plan.targetName + ".lib");
 #else
-            if (plan.targetKind == "StaticLibrary") return binary / ("lib" + plan.targetName + ".a");
-            if (plan.targetKind == "SharedLibrary") return binary / ("lib" + plan.targetName + ".so");
+            if (plan.targetKind == "StaticLibrary" || plan.targetKind == "SharedLibrary")
+                return PlannedProductArtifact(plan, binary);
 #endif
             return {};
         }
@@ -1224,11 +1246,7 @@ namespace NGIN::CLI
             auto composition = Resolve(projectPath, arguments, command);
             if (PrintDiagnostics(composition.diagnostics, projectPath) != 0 || !composition.graph)
                 throw std::runtime_error("composition resolution failed");
-            const auto selection = composition.graph->Data().selection.configuration + '-' +
-                                   composition.graph->Data().selection.targetOperatingSystem + '-' +
-                                   composition.graph->Data().selection.compiler;
-            const auto output = arguments.outputPath ? fs::weakly_canonical(*arguments.outputPath)
-                                                     : projectPath.parent_path() / ".ngin/build" / selection;
+            const auto output = composition.outputDirectory;
             bool locked = false;
             const auto lockPath = arguments.lockPath.has_value() ? fs::path{*arguments.lockPath}
                                                                  : projectPath.parent_path() / "ngin.lock";
@@ -1401,14 +1419,7 @@ namespace NGIN::CLI
                 command += " -DCMAKE_TOOLCHAIN_FILE=" + QuoteProcessArgument(*prepared.build.toolchainFile);
             else if (!prepared.build.compiler.empty() && prepared.build.compiler != "default")
             {
-                auto compiler = prepared.build.compiler;
-                if (compiler == "MSVC" || compiler == "msvc")
-                    compiler = "cl";
-                else if (compiler == "Clang" || compiler == "clang")
-                    compiler = "clang++";
-                else if (compiler == "GCC" || compiler == "gcc")
-                    compiler = "g++";
-                command += " -DCMAKE_CXX_COMPILER=" + QuoteProcessArgument(compiler);
+                command += " -DCMAKE_CXX_COMPILER=" + QuoteProcessArgument(CompilerExecutable(prepared.build.compiler));
             }
             if (quietOutput)
                 ExecuteQuietly(command, prepared.output / "diagnostics/configure.log");
@@ -1428,6 +1439,7 @@ namespace NGIN::CLI
         {
             for (auto &child : prepared.projectDependencies) Build(*child, quiet);
             Configure(prepared, quiet);
+            if (prepared.build.targetKind == "InterfaceLibrary") return;
             if (!quiet) EmitEditorEvent("build-start", prepared.build.targetName);
             const auto command = "cmake --build " + QuoteProcessArgument(prepared.binary) + " --target " +
                                  QuoteProcessArgument(prepared.build.targetName);
@@ -1553,7 +1565,12 @@ namespace NGIN::CLI
                 for (++index; index < argc; ++index) result.trailing.emplace_back(argv[index]);
                 break;
             }
-            if (argument == "--launch-plan") result.launchPlan = true;
+            if (argument == "--layout") result.layout = value(index, argument);
+            else if (argument == "--source-root") result.sourceRoot = value(index, argument);
+            else if (argument == "--header-root") result.headerRoot = value(index, argument);
+            else if (argument == "--debugger") result.debugger = value(index, argument);
+            else if (argument == "--output-root") result.outputRoot = value(index, argument);
+            else if (argument == "--launch-plan") result.launchPlan = true;
             else if (argument == "--no-stage") result.noStage = true;
             else if (argument == "--project")
                 result.projectPath = value(index, argument);
@@ -1644,26 +1661,114 @@ namespace NGIN::CLI
         return fs::weakly_canonical(found.front());
     }
 
-    auto NewProject(const fs::path &root, const std::string_view kind, const std::string_view name) -> int
+    auto Doctor(const fs::path &root, const CliArguments &arguments) -> int
     {
-        if (kind != "executable" && kind != "library")
-            throw std::runtime_error("project kind must be executable or library");
-        const auto directory = root / name;
-        if (fs::exists(directory)) throw std::runtime_error(directory.string() + ": already exists");
-        const auto rootElement = kind == "executable" ? "Executable" : "Library";
-        const auto kindAttribute = kind == "library" ? " Kind=\"Static\"" : "";
-        WriteText(directory / (std::string{name} + ".nginproj"),
-                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<" + std::string{rootElement} + " Name=\"" +
-                      EscapeXml(name) + "\"" + kindAttribute + ">\n  <Build>\n    <Source Include=\"src/**/*.cpp\" />\n  </Build>\n</" +
-                      rootElement + ">\n");
-        if (kind == "library")
+        const auto operation = arguments.positional.empty() ? "build" : arguments.positional.front();
+        if (operation != "build" && operation != "debug") throw std::runtime_error("doctor expects build or debug");
+        bool ready = true;
+        CanonicalValue::Array checks{};
+        const auto check = [&](std::string id, bool ok, std::string message) {
+            ready &= ok;
+            if (arguments.format != "json") std::cout << (ok ? "OK   " : "FAIL ") << message << '\n';
+            checks.emplace_back(CanonicalValue::Object{{"id", std::move(id)}, {"ok", ok}, {"message", std::move(message)}});
+        };
+        const auto tool = [&](const std::string &name) {
+            const char *env = std::getenv("PATH");
+            std::istringstream path{env ? env : ""};
+            std::string directory;
+#if defined(_WIN32)
+            const auto executable = fs::path(name).has_extension() ? name : name + ".exe";
+            constexpr char separator = ';';
+#else
+            const auto &executable = name;
+            constexpr char separator = ':';
+#endif
+            while (std::getline(path, directory, separator))
+            {
+                const auto candidate = fs::path(directory) / executable;
+                if (!fs::is_regular_file(candidate)) continue;
+#ifndef _WIN32
+                if (access(candidate.c_str(), X_OK) != 0) continue;
+#endif
+                check("tool", true, name + " found at " + candidate.string());
+                return;
+            }
+            check("tool", false, "Install " + name + " or put it on PATH");
+        };
+        tool("cmake");
+        try
         {
-            WriteText(directory / "include" / (std::string{name} + ".hpp"), "#pragma once\n");
-            WriteText(directory / "src" / (std::string{name} + ".cpp"), "#include \"" + std::string{name} + ".hpp\"\n");
+            const auto path = arguments.projectPath ? fs::weakly_canonical(*arguments.projectPath) : root;
+            if (IsCMakeProject(path) && (arguments.projectPath || !fs::exists(root / "NGIN.ngin")))
+            {
+                const auto snapshot = InspectCMakeProject({.projectRoot = path, .workspaceManifest = arguments.workspacePath,
+                    .configurePreset = arguments.configurePreset, .configuration = arguments.configuration});
+                check("preset", arguments.configurePreset && !snapshot.buildDirectory.empty(), arguments.configurePreset ?
+                    "Configure preset " + *arguments.configurePreset : "Select a CMake configure preset");
+                for (const auto &diagnostic : snapshot.diagnostics) check("cmake", false, diagnostic);
+                if (arguments.configurePreset && !snapshot.configured)
+                    check("configure", false, "Configure the project before building");
+                if (operation == "debug") check("launch", false, "CMake projects have no NGIN launch contract");
+            }
+            else
+            {
+                const auto project = FindProject(root, arguments);
+                const auto composition = Resolve(project, arguments, operation == "debug" ? "run" : "build");
+                for (const auto &d : composition.diagnostics)
+                    check("model", d.severity == ManifestDiagnosticSeverity::Warning, d.code + " " + d.message);
+                if (composition.graph)
+                {
+                    check("model", true, "Resolved " + project.filename().string());
+                    tool("ninja");
+                    const auto &selection = composition.graph->Data().selection;
+                    const auto host = HostTarget();
+                    const bool native = selection.targetArchitecture == host.architecture &&
+                                        selection.targetOperatingSystem == host.operatingSystem;
+                    if (!native && !selection.toolchainFile)
+                        check("toolchain", false, "Select a toolchain file for cross-compilation");
+                    if (selection.toolchainFile)
+                        check("toolchain", fs::is_regular_file(*selection.toolchainFile), "Toolchain file: " + *selection.toolchainFile);
+                    else
+                    {
+                        const auto &compiler = selection.compiler;
+                        const char *environmentCompiler = std::getenv("CXX");
+#ifdef _WIN32
+                        const std::string defaultCompiler = environmentCompiler ? environmentCompiler : "cl";
+#else
+                        const std::string defaultCompiler = environmentCompiler ? environmentCompiler : "c++";
+#endif
+                        tool(compiler == "default" || compiler.empty() ? defaultCompiler : CompilerExecutable(compiler));
+                    }
+                    if (operation == "debug")
+                    {
+#if defined(__APPLE__)
+                        tool(arguments.debugger.value_or("lldb"));
+#elif !defined(_WIN32)
+                        tool(arguments.debugger.value_or("gdb"));
+#endif
+                        const auto &runs = composition.graph->Data().runs;
+                        const bool launch = composition.selectedRun ? std::ranges::find(runs, *composition.selectedRun, &GraphRun::name) != runs.end() :
+                            runs.size() == 1 || std::ranges::any_of(runs, &GraphRun::defaultRun);
+                        check("launch", launch, launch ? "Run selected" : "Select a runnable product and a named Run");
+                        check("host", native,
+                              "Local debugger requires a host-compatible target");
+                    }
+                }
+                else check("model", false, "Could not resolve " + project.string());
+            }
         }
-        else
-            WriteText(directory / "src/main.cpp", "int main() { return 0; }\n");
-        std::cout << "Created " << rootElement << " project at " << directory << '\n';
+        catch (const std::exception &error) { check("model", false, error.what()); }
+        if (arguments.format == "json") std::cout << SerializeCanonical(CanonicalValue::Object{
+            {"operation", operation}, {"ready", ready}, {"checks", std::move(checks)}}) << '\n';
+        return ready ? 0 : 1;
+    }
+
+    auto PrintBuildContext(const fs::path &root, const CliArguments &arguments) -> int
+    {
+        const auto project = FindProject(root, arguments);
+        const auto result = Resolve(project, arguments, "context");
+        if (PrintDiagnostics(result.diagnostics, project) || result.outputDirectory.empty()) return 1;
+        std::cout << SerializeCanonical(CanonicalValue::Object{{"outputDirectory", result.outputDirectory.generic_string()}}) << '\n';
         return 0;
     }
 
@@ -2075,7 +2180,8 @@ namespace NGIN::CLI
                                   .packageName = arguments.packageName,
                                   .version = arguments.exactVersion.has_value() ? arguments.exactVersion
                                                                                 : arguments.version,
-                                  .exactVersion = arguments.exactVersion.has_value()};
+                                  .exactVersion = arguments.exactVersion.has_value(),
+                                  .exports = arguments.exportSelections};
         for (const auto &encoded : arguments.editorItems)
         {
             const auto first = encoded.find('|');

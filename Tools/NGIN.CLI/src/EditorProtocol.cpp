@@ -377,7 +377,11 @@ CrossesNestedBoundary(const std::filesystem::path &projectPath,
     declaration +=
         std::string{request.exactVersion ? " Exact=\"" : " Version=\""} +
         XmlEscape(*request.version) + "\"";
-  return declaration + " />";
+  if (request.exports.empty()) return declaration + " />";
+  declaration += ">";
+  for (const auto &selection : request.exports)
+    declaration += ExportSelectionElement(selection);
+  return declaration + "</Package>";
 }
 
 [[nodiscard]] auto PlanPackageInsertion(const AuthoredProjectManifest &authored,
@@ -393,6 +397,8 @@ CrossesNestedBoundary(const std::filesystem::path &projectPath,
     const auto close = source.rfind("</Uses>", uses->source.end.offset);
     if (close != std::string_view::npos && close >= uses->source.begin.offset) {
       const auto insertion = LineStart(source, close);
+      if (source.substr(insertion, close - insertion).find_first_not_of(" \t") != std::string_view::npos)
+        return {.start = close, .end = close, .text = declaration};
       return {.start = insertion,
               .end = insertion,
               .text = IndentAt(source, close) + "  " + declaration + newline};
@@ -406,7 +412,7 @@ CrossesNestedBoundary(const std::filesystem::path &projectPath,
     const auto indent = IndentAt(source, uses->source.begin.offset);
     return {.start = uses->source.begin.offset,
             .end = tagEnd + 1,
-            .text = indent + "<Uses>" + newline + indent + "  " + declaration +
+            .text = "<Uses>" + newline + indent + "  " + declaration +
                     newline + indent + "</Uses>"};
   }
   const auto rootClose = source.rfind("</" + authored.root.name + ">");
@@ -427,6 +433,8 @@ CrossesNestedBoundary(const std::filesystem::path &projectPath,
                     authored.root.name + ">"};
   }
   const auto insertion = LineStart(source, rootClose);
+  if (source.substr(insertion, rootClose - insertion).find_first_not_of(" \t") != std::string_view::npos)
+    return {.start = rootClose, .end = rootClose, .text = "<Uses>" + declaration + "</Uses>"};
   const auto indent = IndentAt(source, rootClose);
   return {.start = insertion,
           .end = insertion,
@@ -488,6 +496,17 @@ CrossesNestedBoundary(const std::filesystem::path &projectPath,
       {"reason", value.reason}};
 }
 } // namespace
+
+auto ExportSelectionElement(const std::string &selection) -> std::string {
+  const auto separator = selection.find(':');
+  if (separator == std::string::npos || separator + 1 == selection.size())
+    throw std::runtime_error("--export expects Kind:Name");
+  const auto kind = selection.substr(0, separator);
+  if (kind != "Library" && kind != "Tool" && kind != "Plugin" && kind != "Generator" &&
+      kind != "Analyzer" && kind != "Formatter" && kind != "Validator" && kind != "Action" && kind != "Asset")
+    throw std::runtime_error("unknown export kind '" + kind + "'");
+  return "<" + kind + " Name=\"" + XmlEscape(selection.substr(separator + 1)) + "\" />";
+}
 
 auto SerializeEditorProductSnapshot(const std::filesystem::path &projectPath,
                                     const ResolvedCompositionGraph &graph,

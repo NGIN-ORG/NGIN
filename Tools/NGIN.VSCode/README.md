@@ -8,6 +8,22 @@ The extension owns editor interaction and applies reviewed workspace edits. The
 native `ngin` CLI remains authoritative for manifests, effective Build Context,
 file membership, composition, packages, lifecycle plans, and run intent.
 
+## Creating and navigating projects
+
+**Create Project** uses the same templates as `ngin new`. Choose an executable,
+static library, shared library, interface library, or plugin, then choose a
+split, colocated, public/private, or custom directory layout.
+
+**Add Package** searches the workspace by package, export, and provided capability.
+Choose a package for its default exports or select one typed export. Review the
+proposed `<Uses>` edit before applying it. In a saved manifest, **Go to Definition**
+and **Find All References** navigate between local package declarations, exports,
+and project references.
+
+**Check Setup** asks whether you intend to build or debug. It checks the selected
+project and tools and offers actions for a missing CMake preset, pending configure,
+or missing C/C++ debug adapter.
+
 ## Workspace view
 
 The NGIN Activity Bar contains one project-scoped **Workspace** view. Authored
@@ -148,8 +164,8 @@ code --install-extension .\ngin-tools.vsix --force
 ```
 
 When `ngin.executable` is empty, the extension first uses the repository
-development build and then `ngin` on `PATH`. Extension output defaults to
-`.ngin/build/<product>/<Configuration>.<Target>.<Toolchain>`.
+development build and then `ngin` on `PATH`. Build, Run, tasks, and IntelliSense share the directory reported by
+`ngin context`. Set `ngin.build.outputRoot` to place these build variants in another directory.
 
 See the [editor protocol](../../docs/reference/editor-protocol.md),
 [tooling guide](../../docs/guides/tooling.md), and
