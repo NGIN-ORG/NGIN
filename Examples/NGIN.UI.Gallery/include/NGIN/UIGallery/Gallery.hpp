@@ -30,6 +30,7 @@ enum class Page : NGIN::UInt8 {
   Accessibility,
   Diagnostics,
   PropertyEditor,
+  Templates,
 };
 
 enum class Density : NGIN::UInt8 {
@@ -38,16 +39,27 @@ enum class Density : NGIN::UInt8 {
   Spacious,
 };
 
+enum class GalleryAccent { Cobalt, Jade, Mulberry };
+[[nodiscard]] auto AccentColor(GalleryAccent accent, bool light) -> UI::Color;
+
 enum class CollectionTab : NGIN::UInt8 {
   Selection,
   Identity,
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = static_cast<NGIN::UIntSize>(Page::PropertyEditor) + 1;
+inline constexpr NGIN::UIntSize PageCount = static_cast<NGIN::UIntSize>(Page::Templates) + 1;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
+
+struct FieldFeedback {
+  Text::String message;
+  bool invalid{false};
+};
+
+/// Native text configuration shared by the standalone, hosted and headless Gallery.
+[[nodiscard]] auto GalleryTextConfig() -> UI::NativeTextCreateInfo;
 
 class GalleryViewModel final {
 public:
@@ -77,15 +89,17 @@ public:
 
   [[nodiscard]] auto CurrentTheme() const -> UI::Theme;
   [[nodiscard]] auto IsLightTheme() const noexcept -> bool;
+  [[nodiscard]] auto AccentBinding() -> UI::Binding<GalleryAccent> { return UI::Bind(m_accent); }
+  [[nodiscard]] auto GradientBinding() -> UI::Binding<bool> { return UI::Bind(m_gradients); }
   void ToggleTheme();
 
   [[nodiscard]] auto Name() const noexcept -> const Text::String &;
   [[nodiscard]] auto NameBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto PasswordBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto NotesBinding() -> UI::Binding<Text::String>;
-  [[nodiscard]] auto NameValidationMessage() const -> Text::String;
-  [[nodiscard]] auto PasswordValidationMessage() const -> Text::String;
-  [[nodiscard]] auto NotesValidationMessage() const -> Text::String;
+  [[nodiscard]] auto NameFeedback() const -> FieldFeedback;
+  [[nodiscard]] auto PasswordFeedback() const -> FieldFeedback;
+  [[nodiscard]] auto NotesFeedback() const -> FieldFeedback;
   [[nodiscard]] auto ValidationSummary() const -> Text::String;
   [[nodiscard]] auto IsFormValidating() const noexcept -> bool;
   [[nodiscard]] auto IsFormSaving() const noexcept -> bool;
@@ -192,6 +206,7 @@ public:
   void Report(UI::UIError error);
 
 private:
+  [[nodiscard]] auto BuildTheme() const -> UI::Theme;
   [[nodiscard]] auto RunFormSave(NGIN::Async::TaskContext &context)
       -> NGIN::Async::Task<void, UI::CommandError>;
   void Invalidate(
@@ -211,6 +226,9 @@ private:
   NGIN::UInt64 m_navigationFailures{0};
   UI::State<Text::String> m_navigationSearch;
   UI::State<bool> m_lightTheme;
+  UI::State<GalleryAccent> m_accent{GalleryAccent::Cobalt};
+  UI::State<bool> m_gradients{true};
+  UI::ComputedState<UI::Theme> m_currentTheme;
   UI::State<bool> m_compact{false};
   UI::State<bool> m_browserOpen{false};
   UI::State<Text::String> m_name;

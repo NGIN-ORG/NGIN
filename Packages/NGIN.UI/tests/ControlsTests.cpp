@@ -9,6 +9,8 @@
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
+#include <NGIN/UI/Testing/SoftwareRenderBackend.hpp>
+#include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/UI/ViewControls.hpp>
 
 #include <algorithm>
@@ -520,4 +522,71 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
   REQUIRE(application->PumpOnce().has_value());
   REQUIRE(window->Tree().Get(scrollHandle)->scroll.offset.y ==
           window->Tree().Get(scrollHandle)->properties.scroll.wheelStep);
+}
+
+TEST_CASE(
+    "checkbox ink remains a centered vector mark inside a wide hit target") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+  State<CheckState> checked{CheckState::Checked};
+  Theme theme = MakeLightTheme();
+  theme.colors.accent = {0.88F, 0.94F, 0.68F, 1};
+  theme.colors.accentForeground = {0, 0, 0, 1};
+  NodeProperties props{};
+  props.layout.preferredSize = {64, 32};
+  props.layout.horizontalAlignment = HorizontalAlignment::Start;
+  props.layout.verticalAlignment = VerticalAlignment::Start;
+  Composer composer;
+  CheckBox(composer, Bind(checked), {.theme = theme}, props, "wide");
+  ControlTree runtime;
+  runtime.Compose(composer);
+  const auto display = BuildDisplayList(runtime.tree);
+  const auto face =
+      std::find_if(display.begin(), display.end(), [](const auto &cmd) {
+        return std::holds_alternative<FillGradientRect>(cmd);
+      });
+  REQUIRE(face != display.end());
+  const auto &gradient = std::get<FillGradientRect>(*face);
+  CHECK(gradient.rect == Rect{22, 6, 20, 20});
+  CHECK(gradient.gradient.start == theme.colors.accent);
+  CHECK(gradient.gradient.end.red > gradient.gradient.start.red);
+  REQUIRE(std::count_if(display.begin(), display.end(), [](const auto &cmd) {
+            return std::holds_alternative<StrokeLine>(cmd);
+          }) == 2);
+  SoftwareRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}));
+  const auto surface = renderer.CreateSurface({1, 1}, {128, 64});
+  REQUIRE(surface);
+  const auto packet = UIRenderer{}.Build(display, {128, 64}, 2);
+  REQUIRE(renderer.Render(*surface, packet.View()));
+  const auto image = renderer.Snapshot(*surface);
+  REQUIRE(image);
+  // Both diagonals meet at the bottom of the tick. Pixel centers are at 2x DPI.
+  CHECK(image->Pixel(60, 38).red < 20);
+  CHECK(image->Pixel(72, 27).red < 20);
+  CHECK(image->Pixel(56, 24).red > 180);
+  CHECK(image->Pixel(15, 24).red < 40);
+}
+
+TEST_CASE(
+    "slider pointer mapping covers the range between visible thumb centers") {
+  using namespace NGIN::UI;
+  State<NGIN::F32> value{0.5F};
+  NodeProperties props{};
+  props.layout.preferredSize = {120, 28};
+  props.layout.horizontalAlignment = HorizontalAlignment::Start;
+  props.layout.verticalAlignment = VerticalAlignment::Start;
+  Composer composer;
+  Slider(composer, Bind(value), {.minimum = 0, .maximum = 1, .step = .01F}, {},
+         props, "volume");
+  ControlTree runtime;
+  runtime.Compose(composer);
+  static_cast<void>(
+      runtime.Pointer(RoutedPointerEventKind::ButtonPressed, {12, 14}));
+  CHECK(value.Get() == 0);
+  static_cast<void>(runtime.Pointer(RoutedPointerEventKind::Moved, {36, 14}));
+  CHECK(value.Get() == .25F);
+  static_cast<void>(
+      runtime.Pointer(RoutedPointerEventKind::ButtonReleased, {108, 14}));
+  CHECK(value.Get() == 1);
 }

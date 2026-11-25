@@ -130,6 +130,7 @@ private:
   PlatformWindowHandle m_window{};
   F32 m_scaleFactor{1.0F};
   bool m_textInputActive{false};
+  bool m_expectShortcutSpace{false};
   ElementHandle m_focused{};
   std::unordered_map<UInt64, ElementHandle> m_captured{};
   std::unordered_map<UInt64, ElementHandle> m_hovered{};

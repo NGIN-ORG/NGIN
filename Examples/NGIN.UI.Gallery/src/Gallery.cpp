@@ -273,6 +273,7 @@ using namespace Pages;
 
 struct OverviewPage final {};
 struct LayoutPage final {};
+struct TemplatesPage final {};
 struct TypographyPage final {};
 struct TextAreaPage final {};
 struct ImagesPage final {};
@@ -313,7 +314,7 @@ constexpr std::array<GalleryNavigate, PageCount> GalleryPageStarters{
     &StartGalleryPage<MotionPage>,         &StartGalleryPage<OverlaysPage>,
     &StartGalleryPage<WindowsPage>,        &StartGalleryPage<ResourcesPage>,
     &StartGalleryPage<AccessibilityPage>,  &StartGalleryPage<DiagnosticsPage>,
-    &StartGalleryPage<PropertyEditorPage>,
+    &StartGalleryPage<PropertyEditorPage>, &StartGalleryPage<TemplatesPage>,
 };
 
 constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
@@ -332,6 +333,7 @@ constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
     &ReplaceGalleryPage<AccessibilityPage>,
     &ReplaceGalleryPage<DiagnosticsPage>,
     &ReplaceGalleryPage<PropertyEditorPage>,
+    &ReplaceGalleryPage<TemplatesPage>,
 };
 
 [[nodiscard]] auto OutcomeName(const MotionOutcome outcome) noexcept -> const
@@ -366,16 +368,13 @@ constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
 }
 
 [[nodiscard]] auto
-FirstValidationMessage(const std::unique_ptr<ValidationField<String>> &field,
-                       const char *emptyMessage) -> String {
-  if (!field) {
-    return String{emptyMessage};
-  }
-  if (field->IsValidating().Get()) {
-    return String{"Checking..."};
-  }
+DescribeField(const std::unique_ptr<ValidationField<String>> &field,
+              const char *emptyMessage) -> FieldFeedback {
+  if (!field) return {String{emptyMessage}};
+  if (field->IsValidating().Get()) return {String{"Checking..."}};
   const auto &issues = field->Issues().Get();
-  return issues.empty() ? String{emptyMessage} : issues.front().message;
+  return {issues.empty() ? String{emptyMessage} : issues.front().message,
+          !field->IsValid().Get()};
 }
 
 [[nodiscard]] auto SequenceMotion(NGIN::Async::TaskContext &context,
@@ -471,17 +470,19 @@ constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout",     "Typography",    "Text Area",   "Images",
     "Inputs",   "Async Data", "Collections",   "Motion",      "Overlays",
     "Windows",  "Themes",     "Accessibility", "Diagnostics", "Property Editor",
+    "Control templates",
 };
 
 constexpr std::array<std::string_view, PageCount> PageIds{
     "overview", "layout",     "typography",    "text-area",   "images",
     "inputs",   "async-data", "collections",   "motion",      "overlays",
     "windows",  "themes",     "accessibility", "diagnostics", "property-editor",
+    "control-templates",
 };
 
 constexpr std::array<std::string_view, PageCount> PageSearchTerms{
     "sample library home start custom controls status badge progress chart",
-    "responsive layout grid tracks columns wrap flow canvas coordinates",
+    "responsive layout grid tracks columns wrap flow canvas coordinates fixed auto content weighted stretch sizing",
     "fonts type scale unicode arabic greek cyrillic language proofs",
     "text editor project notes multiline selection copy paste",
     "image fitting artwork picture contain cover stretch crop",
@@ -491,10 +492,11 @@ constexpr std::array<std::string_view, PageCount> PageSearchTerms{
     "motion studio animation timing curves easing choreography loops playback keyframes bezier reduced motion",
     "overlays popup track details dismiss",
     "independent window modal dialog desktop",
-    "themes resources palette colors swatches light dark",
+    "themes resources palette colors accent swatches gradient controls light dark cobalt jade mulberry",
     "accessibility narrator screen reader keyboard semantics live announcement",
     "diagnostics frame counters inspector guides navigation text glyph images cache",
     "property editor reflection playback settings mute volume output level",
+    "control templates templated asset browser audio library clip recordings waveform favorites rows tiles selection",
 };
 
 [[nodiscard]] auto ContainsIgnoringCase(const std::string_view text,
@@ -595,6 +597,10 @@ auto RegisterGalleryPages(PageRegistry &registry, GalleryViewModel &model)
           registry, model, Page::Diagnostics, DiagnosticsView);
       !added)
     return added;
+  if (auto added = RegisterGalleryPage<TemplatesPage>(
+          registry, model, Page::Templates, TemplatesView);
+      !added)
+    return added;
   const auto index = static_cast<NGIN::UIntSize>(Page::PropertyEditor);
   return RegisterPropertyEditor(registry,
                                 {.id = std::string{PageIds[index]},
@@ -644,6 +650,8 @@ auto PageName(const Page page) noexcept -> std::string_view {
 
 GalleryViewModel::GalleryViewModel()
     : m_page(Page::Overview), m_navigationSearch(String{}), m_lightTheme(true),
+      m_currentTheme([this] { return BuildTheme(); },
+                     {DependOn(m_lightTheme), DependOn(m_accent), DependOn(m_gradients)}),
       m_name(String{"NGIN"}), m_password(String{"retained"}),
       m_notes(String{"Write your project notes here.\n\n"
                      "Long lines wrap automatically, and the editor scrolls as "
@@ -909,17 +917,17 @@ auto GalleryViewModel::NotesBinding() -> Binding<String> {
   return Bind(m_notes);
 }
 
-auto GalleryViewModel::NameValidationMessage() const -> String {
-  return FirstValidationMessage(m_nameValidation, "Looks good");
+auto GalleryViewModel::NameFeedback() const -> FieldFeedback {
+  return DescribeField(m_nameValidation, "Looks good");
 }
 
-auto GalleryViewModel::PasswordValidationMessage() const -> String {
-  return FirstValidationMessage(m_passwordValidation,
+auto GalleryViewModel::PasswordFeedback() const -> FieldFeedback {
+  return DescribeField(m_passwordValidation,
                                 "Checked when you choose Check form");
 }
 
-auto GalleryViewModel::NotesValidationMessage() const -> String {
-  return FirstValidationMessage(m_notesValidation,
+auto GalleryViewModel::NotesFeedback() const -> FieldFeedback {
+  return DescribeField(m_notesValidation,
                                 "Checked on the first form check");
 }
 

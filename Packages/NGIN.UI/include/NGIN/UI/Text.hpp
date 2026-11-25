@@ -118,12 +118,15 @@ struct ParagraphLayout final {
   UIntSize byteLength{0};
 };
 
-/// @brief Font face, glyph index, and pixel size identifying an atlas entry.
+/// @brief Face, glyph, size and horizontal origin used to rasterize a glyph.
 struct GlyphAtlasRequest final {
   FontFaceHandle fontFace{};
   UInt32 glyphIndex{0};
   F32 fontSize{14.0F};
   F32 scaleFactor{1.0F};
+  /// Fractional horizontal pen position in physical pixels, in [0, 1).
+  /// An atlas may bake this offset into the mask and compensate its bearing.
+  F32 horizontalPixelOffset{0.0F};
 };
 
 /// @brief Keeps one glyph-atlas page alive while its texture is referenced.
@@ -208,6 +211,12 @@ public:
 class IGlyphAtlas {
 public:
   virtual ~IGlyphAtlas() = default;
+
+  /// True when masks encode the horizontal pen phase and their quads should
+  /// move as one pixel-aligned group when the owning label is translated.
+  [[nodiscard]] virtual auto UsesHorizontalPhases() const noexcept -> bool {
+    return false;
+  }
   /// @brief Nonzero revision permits retaining glyph geometry and leases.
   /// Change the revision on device loss or invalidation of leased entries.
   [[nodiscard]] virtual auto AtlasRevision() const noexcept -> UInt64 {

@@ -76,18 +76,26 @@ template <> struct AnimationInterpolator<Point> final {
   }
 };
 
-/// @brief RGBA interpolation supplied by NGIN.UI.
+/// @brief Interpolates premultiplied RGBA and returns a straight-alpha Color.
 template <> struct AnimationInterpolator<Color> final {
   [[nodiscard]] static auto Interpolate(const Color start, const Color end,
                                         const F32 progress) noexcept -> Color {
-    return Color{
-        AnimationInterpolator<F32>::Interpolate(start.red, end.red, progress),
-        AnimationInterpolator<F32>::Interpolate(start.green, end.green,
-                                                progress),
-        AnimationInterpolator<F32>::Interpolate(start.blue, end.blue, progress),
-        AnimationInterpolator<F32>::Interpolate(start.alpha, end.alpha,
-                                                progress),
-    };
+    if (progress == 0.0F)
+      return start;
+    if (progress == 1.0F)
+      return end;
+
+    const auto alpha = std::lerp(start.alpha, end.alpha, progress);
+    if (alpha == 0.0F)
+      return {0, 0, 0, 0};
+
+    // Weight each endpoint by its contribution to visible coverage. This
+    // keeps the hidden RGB of a transparent endpoint out of the fade.
+    const auto weight = start.alpha == end.alpha ? progress
+                                                 : (end.alpha * progress) / alpha;
+    return {std::lerp(start.red, end.red, weight),
+            std::lerp(start.green, end.green, weight),
+            std::lerp(start.blue, end.blue, weight), alpha};
   }
 };
 

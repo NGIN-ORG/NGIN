@@ -1,13 +1,59 @@
 #include <NGIN/UI/SurfaceComposition.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <NGIN/UI/Accent.hpp>
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
+
+TEST_CASE("accent palettes retain readable labels, focus and selected text") {
+  using namespace NGIN::UI;
+  // Verify contrast at the 8-bit precision used by the software renderer.
+  const auto luminance = [](Color color) {
+    const auto channel = [](double level) {
+      const auto encoded = std::round(level * 255) / 255;
+      return encoded <= 0.04045 ? encoded / 12.92
+                                : std::pow((encoded + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(color.red) + 0.7152 * channel(color.green) +
+           0.0722 * channel(color.blue);
+  };
+  const auto contrast = [&](Color a, Color b) {
+    const auto [low, high] = std::minmax({luminance(a), luminance(b)});
+    return (high + 0.05) / (low + 0.05);
+  };
+  for (const auto &neutral : {MakeLightTheme(), Theme{}}) {
+    for (auto accent : {Color{0.15F, 0.25F, 0.8F, 1}, Color{0, 1, 0.4F, 1},
+                        Color{0.96F, 0.92F, 0.71F, 1}, Color{0, 0, 0, 1},
+                        Color{1, 1, 1, 1}, Color{0.46F, 0.46F, 0.46F, 0.5F}}) {
+      auto theme = neutral;
+      ApplyAccent(theme, accent);
+      const auto &c = theme.colors;
+      accent.alpha = 1;
+      CHECK(c.accent == accent);
+      CHECK(c.accent != c.accentHovered);
+      CHECK(c.accentHovered != c.accentPressed);
+      for (auto fill : {c.accent, c.accentHovered, c.accentPressed})
+        CHECK(contrast(fill, c.accentForeground) >= 4.5);
+      for (auto surface :
+           {c.background, c.surface, c.sunkenSurface, c.raisedSurface})
+        CHECK(contrast(c.focus, surface) >= 3);
+      CHECK(c.selection != c.surface);
+      CHECK(contrast(c.focus, c.selection) >= 4.5);
+      CHECK(contrast(c.foreground, c.selection) >= 4.5);
+      CHECK(c.foreground == neutral.colors.foreground);
+      CHECK(c.background == neutral.colors.background);
+      CHECK(c.surface == neutral.colors.surface);
+      CHECK(c.error == neutral.colors.error);
+    }
+  }
+}
 
 TEST_CASE("resource scopes resolve typed values through parent scopes") {
   using namespace NGIN::UI;

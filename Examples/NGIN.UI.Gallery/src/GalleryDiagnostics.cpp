@@ -125,7 +125,7 @@ auto DiagnosticsView(GalleryViewModel &model, const Theme &theme)
           theme,
           model.IsInspectorEnabled() ? "Hide layout guides"
                                      : "Show layout guides",
-          [&model] { model.ToggleInspector(); }, "toggle-inspector", 172));
+          [&model] { model.ToggleInspector(); }, "toggle-inspector", 172, ButtonAppearance::Neutral));
     return PageContentView(
         {PageHeadingView(theme, "Diagnostics",
                          "Inspect a snapshot of the running gallery."),

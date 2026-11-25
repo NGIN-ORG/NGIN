@@ -50,6 +50,7 @@ if(NOT TARGET NGIN::Base::Execution)
 endif()
 
 set(NGIN_UI_SOURCES
+    src/NGIN/UI/Accent.cpp
     src/NGIN/UI/Accessibility.cpp
     src/NGIN/UI/Animation.cpp
     src/NGIN/UI/Application.cpp

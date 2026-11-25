@@ -552,10 +552,6 @@ auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
       const auto measured =
           MeasureText(node, constraints, TextFieldDisplayValue(node));
       if (node.type == ElementType::TextArea) {
-        const auto padding = node.properties.layout.padding;
-        node.scroll.contentSize = Size{
-            node.text.paragraph.size.width + padding.left + padding.right,
-            node.text.paragraph.size.height + padding.top + padding.bottom};
         const auto preferred = node.properties.layout.preferredSize;
         return constraints.Constrain(Size{
             preferred.width > 0.0F ? preferred.width : measured.width,
@@ -686,11 +682,14 @@ void LayoutEngine::ResolveTextGlyphs(RuntimeNode &node) {
   for (const auto &positioned : node.text.paragraph.runs) {
     Point pen{};
     for (const auto &glyph : positioned.run.glyphs) {
+      const auto glyphX = positioned.origin.x + pen.x + glyph.offset.x;
+      const auto pixelX = glyphX * m_scaleFactor;
       auto atlasEntry = properties.glyphAtlas->ResolveGlyph(GlyphAtlasRequest{
           .fontFace = positioned.run.fontFace,
           .glyphIndex = glyph.glyphIndex,
           .fontSize = positioned.fontSize,
           .scaleFactor = m_scaleFactor,
+          .horizontalPixelOffset = pixelX - std::floor(pixelX),
       });
       if (!atlasEntry) {
         ReportTextError(node, atlasEntry.error());
@@ -721,8 +720,7 @@ void LayoutEngine::ResolveTextGlyphs(RuntimeNode &node) {
       node.text.glyphRuns.back().glyphs.push_back(GlyphQuad{
           .destination =
               Rect{
-                  positioned.origin.x + pen.x + glyph.offset.x +
-                      entry.bearing.x,
+                  glyphX + entry.bearing.x,
                   positioned.origin.y + pen.y + glyph.offset.y +
                       entry.bearing.y,
                   entry.size.width,
@@ -1114,43 +1112,42 @@ void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
   ++m_stats.arranged;
   if (node->type == ElementType::TextArea) {
     const auto padding = node->properties.layout.padding;
-    node->scroll.viewportSize = Size{InnerWidth(finalBounds.width, padding),
-                                     InnerHeight(finalBounds.height, padding)};
-    node->scroll.offset.x =
-        std::clamp(node->scroll.offset.x, 0.0F,
-                   std::max(0.0F, node->scroll.contentSize.width -
-                                      node->scroll.viewportSize.width));
-    node->scroll.offset.y =
-        std::clamp(node->scroll.offset.y, 0.0F,
-                   std::max(0.0F, node->scroll.contentSize.height -
-                                      node->scroll.viewportSize.height));
-    if (node->interaction.focused && node->text.hasCaret) {
-      const auto caretLeft = padding.left + node->text.caretRect.x;
-      const auto caretRight =
-          caretLeft + std::max(1.0F, node->text.caretRect.width);
-      const auto caretTop = padding.top + node->text.caretRect.y;
-      const auto caretBottom = caretTop + node->text.caretRect.height;
-      if (caretLeft < node->scroll.offset.x) {
-        node->scroll.offset.x = caretLeft;
-      } else if (caretRight >
-                 node->scroll.offset.x + node->scroll.viewportSize.width) {
-        node->scroll.offset.x = caretRight - node->scroll.viewportSize.width;
-      }
-      if (caretTop < node->scroll.offset.y) {
-        node->scroll.offset.y = caretTop;
-      } else if (caretBottom >
-                 node->scroll.offset.y + node->scroll.viewportSize.height) {
-        node->scroll.offset.y = caretBottom - node->scroll.viewportSize.height;
-      }
-      node->scroll.offset.x =
-          std::clamp(node->scroll.offset.x, 0.0F,
-                     std::max(0.0F, node->scroll.contentSize.width -
-                                        node->scroll.viewportSize.width));
-      node->scroll.offset.y =
-          std::clamp(node->scroll.offset.y, 0.0F,
-                     std::max(0.0F, node->scroll.contentSize.height -
-                                        node->scroll.viewportSize.height));
+    const Size viewport{InnerWidth(finalBounds.width, padding),
+                        InnerHeight(finalBounds.height, padding)};
+    // A row or custom layout can measure with more width than it ultimately
+    // assigns. Shape the editor's visible lines against its actual viewport.
+    if (node->properties.text.wrapping == TextWrapping::Wrap &&
+        finalBounds.width != node->lastConstraints.maximum.width &&
+        node->textField.editing && node->properties.text.layout &&
+        node->properties.text.glyphAtlas) {
+      static_cast<void>(MeasureText(
+          *node, {.maximum = {finalBounds.width, finalBounds.height}},
+          TextFieldDisplayValue(*node)));
     }
+    const bool resized = viewport != node->scroll.viewportSize;
+    node->scroll.viewportSize = viewport;
+    node->scroll.contentSize = node->text.paragraph.size;
+    auto &offset = node->scroll.offset;
+    if (node->interaction.focused && node->text.hasCaret &&
+        (node->textField.revealCaret || resized)) {
+      const auto &caret = node->text.caretRect;
+      const auto right =
+          caret.x + std::max(1.0F, node->properties.textField.caretWidth);
+      offset.x = std::min(caret.x, std::max(offset.x, right - viewport.width));
+      offset.y = std::min(caret.y, std::max(offset.y, caret.y + caret.height -
+                                                          viewport.height));
+    }
+    node->textField.revealCaret = false;
+    // Extents, offsets and caret geometry all use content coordinates. Padding
+    // is applied once when positioning the viewport on screen.
+    const auto maxX =
+        node->properties.scroll.horizontal
+            ? std::max(0.0F, node->scroll.contentSize.width - viewport.width)
+            : 0.0F;
+    offset.x = std::clamp(offset.x, 0.0F, maxX);
+    offset.y = std::clamp(
+        offset.y, 0.0F,
+        std::max(0.0F, node->scroll.contentSize.height - viewport.height));
   } else if (node->type == ElementType::Image && node->image.valid) {
     const auto padding = node->properties.layout.padding;
     node->image.destination = ResolveImageDestination(

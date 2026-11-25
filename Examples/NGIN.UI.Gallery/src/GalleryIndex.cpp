@@ -155,6 +155,22 @@ void ListPrint(PaintContext &paint) {
   }
 }
 
+// The bars echo the waveform previews used by the clip browser's tile template.
+void WaveformPrint(PaintContext &paint) {
+  const auto [width, height] = paint.Extent();
+  constexpr std::array<F32, 30> peaks{
+      .08F, .16F, .34F, .56F, .27F, .47F, .76F, .91F, .40F, .57F,
+      .35F, .21F, .12F, .26F, .43F, .30F, .50F, .69F, .81F, .59F,
+      .39F, .48F, .63F, .35F, .26F, .43F, .28F, .18F, .12F, .06F};
+  const auto step = width * .80F / peaks.size();
+  for (UIntSize i = 0; i < peaks.size(); ++i) {
+    const auto bar = height * .64F * peaks[i];
+    paint.FillRounded({width * .10F + step * i, (height - bar) / 2,
+                       step * .64F, bar}, CornerRadius::Uniform(Dp{1.5F}),
+                      Ink(0x70435D));
+  }
+}
+
 struct Specimen {
   Page page;
   const char *title;
@@ -170,7 +186,9 @@ constexpr Specimen Motion{Page::Motion,
                           Ink(0x2846be),
                           MotionPrint};
 constexpr std::array Samples{
-    Specimen{Page::Layout, "Responsive layout", "Grids and wrapping",
+    Specimen{Page::Templates, "Control templates", "One library, two views",
+             "sample-templates", Ink(0xF1DDE3), WaveformPrint},
+    Specimen{Page::Layout, "Responsive layout", "Sizing, grids and wrapping",
              "sample-layout", Ink(0xf2d7c5), TrackPrint},
     Specimen{Page::Inputs, "Form controls", "Inputs and validation",
              "sample-inputs", Ink(0xdce4fc), ControlPrint},

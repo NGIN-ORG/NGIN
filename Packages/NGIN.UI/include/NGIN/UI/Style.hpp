@@ -5,6 +5,7 @@
 #include <NGIN/UI/Geometry.hpp>
 
 #include <optional>
+#include <variant>
 
 namespace NGIN::UI {
 /// @brief Linear RGBA color with normalized floating-point channels.
@@ -17,6 +18,36 @@ struct Color final {
   [[nodiscard]] constexpr auto
   operator<=>(const Color &) const noexcept = default;
 };
+
+/// @brief Direction between the ends of a gradient in local bounds.
+/// DiagonalDown runs from top left to bottom right, DiagonalUp from bottom
+/// left to top right. Vertical and Horizontal start at the top and left.
+enum class GradientDirection : UInt8 {
+  Vertical,
+  Horizontal,
+  DiagonalDown,
+  DiagonalUp
+};
+
+/// @brief A two-stop linear fill. Endpoints are interpolated in premultiplied
+/// RGBA.
+struct LinearGradient final {
+  Color start{};
+  Color end{};
+  GradientDirection direction{GradientDirection::Vertical};
+  [[nodiscard]] constexpr auto
+  operator<=>(const LinearGradient &) const noexcept = default;
+};
+
+/// @brief A background has one paint source. A state patch replaces it as a
+/// unit.
+using BackgroundBrush = std::variant<Color, LinearGradient>;
+
+[[nodiscard]] constexpr auto operator==(const BackgroundBrush &brush,
+                                        Color solid) noexcept -> bool {
+  const auto *color = std::get_if<Color>(&brush);
+  return color && *color == solid;
+}
 
 /// @brief Interaction and validation states used to select style patches.
 enum class VisualStateFlags : UInt16 {
@@ -52,7 +83,7 @@ HasVisualState(const VisualStateFlags value,
 
 /// @brief Resolved background, border, radius, opacity, and foreground style.
 struct VisualStyle final {
-  std::optional<Color> background{};
+  std::optional<BackgroundBrush> background{};
   std::optional<Color> foreground{};
   std::optional<Color> borderColor{};
   Thickness borderThickness{};
@@ -61,7 +92,7 @@ struct VisualStyle final {
 
 /// @brief Optional per-property overrides applied to a visual style.
 struct VisualStylePatch final {
-  std::optional<Color> background{};
+  std::optional<BackgroundBrush> background{};
   std::optional<Color> foreground{};
   std::optional<Color> borderColor{};
   std::optional<Thickness> borderThickness{};

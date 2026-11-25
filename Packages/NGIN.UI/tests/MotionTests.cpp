@@ -158,8 +158,8 @@ TEST_CASE("motion interpolation and handles are deterministic") {
         Point{10.0F, 20.0F});
   const auto color = Interpolate(Color{0.0F, 0.2F, 0.4F, 0.6F},
                                  Color{1.0F, 0.6F, 0.8F, 1.0F}, 0.5F);
-  CHECK(color.red == 0.5F);
-  CHECK(color.green == Catch::Approx(0.4F));
+  CHECK(color.red == Catch::Approx(0.625F));
+  CHECK(color.green == Catch::Approx(0.45F));
   CHECK(color.alpha == 0.8F);
 
   AnimationHandle handle;
@@ -168,6 +168,20 @@ TEST_CASE("motion interpolation and handles are deterministic") {
   auto moved = std::move(handle);
   moved.Cancel();
   CHECK(target.IsCancelled());
+}
+
+TEST_CASE("transparent hover transitions retain the visible tint on entry, exit and reversal") {
+  using namespace NGIN::UI;
+  const Color idle{0.8F, 0, 0, 0};
+  const Color hover{0.25F, 0.5F, 0.75F, 1};
+  const Color halfway{hover.red, hover.green, hover.blue, 0.5F};
+  CHECK(Interpolate(idle, hover, 0.5F) == halfway);
+  CHECK(Interpolate(hover, idle, 0.5F) == halfway);
+  CHECK(Interpolate(halfway, idle, 0.5F) ==
+        Color{hover.red, hover.green, hover.blue, 0.25F});
+  CHECK(Interpolate(hover, idle, 1.0F) == idle);
+  CHECK(Interpolate(idle, hover, 0.0F) == idle);
+  CHECK(Interpolate(idle, Color{0, 1, 0, 0}, 0.5F).alpha == 0);
 }
 
 TEST_CASE("custom typed properties share scheduling diagnostics and policy") {
@@ -1185,4 +1199,60 @@ TEST_CASE("already canceled motion cannot replace an admitted animation") {
   scheduler.queue.RunUntilIdle();
   REQUIRE(first->IsCompleted());
   REQUIRE(owner.TryJoin());
+}
+
+TEST_CASE("background transitions retarget both gradient stops and settle to a "
+          "solid") {
+  using namespace NGIN::UI;
+  auto platform = std::make_unique<Testing::TestPlatformBackend>();
+  auto *clock = platform.get();
+  auto created = CreateApplication(
+      {.platform = std::move(platform),
+       .renderer = std::make_unique<Testing::RecordingRenderBackend>()});
+  REQUIRE(created);
+  auto application = std::move(*created);
+  auto result =
+      application->CreateWindow({.id = "Gradient", .title = "Gradient"});
+  REQUIRE(result);
+  auto *window = *result;
+  const Color black{0, 0, 0, 1};
+  const Color white{1, 1, 1, 1};
+  BackgroundBrush brush = black;
+  Detail::SurfaceComposition::SetContent(
+      window->ContentSurface(), [&](Composer &composer) {
+        NodeProperties node;
+        node.visual.base.background = brush;
+        node.visual.transition = {
+            .timing =
+                TweenTiming{.duration = 100ms, .curve = EasingCurve::Linear()}};
+        composer.Border([] {}, node, "surface");
+      });
+  REQUIRE(application->PumpOnce());
+  brush =
+      LinearGradient{{1, 0, 0, 1}, {0, 0, 1, 1}, GradientDirection::Horizontal};
+  window->Invalidate(InvalidationKind::Compose);
+  REQUIRE(application->PumpOnce());
+  clock->AdvanceTime(50ms);
+  REQUIRE(application->PumpOnce());
+  auto display = BuildDisplayList(window->Tree());
+  REQUIRE(display.size() == 1);
+  auto gradient = std::get<FillGradientRect>(display.front()).gradient;
+  CHECK(gradient.direction == GradientDirection::Horizontal);
+  CHECK(gradient.start.red == Catch::Approx(0.5F).margin(0.02F));
+  CHECK(gradient.end.blue == Catch::Approx(0.5F).margin(0.02F));
+  brush = white;
+  window->Invalidate(InvalidationKind::Compose);
+  REQUIRE(application->PumpOnce());
+  clock->AdvanceTime(50ms);
+  REQUIRE(application->PumpOnce());
+  display = BuildDisplayList(window->Tree());
+  gradient = std::get<FillGradientRect>(display.front()).gradient;
+  CHECK(gradient.start.red == Catch::Approx(0.75F).margin(0.02F));
+  CHECK(gradient.end.blue == Catch::Approx(0.75F).margin(0.02F));
+  CHECK(gradient.end.red == Catch::Approx(0.5F).margin(0.02F));
+  clock->AdvanceTime(50ms);
+  REQUIRE(application->PumpOnce());
+  display = BuildDisplayList(window->Tree());
+  CHECK(std::get<FillRect>(display.front()).color == white);
+  CHECK_FALSE(window->HasActiveAnimations());
 }

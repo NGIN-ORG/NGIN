@@ -277,16 +277,16 @@ auto ChoreographyStudy(GalleryViewModel &model, const Theme &theme)
                 112),
             ButtonView(
                 theme, "Move together",
-                [&model] { model.StartParallelMotion(); }, "parallel", 150),
+                [&model] { model.StartParallelMotion(); }, "parallel", 150, ButtonAppearance::Neutral),
             ButtonView(
                 theme, "Slow move", [&model] { model.StartCancelableMotion(); },
-                "slow", 122),
+                "slow", 122, ButtonAppearance::Neutral),
             ButtonView(
                 theme, "Retarget orange",
-                [&model] { model.InterruptAsyncMotion(); }, "interrupt", 158),
+                [&model] { model.InterruptAsyncMotion(); }, "interrupt", 158, ButtonAppearance::Neutral),
             ButtonView(
                 theme, "Stop", [&model] { model.CancelAsyncMotion(); },
-                "cancel", 80)},
+                "cancel", 80, ButtonAppearance::Neutral)},
            "playback")});
 }
 
@@ -313,10 +313,10 @@ auto LoopStudy(GalleryViewModel &model, const Theme &theme) -> Views::View {
        ActionRow(
            {ButtonView(
                 theme, "Start loop", [&model] { model.StartMotionRepeat(); },
-                "start-repeat", 112, !running),
+                "start-repeat", 112, ButtonAppearance::Accent, !running),
             ButtonView(
                 theme, "Stop", [&model] { model.CancelMotionRepeat(); },
-                "stop-repeat", 80, running)},
+                "stop-repeat", 80, ButtonAppearance::Neutral, running)},
            "playback")});
 }
 
@@ -416,7 +416,7 @@ auto MotionView(GalleryViewModel &model, const Theme &theme) -> Views::View {
             theme,
             model.MotionPreviewReduced() ? "Restore motion" : "Reduce motion",
             [&model] { model.ToggleMotionPreviewReduced(); }, "reduced-motion",
-            160)};
+            160, ButtonAppearance::Subtle)};
     if (model.IsCompact())
       return Stack(std::move(content), 12).Key("gallery-page-content");
     return PageContentView(std::move(content));

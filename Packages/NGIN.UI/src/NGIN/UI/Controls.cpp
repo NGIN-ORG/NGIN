@@ -8,10 +8,18 @@
 
 namespace NGIN::UI {
 namespace {
-[[nodiscard]] auto ControlSize(const SizeConstraints constraints,
-                               const Size preferred) noexcept -> Size {
-  return constraints.Constrain(preferred);
-}
+// The common control entry points supply a natural size for unspecified axes.
+class SizedControlElement : public ICustomElement {
+public:
+  explicit SizedControlElement(Size preferred) : m_preferred(preferred) {}
+  auto Measure(CustomElementContext &, SizeConstraints constraints)
+      -> UIResult<Size> final {
+    return constraints.Constrain(m_preferred);
+  }
+
+private:
+  Size m_preferred;
+};
 
 [[nodiscard]] auto ErrorResult(const ControlPresentation &presentation,
                                UIError error) -> UIResult<void> {
@@ -42,6 +50,66 @@ struct PressState final {
 [[nodiscard]] auto IsPressed(CustomElementContext &context) noexcept -> bool {
   const auto *state = context.FindState<PressState>("press");
   return state != nullptr && state->pressed;
+}
+
+// Keep the visible indicator centered inside its larger pointer target.
+[[nodiscard]] auto IndicatorBounds(Size available, Size preferred) -> Rect {
+  if (preferred.width <= 0 || preferred.height <= 0)
+    return {};
+  const F32 scale = std::min({1.0F, available.width / preferred.width,
+                              available.height / preferred.height});
+  const Size size{preferred.width * scale, preferred.height * scale};
+  return {(available.width - size.width) / 2,
+          (available.height - size.height) / 2, size.width, size.height};
+}
+
+[[nodiscard]] auto Pill(Rect bounds) -> CornerRadius {
+  return CornerRadius::Uniform(Dp{std::min(bounds.width, bounds.height) / 2});
+}
+
+[[nodiscard]] auto TrackColor(const Theme &theme, CustomInteractionState input,
+                              bool pressed, bool active) -> Color {
+  const auto &c = theme.colors;
+  if (!input.enabled)
+    return c.disabledSurface;
+  if (active)
+    return pressed ? c.accentPressed
+                   : (input.hovered ? c.accentHovered : c.accent);
+  return pressed ? c.sunkenSurface : c.raisedSurface;
+}
+
+[[nodiscard]] auto IndicatorBorder(const ControlPresentation &presentation,
+                                   CustomInteractionState input, bool pressed,
+                                   bool active) -> Color {
+  const auto &c = presentation.theme.colors;
+  if (!input.enabled)
+    return c.disabledForeground;
+  if (presentation.invalid)
+    return c.error;
+  if (pressed || active)
+    return c.accentPressed;
+  return input.hovered ? c.focus : c.mutedForeground;
+}
+
+void FillControl(PaintContext &paint, Rect bounds, CornerRadius corners,
+                 const Theme &theme, Color color, bool accent) {
+  if (accent && theme.gradientControls) {
+    const auto brush = MakeAccentBrush(theme, color);
+    paint.FillGradient(bounds, corners, std::get<LinearGradient>(brush));
+  } else {
+    paint.FillRounded(bounds, corners, color);
+  }
+}
+
+void PaintFocus(PaintContext &paint, Rect face, F32 radius, const Theme &theme,
+                CustomInteractionState input) {
+  if (!input.focused || !input.enabled)
+    return;
+  const F32 gap = theme.controls.focusOffset;
+  paint.StrokeRounded(
+      {face.x - gap, face.y - gap, face.width + 2 * gap, face.height + 2 * gap},
+      CornerRadius::Uniform(Dp{radius + gap}), theme.controls.focusThickness,
+      theme.colors.focus);
 }
 
 template <typename Activate>
@@ -80,64 +148,43 @@ auto RoutePress(CustomElementContext &context, RoutedPointerEvent &event,
   return InvalidationKind::None;
 }
 
-class CheckBoxElement final : public ICustomElement {
+class CheckBoxElement final : public SizedControlElement {
 public:
   CheckBoxElement(Binding<CheckState> value, ControlPresentation presentation,
-                  SemanticProperties semantics)
-      : m_value(std::move(value)), m_presentation(std::move(presentation)),
-        m_semantics(std::move(semantics)) {}
-
-  auto Measure(CustomElementContext &, const SizeConstraints constraints)
-      -> UIResult<Size> override {
-    return ControlSize(constraints, Size{24.0F, 24.0F});
-  }
+                  const NodeProperties &properties)
+      : SizedControlElement(properties.layout.preferredSize),
+        m_value(std::move(value)), m_presentation(std::move(presentation)),
+        m_semantics(properties.semantics) {}
 
   auto Paint(CustomElementContext &context, PaintContext &paint)
       -> UIResult<void> override {
-    const auto &colors = m_presentation.theme.colors;
-    const auto interaction = context.Interaction();
-    auto background = colors.sunkenSurface;
-    auto border = colors.border;
-    if (!interaction.enabled) {
-      background = colors.disabledSurface;
-      border = colors.disabledForeground;
-    } else if (interaction.hovered) {
-      border = colors.focus;
-    }
+    const auto &theme = m_presentation.theme;
+    const auto input = context.Interaction();
     const auto state = m_value.Get();
-    if (state != CheckState::Unchecked) {
-      background = interaction.enabled ? colors.accent : colors.disabledSurface;
-    }
-    if (interaction.enabled && IsPressed(context)) {
-      background = state == CheckState::Unchecked ? colors.raisedSurface
-                                                  : colors.accentPressed;
-    }
-    if (m_presentation.invalid) {
-      border = colors.error;
-    }
-    const auto bounds = paint.Bounds();
-    paint.FillRounded(bounds, CornerRadius::Uniform(Dp{5.0F}), background);
-    paint.StrokeRounded(bounds, CornerRadius::Uniform(Dp{5.0F}), 1.5F, border);
+    const bool active = state != CheckState::Unchecked;
+    const bool pressed = IsPressed(context);
+    const auto face = IndicatorBounds(paint.Extent(), {20, 20});
+    const auto radius = std::min(theme.radii.small, face.width / 2);
+    const auto corners = CornerRadius::Uniform(Dp{radius});
+    FillControl(paint, face, corners, theme,
+                TrackColor(theme, input, pressed, active),
+                active && input.enabled);
+    paint.StrokeRounded(
+        face, corners, theme.controls.borderThickness,
+        IndicatorBorder(m_presentation, input, pressed, active));
+    const auto ink = input.enabled ? theme.colors.accentForeground
+                                   : theme.colors.disabledForeground;
+    const auto point = [&](F32 x, F32 y) -> Point {
+      return {face.x + x * face.width, face.y + y * face.height};
+    };
     if (state == CheckState::Checked) {
-      const auto markColor = interaction.enabled ? colors.accentForeground
-                                                 : colors.disabledForeground;
-      const auto unit = std::max(2.0F, bounds.width / 8.0F);
-      paint.Fill(Rect{unit * 1.5F, unit * 3.5F, unit, unit}, markColor);
-      paint.Fill(Rect{unit * 2.5F, unit * 4.5F, unit, unit}, markColor);
-      paint.Fill(Rect{unit * 3.5F, unit * 3.5F, unit, unit}, markColor);
-      paint.Fill(Rect{unit * 4.5F, unit * 2.5F, unit, unit}, markColor);
-      paint.Fill(Rect{unit * 5.5F, unit * 1.5F, unit, unit}, markColor);
+      const auto joint = point(.42F, .68F);
+      paint.Line(point(.23F, .49F), joint, face.width * .12F, ink);
+      paint.Line(joint, point(.78F, .32F), face.width * .12F, ink);
     } else if (state == CheckState::Indeterminate) {
-      const auto mark = Rect{bounds.width * 0.22F, bounds.height * 0.42F,
-                             bounds.width * 0.56F, bounds.height * 0.16F};
-      paint.FillRounded(mark, CornerRadius::Uniform(Dp{2.0F}),
-                        interaction.enabled ? colors.accentForeground
-                                            : colors.disabledForeground);
+      paint.Line(point(.26F, .50F), point(.74F, .50F), face.width * .13F, ink);
     }
-    if (interaction.focused) {
-      paint.StrokeRounded(bounds, CornerRadius::Uniform(Dp{5.0F}), 2.0F,
-                          colors.focus);
-    }
+    PaintFocus(paint, face, radius, theme, input);
     return {};
   }
 
@@ -212,48 +259,36 @@ private:
   SemanticProperties m_semantics;
 };
 
-class RadioButtonElement final : public ICustomElement {
+class RadioButtonElement final : public SizedControlElement {
 public:
   RadioButtonElement(RadioSelection selection, ControlPresentation presentation,
-                     SemanticProperties semantics)
-      : m_selection(std::move(selection)),
+                     const NodeProperties &properties)
+      : SizedControlElement(properties.layout.preferredSize),
+        m_selection(std::move(selection)),
         m_presentation(std::move(presentation)),
-        m_semantics(std::move(semantics)) {}
-
-  auto Measure(CustomElementContext &, const SizeConstraints constraints)
-      -> UIResult<Size> override {
-    return ControlSize(constraints, Size{24.0F, 24.0F});
-  }
+        m_semantics(properties.semantics) {}
 
   auto Paint(CustomElementContext &context, PaintContext &paint)
       -> UIResult<void> override {
-    const auto &colors = m_presentation.theme.colors;
-    const auto interaction = context.Interaction();
-    const auto bounds = paint.Bounds();
-    const auto radius = CornerRadius::Uniform(Dp{bounds.width * 0.5F});
-    const auto border =
-        m_presentation.invalid
-            ? colors.error
-            : (IsPressed(context)
-                   ? colors.accentPressed
-                   : (interaction.hovered ? colors.focus : colors.border));
-    paint.FillRounded(bounds, radius,
-                      interaction.enabled ? colors.sunkenSurface
-                                          : colors.disabledSurface);
-    paint.StrokeRounded(bounds, radius, 1.5F,
-                        interaction.enabled ? border
-                                            : colors.disabledForeground);
-    if (m_selection.isSelected && m_selection.isSelected()) {
-      const auto inset = bounds.width * 0.27F;
-      paint.FillRounded(Rect{inset, inset, bounds.width - inset * 2.0F,
-                             bounds.height - inset * 2.0F},
-                        CornerRadius::Uniform(Dp{bounds.width * 0.5F}),
-                        interaction.enabled ? colors.accent
-                                            : colors.disabledForeground);
+    const auto &theme = m_presentation.theme;
+    const auto input = context.Interaction();
+    const bool active = m_selection.isSelected && m_selection.isSelected();
+    const bool pressed = IsPressed(context);
+    const auto face = IndicatorBounds(paint.Extent(), {20, 20});
+    FillControl(paint, face, Pill(face), theme,
+                TrackColor(theme, input, pressed, active),
+                active && input.enabled);
+    paint.StrokeRounded(
+        face, Pill(face), theme.controls.borderThickness,
+        IndicatorBorder(m_presentation, input, pressed, active));
+    if (active) {
+      const F32 dot = face.width * 0.44F;
+      const auto mark = IndicatorBounds(paint.Extent(), {dot, dot});
+      paint.FillRounded(mark, Pill(mark),
+                        input.enabled ? theme.colors.accentForeground
+                                      : theme.colors.disabledForeground);
     }
-    if (interaction.focused) {
-      paint.StrokeRounded(bounds, radius, 2.0F, colors.focus);
-    }
+    PaintFocus(paint, face, face.width / 2, theme, input);
     return {};
   }
 
@@ -331,49 +366,37 @@ private:
   SemanticProperties m_semantics;
 };
 
-class ToggleSwitchElement final : public ICustomElement {
+class ToggleSwitchElement final : public SizedControlElement {
 public:
   ToggleSwitchElement(Binding<bool> value, ControlPresentation presentation,
-                      SemanticProperties semantics)
-      : m_value(std::move(value)), m_presentation(std::move(presentation)),
-        m_semantics(std::move(semantics)) {}
-
-  auto Measure(CustomElementContext &, const SizeConstraints constraints)
-      -> UIResult<Size> override {
-    return ControlSize(constraints, Size{46.0F, 26.0F});
-  }
+                      const NodeProperties &properties)
+      : SizedControlElement(properties.layout.preferredSize),
+        m_value(std::move(value)), m_presentation(std::move(presentation)),
+        m_semantics(properties.semantics) {}
 
   auto Paint(CustomElementContext &context, PaintContext &paint)
       -> UIResult<void> override {
-    const auto interaction = context.Interaction();
-    const auto &colors = m_presentation.theme.colors;
-    const auto bounds = paint.Bounds();
-    const auto on = m_value.Get();
-    auto track = on ? colors.accent : colors.sunkenSurface;
-    if (!interaction.enabled) {
-      track = colors.disabledSurface;
-    } else if (IsPressed(context)) {
-      track = on ? colors.accentPressed : colors.raisedSurface;
-    } else if (interaction.hovered && on) {
-      track = colors.accentHovered;
-    }
-    const auto border = m_presentation.invalid ? colors.error : colors.border;
-    paint.FillRounded(bounds, CornerRadius::Uniform(Dp{bounds.height * 0.5F}),
-                      track);
-    paint.StrokeRounded(
-        bounds, CornerRadius::Uniform(Dp{bounds.height * 0.5F}), 1.0F,
-        interaction.enabled ? border : colors.disabledForeground);
-    const auto diameter = std::max(8.0F, bounds.height - 8.0F);
-    const auto x = on ? bounds.width - diameter - 4.0F : 4.0F;
-    paint.FillRounded(Rect{x, 4.0F, diameter, diameter},
-                      CornerRadius::Uniform(Dp{diameter * 0.5F}),
-                      interaction.enabled ? colors.accentForeground
-                                          : colors.disabledForeground);
-    if (interaction.focused) {
-      paint.StrokeRounded(bounds,
-                          CornerRadius::Uniform(Dp{bounds.height * 0.5F}), 2.0F,
-                          colors.focus);
-    }
+    const auto &theme = m_presentation.theme;
+    const auto input = context.Interaction();
+    const bool on = m_value.Get();
+    const bool pressed = IsPressed(context);
+    const auto track = IndicatorBounds(paint.Extent(), {42, 22});
+    FillControl(paint, track, Pill(track), theme,
+                TrackColor(theme, input, pressed, on), on && input.enabled);
+    paint.StrokeRounded(track, Pill(track), theme.controls.borderThickness,
+                        IndicatorBorder(m_presentation, input, pressed, on));
+    const F32 inset = track.height * 0.14F;
+    const F32 diameter = track.height - 2 * inset;
+    // Widen toward the center while pressed and keep the outer edge anchored.
+    const F32 width = diameter + (pressed ? inset : 0);
+    const Rect thumb{on ? track.x + track.width - inset - width
+                        : track.x + inset,
+                     track.y + inset, width, diameter};
+    const auto ink =
+        on ? theme.colors.accentForeground : theme.colors.mutedForeground;
+    paint.FillRounded(thumb, Pill(thumb),
+                      input.enabled ? ink : theme.colors.disabledForeground);
+    PaintFocus(paint, track, track.height / 2, theme, input);
     return {};
   }
 
@@ -444,58 +467,59 @@ struct SliderDragState final {
   bool dragging{false};
 };
 
-class SliderElement final : public ICustomElement {
+[[nodiscard]] auto SliderInset(Size size) -> F32 {
+  return std::min({12.0F, size.width / 2, size.height / 2});
+}
+
+class SliderElement final : public SizedControlElement {
 public:
   SliderElement(Binding<F32> value, SliderRange range,
-                ControlPresentation presentation, SemanticProperties semantics)
-      : m_value(std::move(value)), m_range(range),
+                ControlPresentation presentation,
+                const NodeProperties &properties)
+      : SizedControlElement(properties.layout.preferredSize),
+        m_value(std::move(value)), m_range(range),
         m_presentation(std::move(presentation)),
-        m_semantics(std::move(semantics)) {
+        m_semantics(properties.semantics) {
     if (m_range.maximum < m_range.minimum) {
       std::swap(m_range.minimum, m_range.maximum);
     }
     m_range.step = std::max(0.0001F, std::abs(m_range.step));
   }
 
-  auto Measure(CustomElementContext &, const SizeConstraints constraints)
-      -> UIResult<Size> override {
-    return ControlSize(constraints, Size{220.0F, 28.0F});
-  }
-
   auto Paint(CustomElementContext &context, PaintContext &paint)
       -> UIResult<void> override {
-    const auto interaction = context.Interaction();
-    const auto &colors = m_presentation.theme.colors;
-    const auto bounds = paint.Bounds();
-    const auto centerY = bounds.height * 0.5F;
-    const auto thumbRadius = std::min(9.0F, bounds.height * 0.4F);
-    const auto start = thumbRadius;
-    const auto length = std::max(0.0F, bounds.width - thumbRadius * 2.0F);
+    const auto &theme = m_presentation.theme;
+    const auto &c = theme.colors;
+    const auto input = context.Interaction();
+    const auto size = paint.Extent();
+    const auto inset = SliderInset(size);
+    const auto length = size.width - 2 * inset;
+    const auto centerY = size.height / 2;
+    const auto thickness = std::min(5.0F, size.height);
+    const Rect track{inset, centerY - thickness / 2, length, thickness};
+    paint.FillRounded(track, Pill(track),
+                      input.enabled ? c.border : c.disabledSurface);
     const auto fraction = Fraction();
-    paint.FillRounded(Rect{start, centerY - 2.0F, length, 4.0F},
-                      CornerRadius::Uniform(Dp{2.0F}), colors.sunkenSurface);
-    paint.FillRounded(Rect{start, centerY - 2.0F, length * fraction, 4.0F},
-                      CornerRadius::Uniform(Dp{2.0F}),
-                      interaction.enabled ? colors.accent
-                                          : colors.disabledForeground);
-    const auto thumb =
-        Rect{start + length * fraction - thumbRadius, centerY - thumbRadius,
-             thumbRadius * 2.0F, thumbRadius * 2.0F};
+    const Rect level{track.x, track.y, length * fraction, thickness};
+    FillControl(paint, level, Pill(level), theme,
+                input.enabled ? c.accent : c.disabledForeground, input.enabled);
     const auto *drag = context.FindState<SliderDragState>("drag");
-    const auto dragging = drag != nullptr && drag->dragging;
-    paint.FillRounded(thumb, CornerRadius::Uniform(Dp{thumbRadius}),
-                      interaction.enabled
-                          ? (dragging
-                                 ? colors.accentPressed
-                                 : (interaction.hovered ? colors.accentHovered
-                                                        : colors.accent))
-                          : colors.disabledSurface);
-    paint.StrokeRounded(thumb, CornerRadius::Uniform(Dp{thumbRadius}), 1.0F,
-                        m_presentation.invalid ? colors.error : colors.border);
-    if (interaction.focused) {
-      paint.StrokeRounded(thumb, CornerRadius::Uniform(Dp{thumbRadius}), 2.0F,
-                          colors.focus);
-    }
+    const bool pressed = drag && drag->dragging;
+    const auto radius = inset * (input.hovered || pressed ? 0.78F : 0.70F);
+    const auto centerX = inset + length * fraction;
+    const Rect thumb{centerX - radius, centerY - radius, radius * 2,
+                     radius * 2};
+    const auto face = TrackColor(theme, input, pressed, true);
+    FillControl(paint, thumb, Pill(thumb), theme, face, input.enabled);
+    paint.StrokeRounded(thumb, Pill(thumb), theme.controls.borderThickness,
+                        IndicatorBorder(m_presentation, input, pressed, true));
+    const auto coreRadius = radius * .45F;
+    const Rect core{centerX - coreRadius, centerY - coreRadius, coreRadius * 2,
+                    coreRadius * 2};
+    paint.FillRounded(core, Pill(core),
+                      input.enabled ? c.accentForeground
+                                    : c.disabledForeground);
+    PaintFocus(paint, thumb, radius, theme, input);
     return {};
   }
 
@@ -628,9 +652,14 @@ private:
   auto SetFromPoint(const CustomElementContext &context, const Point point)
       -> UIResult<void> {
     const auto local = context.ToLocal(point);
-    const auto width = std::max(1.0F, context.ArrangedSize().width);
-    return SetValue(m_range.minimum + std::clamp(local.x / width, 0.0F, 1.0F) *
-                                          (m_range.maximum - m_range.minimum));
+    const auto size = context.ArrangedSize();
+    const auto inset = SliderInset(size);
+    const auto length = size.width - 2 * inset;
+    if (length <= 0)
+      return {};
+    const auto fraction = std::clamp((local.x - inset) / length, 0.0F, 1.0F);
+    return SetValue(m_range.minimum +
+                    fraction * (m_range.maximum - m_range.minimum));
   }
 
   auto SetValue(F32 value) -> UIResult<void> {
@@ -651,47 +680,41 @@ private:
   SemanticProperties m_semantics;
 };
 
-class ProgressBarElement final : public ICustomElement {
+class ProgressBarElement final : public SizedControlElement {
 public:
   ProgressBarElement(ProgressValue value, ControlPresentation presentation,
-                     SemanticProperties semantics)
-      : m_value(value), m_presentation(std::move(presentation)),
-        m_semantics(std::move(semantics)) {}
-
-  auto Measure(CustomElementContext &, const SizeConstraints constraints)
-      -> UIResult<Size> override {
-    return ControlSize(constraints, Size{220.0F, 12.0F});
-  }
+                     const NodeProperties &properties)
+      : SizedControlElement(properties.layout.preferredSize), m_value(value),
+        m_presentation(std::move(presentation)),
+        m_semantics(properties.semantics) {}
 
   auto Paint(CustomElementContext &context, PaintContext &paint)
       -> UIResult<void> override {
-    const auto interaction = context.Interaction();
-    const auto &colors = m_presentation.theme.colors;
-    const auto bounds = paint.Bounds();
-    const auto radius = CornerRadius::Uniform(Dp{bounds.height * 0.5F});
-    paint.FillRounded(bounds, radius,
-                      interaction.enabled ? colors.sunkenSurface
-                                          : colors.disabledSurface);
-    const auto foreground =
-        interaction.enabled ? colors.accent : colors.disabledForeground;
+    const auto &theme = m_presentation.theme;
+    const auto &colors = theme.colors;
+    const bool enabled = context.Interaction().enabled;
+    const auto track = paint.Bounds();
+    paint.FillRounded(track, Pill(track),
+                      enabled ? colors.border : colors.disabledSurface);
+    F32 start = 0;
+    F32 end = track.width * std::clamp(context.MotionValue(), 0.0F, 1.0F);
     if (m_value.indeterminate) {
-      const auto chunkWidth = bounds.width * 0.28F;
+      const auto chunk = track.width * .28F;
       const auto phase = context.IsMotionActive()
                              ? std::clamp(context.MotionValue(), 0.0F, 1.0F)
-                             : 0.5F;
-      paint.FillRounded(Rect{-chunkWidth + (bounds.width + chunkWidth) * phase,
-                             0.0F, chunkWidth, bounds.height},
-                        radius, foreground);
-    } else {
-      paint.FillRounded(
-          Rect{0.0F, 0.0F,
-               bounds.width * std::clamp(context.MotionValue(), 0.0F, 1.0F),
-               bounds.height},
-          radius, foreground);
+                             : .5F;
+      start = -chunk + (track.width + chunk) * phase;
+      end = std::min(track.width, start + chunk);
+      start = std::max(0.0F, start);
     }
-    if (m_presentation.invalid) {
-      paint.StrokeRounded(bounds, radius, 1.0F, colors.error);
+    if (end > start) {
+      const Rect value{start, 0, end - start, track.height};
+      FillControl(paint, value, Pill(value), theme,
+                  enabled ? colors.accent : colors.disabledForeground, enabled);
     }
+    if (m_presentation.invalid)
+      paint.StrokeRounded(track, Pill(track), theme.controls.borderThickness,
+                          colors.error);
     return {};
   }
 
@@ -745,8 +768,8 @@ void CheckBox(Composer &composer, Binding<CheckState> value,
               const ControlPresentation &presentation,
               const NodeProperties &properties, const std::string_view key) {
   auto control = PrepareProperties(properties, Size{24.0F, 24.0F}, true);
-  composer.Custom(std::make_shared<CheckBoxElement>(
-                      std::move(value), presentation, control.semantics),
+  composer.Custom(std::make_shared<CheckBoxElement>(std::move(value),
+                                                    presentation, control),
                   control, key);
 }
 
@@ -754,8 +777,8 @@ void RadioButton(Composer &composer, RadioSelection selection,
                  const ControlPresentation &presentation,
                  const NodeProperties &properties, const std::string_view key) {
   auto control = PrepareProperties(properties, Size{24.0F, 24.0F}, true);
-  composer.Custom(std::make_shared<RadioButtonElement>(
-                      std::move(selection), presentation, control.semantics),
+  composer.Custom(std::make_shared<RadioButtonElement>(std::move(selection),
+                                                       presentation, control),
                   control, key);
 }
 
@@ -764,8 +787,8 @@ void ToggleSwitch(Composer &composer, Binding<bool> value,
                   const NodeProperties &properties,
                   const std::string_view key) {
   auto control = PrepareProperties(properties, Size{46.0F, 26.0F}, true);
-  composer.Custom(std::make_shared<ToggleSwitchElement>(
-                      std::move(value), presentation, control.semantics),
+  composer.Custom(std::make_shared<ToggleSwitchElement>(std::move(value),
+                                                        presentation, control),
                   control, key);
 }
 
@@ -773,8 +796,8 @@ void Slider(Composer &composer, Binding<F32> value, const SliderRange range,
             const ControlPresentation &presentation,
             const NodeProperties &properties, const std::string_view key) {
   auto control = PrepareProperties(properties, Size{220.0F, 28.0F}, true);
-  composer.Custom(std::make_shared<SliderElement>(
-                      std::move(value), range, presentation, control.semantics),
+  composer.Custom(std::make_shared<SliderElement>(std::move(value), range,
+                                                  presentation, control),
                   control, key);
 }
 
@@ -813,9 +836,9 @@ void ProgressBar(Composer &composer, const ProgressValue value,
           });
     }
   }
-  composer.Custom(std::make_shared<ProgressBarElement>(value, presentation,
-                                                       control.semantics),
-                  control, key);
+  composer.Custom(
+      std::make_shared<ProgressBarElement>(value, presentation, control),
+      control, key);
 }
 
 void Label(Composer &composer, NGIN::Text::String value, ITextLayout &layout,

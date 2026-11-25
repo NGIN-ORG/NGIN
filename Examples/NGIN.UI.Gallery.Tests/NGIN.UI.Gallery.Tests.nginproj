@@ -9,5 +9,9 @@
   <Build>
     <Source Include="src/**/*.cpp" />
   </Build>
+  <Stage>
+    <File From="../NGIN.UI.Gallery/assets/fonts/Inter/Inter-Variable.ttf" To="fonts/Gallery/Inter-Variable.ttf" />
+    <File From="../NGIN.UI.Gallery/assets/fonts/Inter/OFL.txt" To="licenses/NGIN.UI.Gallery/Inter-OFL.txt" />
+  </Stage>
   <Test Timeout="60" />
 </Executable>

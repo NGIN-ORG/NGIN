@@ -199,3 +199,19 @@ implement a custom status badge, segmented progress ring, and interactive bar
 chart. Their source demonstrates composite text, bounded paint, pointer-local
 coordinates, retained selection, semantics, and narrow invalidation without
 changing a platform or renderer backend.
+
+## Templating a compound control
+
+The Gallery’s **Control templates** page builds a recording browser from three
+callables. One creates the contents of each selectable item, another arranges
+those items, and the third builds the selected recording’s details. The
+browser owns selection and keys each item by its recording ID. Switching
+from wrapping cards to full-width file rows keeps the same recording selected.
+[Recording browser source](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/src/GalleryTemplates.cpp)
+
+The **Property editor** uses a field template for each reflected property.
+The inspector places a label beside its editor. The mixer groups each field’s
+reading and control into a module that wraps with the available width. Both
+templates write to the same reflected object, so changing mute or volume in
+either view updates the output meter.
+[Property editor source](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/src/GalleryPropertyEditor.cpp)

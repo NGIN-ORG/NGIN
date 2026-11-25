@@ -17,6 +17,8 @@
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_MULTIPLE_MASTERS_H
+#include FT_OUTLINE_H
 #include <hb-ft.h>
 #include <hb.h>
 #endif
@@ -38,8 +40,8 @@ namespace {
 [[nodiscard]] auto NativeTextError(const UIErrorCode code, const char *message,
                                    const char *operation,
                                    const Int32 nativeCode = 0) -> UIError {
-  return MakeUIError(code, message, "FreeType/HarfBuzz", operation, "Noto Sans",
-                     nativeCode);
+  return MakeUIError(code, message, "FreeType/HarfBuzz", operation,
+                     "NativeTextSystem", nativeCode);
 }
 
 #if !defined(NGIN_UI_HAS_NATIVE_TEXT)
@@ -276,13 +278,37 @@ struct NativeTextSystem::Impl final {
     hb_font_t *font{nullptr};
     NGIN::Text::String path{};
     bool fallback{false};
+    std::vector<FT_Fixed> coordinates{};
+    UIntSize weightAxis{0};
+    UInt16 defaultWeight{400};
+    UInt16 minimumWeight{400};
+    UInt16 maximumWeight{400};
+    UInt16 activeWeight{400};
+    UInt32 activeSize26Dot6{0};
     std::unordered_set<UInt32> resolvedCodePoints{};
   };
+
+  // A handle identifies a specific source and weight. Shaping and the glyph
+  // atlas share this identity, while all weights share the same FreeType face.
+  struct Instance final {
+    UInt32 source;
+    UInt16 weight;
+  };
+
+  // FreeType sizes are 26.6 fixed-point at 72 DPI (one point per pixel).
+  // Keep the fractional part for shaping as well as for rasterization at
+  // fractional display scales. FreeType's ppem fields are 16-bit.
+  static auto Size26Dot6(double pixels) noexcept -> UInt32 {
+    if (!std::isfinite(pixels) || pixels <= 0 || pixels > 65535)
+      return 0;
+    return static_cast<UInt32>(std::max(64.0, std::round(pixels * 64.0)));
+  }
 
   struct GlyphKey final {
     UInt32 face{0};
     UInt32 glyph{0};
-    UInt32 pixelSize{0};
+    UInt32 size26Dot6{0};
+    UInt8 phase{0};
 
     [[nodiscard]] auto operator==(const GlyphKey &) const noexcept
         -> bool = default;
@@ -291,14 +317,17 @@ struct NativeTextSystem::Impl final {
   struct GlyphKeyHash final {
     [[nodiscard]] auto operator()(const GlyphKey &key) const noexcept
         -> std::size_t {
-      return (static_cast<std::size_t>(key.face) << 48U) ^
-             (static_cast<std::size_t>(key.glyph) << 16U) ^
-             static_cast<std::size_t>(key.pixelSize);
+      std::size_t hash = key.face;
+      hash = hash * 31U + key.glyph;
+      hash = hash * 31U + key.size26Dot6;
+      return hash * 4U + key.phase;
     }
   };
 
   struct GlyphRecord final {
-    GlyphAtlasEntry entry{};
+    // Bitmap size and bearing stay in physical pixels in the cache. Two
+    // requests can use the same bitmap at different logical scales.
+    GlyphAtlasEntry pixels{};
     UInt32 pageIndex{0};
     UInt64 pixelArea{0};
     std::weak_ptr<const GlyphAtlasLease> lease{};
@@ -317,6 +346,7 @@ struct NativeTextSystem::Impl final {
   IRenderBackend *renderer{nullptr};
   FT_Library library{nullptr};
   std::vector<Face> faces{};
+  std::vector<Instance> instances{};
   PixelSize atlasSize{};
   UInt32 maximumAtlasPages{4};
   UInt64 useClock{0};
@@ -497,29 +527,91 @@ struct NativeTextSystem::Impl final {
     }
   }
 
+  void ReadWeightAxis(Face &face) {
+    FT_MM_Var *axes = nullptr;
+    if (!FT_HAS_MULTIPLE_MASTERS(face.value) ||
+        FT_Get_MM_Var(face.value, &axes))
+      return;
+    struct AxisData final {
+      FT_Library library;
+      FT_MM_Var *value;
+      ~AxisData() { FT_Done_MM_Var(library, value); }
+    } guard{library, axes};
+    for (FT_UInt i = 0; i < axes->num_axis; ++i) {
+      const auto &axis = axes->axis[i];
+      if (axis.tag != FT_MAKE_TAG('w', 'g', 'h', 't'))
+        continue;
+      face.weightAxis = i;
+      const auto weight = [](FT_Fixed value) {
+        return static_cast<UInt16>(std::clamp(
+            std::lround(static_cast<double>(value) / 65536.0), 1L, 1000L));
+      };
+      face.minimumWeight = weight(axis.minimum);
+      face.maximumWeight = weight(axis.maximum);
+      face.activeWeight = face.defaultWeight = weight(axis.def);
+      face.coordinates.reserve(axes->num_axis);
+      for (FT_UInt j = 0; j < axes->num_axis; ++j)
+        face.coordinates.push_back(axes->axis[j].def);
+      break;
+    }
+  }
+
+  [[nodiscard]] auto InstanceFor(UInt32 source, UInt16 weight)
+      -> FontFaceHandle {
+    const auto &face = faces[source];
+    weight = std::clamp(weight, face.minimumWeight, face.maximumWeight);
+    if (weight == face.defaultWeight)
+      return {source, 1};
+    for (auto i = faces.size(); i < instances.size(); ++i)
+      if (instances[i].source == source && instances[i].weight == weight)
+        return {static_cast<UInt32>(i), 1};
+    instances.push_back({source, weight});
+    return {static_cast<UInt32>(instances.size() - 1), 1};
+  }
+
   [[nodiscard]] auto FaceFor(const FontFaceHandle handle) noexcept -> Face * {
-    return handle.generation == 1 && handle.index < faces.size()
-               ? &faces[handle.index]
+    return handle.generation == 1 && handle.index < instances.size()
+               ? &faces[instances[handle.index].source]
                : nullptr;
   }
 
-  [[nodiscard]] auto SetPixelSize(Face &face, const UInt32 size,
-                                  const char *operation) -> UIResult<void> {
-    const auto error = FT_Set_Pixel_Sizes(face.value, 0, std::max(1U, size));
+  [[nodiscard]] auto SetFaceSize(Face &face, UInt16 weight,
+                                 const UInt32 size26Dot6, const char *operation)
+      -> UIResult<void> {
+    if (weight != face.activeWeight) {
+      face.coordinates[face.weightAxis] =
+          static_cast<FT_Fixed>(weight) * 65536L;
+      const auto result = FT_Set_Var_Design_Coordinates(
+          face.value, static_cast<FT_UInt>(face.coordinates.size()),
+          face.coordinates.data());
+      if (result)
+        return std::unexpected(
+            NativeTextError(UIErrorCode::TextShapingFailed,
+                            "FreeType could not set the requested font weight",
+                            operation, result));
+      face.activeWeight = weight;
+      face.activeSize26Dot6 = 0;
+    }
+    if (size26Dot6 == 0)
+      return std::unexpected(NativeTextError(
+          UIErrorCode::InvalidArgument,
+          "The requested pixel size is outside FreeType's range", operation));
+    if (face.activeSize26Dot6 == size26Dot6)
+      return {};
+    const auto error = FT_Set_Char_Size(face.value, 0, size26Dot6, 72, 72);
     if (error != 0) {
       return std::unexpected(NativeTextError(
           UIErrorCode::TextShapingFailed,
           "FreeType could not set the requested font size", operation, error));
     }
     hb_ft_font_changed(face.font);
+    face.activeSize26Dot6 = size26Dot6;
     return {};
   }
 
-  [[nodiscard]] auto MetricsForSize(Face &face, const F32 size)
+  [[nodiscard]] auto MetricsForSize(Face &face, UInt16 weight, const F32 size)
       -> UIResult<FontMetrics> {
-    auto sized = SetPixelSize(
-        face, static_cast<UInt32>(std::max(1.0F, std::round(size))),
-        "FontMetrics");
+    auto sized = SetFaceSize(face, weight, Size26Dot6(size), "FontMetrics");
     if (!sized) {
       return std::unexpected(sized.error());
     }
@@ -578,7 +670,8 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     const auto loadFace =
         [&implementation](const NGIN::Text::String &path,
                           const bool fallback) -> UIResult<void> {
-      Impl::Face face{};
+      implementation->faces.emplace_back();
+      auto &face = implementation->faces.back();
       const auto loadError =
           FT_New_Face(implementation->library, path.CStr(), 0, &face.value);
       if (loadError != 0) {
@@ -589,14 +682,16 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
       }
       face.font = hb_ft_font_create_referenced(face.value);
       if (face.font == nullptr) {
-        static_cast<void>(FT_Done_Face(face.value));
         return std::unexpected(NativeTextError(UIErrorCode::OutOfMemory,
                                                "HarfBuzz font creation failed",
                                                "CreateTextSystem"));
       }
       face.path = path;
       face.fallback = fallback;
-      implementation->faces.push_back(std::move(face));
+      implementation->ReadWeightAxis(face);
+      implementation->instances.push_back(
+          {static_cast<UInt32>(implementation->faces.size() - 1),
+           face.defaultWeight});
       return {};
     };
 
@@ -631,6 +726,7 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     }
     if (info.includeBundledFallbacks) {
       constexpr std::array bundledFallbacks{
+          std::pair{"NotoSans-Variable.ttf", NGIN_UI_BUNDLED_FONT_PATH},
           std::pair{"NotoSansArabic-Variable.ttf",
                     NGIN_UI_BUNDLED_ARABIC_FONT_PATH},
           std::pair{"NotoSansSymbols2-Regular.ttf",
@@ -664,15 +760,20 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
 auto NativeTextSystem::ResolveFont(const FontRequest &request) noexcept
     -> UIResult<FontFaceHandle> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
-  for (const auto &family : request.families) {
-    for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
-      const auto *name = m_impl->faces[index].value->family_name;
-      if (name != nullptr && family.View() == std::string_view{name}) {
-        return FontFaceHandle{index, 1};
+  try {
+    for (const auto &family : request.families) {
+      for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
+        const auto *name = m_impl->faces[index].value->family_name;
+        if (name != nullptr && family.View() == std::string_view{name})
+          return m_impl->InstanceFor(index, request.weight);
       }
     }
+    return m_impl->InstanceFor(0, request.weight);
+  } catch (...) {
+    return std::unexpected(NativeTextError(
+        UIErrorCode::OutOfMemory, "Unable to cache the requested font instance",
+        "ResolveFont"));
   }
-  return FontFaceHandle{0, 1};
 #else
   static_cast<void>(request);
   return std::unexpected(Unavailable("ResolveFont"));
@@ -689,7 +790,8 @@ auto NativeTextSystem::Metrics(const FontFaceHandle face,
         UIErrorCode::InvalidArgument,
         "A live font face and positive size are required", "FontMetrics"));
   }
-  return m_impl->MetricsForSize(*resolved, fontSize);
+  return m_impl->MetricsForSize(*resolved, m_impl->instances[face.index].weight,
+                                fontSize);
 #else
   static_cast<void>(face);
   static_cast<void>(fontSize);
@@ -722,7 +824,8 @@ auto NativeTextSystem::Shape(const TextRun &run,
     if (!graphemes) {
       return std::unexpected(graphemes.error());
     }
-    auto metrics = m_impl->MetricsForSize(*resolved, run.fontSize);
+    auto metrics = m_impl->MetricsForSize(
+        *resolved, m_impl->instances[face.index].weight, run.fontSize);
     if (!metrics) {
       return std::unexpected(metrics.error());
     }
@@ -917,9 +1020,11 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
       paragraphByteOffset += sourceRun.text.Size();
     }
 
-    const auto faceForCluster =
-        [this](const NGIN::Text::String &text, const GraphemeCluster &cluster,
-               const FontFaceHandle preferred) -> FontFaceHandle {
+    const auto faceForCluster = [this](const NGIN::Text::String &text,
+                                       const GraphemeCluster &cluster,
+                                       const FontFaceHandle preferred,
+                                       UInt16 weight) -> FontFaceHandle {
+      const auto source = m_impl->instances[preferred.index].source;
       auto decoded =
           DecodeUtf8(text.Substr(cluster.byteOffset, cluster.byteLength));
       if (!decoded) {
@@ -938,27 +1043,26 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         return true;
       };
       const auto recordResolved = [this, &decoded,
-                                   preferred](const UInt32 faceIndex) {
+                                   source](const UInt32 faceIndex) {
         for (const auto &point : decoded.value()) {
           if (IsControl(point.value) || point.value == 0x200DU ||
               point.value == 0xFE0FU) {
             continue;
           }
           m_impl->faces[faceIndex].resolvedCodePoints.insert(point.value);
-          if (faceIndex != preferred.index) {
+          if (faceIndex != source) {
             m_impl->fallbackCodePoints.insert(point.value);
           }
         }
       };
-      if (preferred.index < m_impl->faces.size() &&
-          supports(m_impl->faces[preferred.index])) {
-        recordResolved(preferred.index);
+      if (supports(m_impl->faces[source])) {
+        recordResolved(source);
         return preferred;
       }
       for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
         if (supports(m_impl->faces[index])) {
           recordResolved(index);
-          return FontFaceHandle{index, 1};
+          return m_impl->InstanceFor(index, weight);
         }
       }
       for (const auto &point : decoded.value()) {
@@ -1009,8 +1113,8 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         return {};
       };
       for (const auto &cluster : clusters.value()) {
-        const auto face =
-            faceForCluster(token.text, cluster, preferred.value());
+        const auto face = faceForCluster(token.text, cluster, preferred.value(),
+                                         token.style.font.weight);
         if (spanLength != 0 && face != spanFace) {
           auto flushed = flushSpan();
           if (!flushed) {
@@ -1291,16 +1395,35 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     auto *face = m_impl->FaceFor(request.fontFace);
     if (face == nullptr || !std::isfinite(request.fontSize) ||
         request.fontSize <= 0.0F || !std::isfinite(request.scaleFactor) ||
-        request.scaleFactor <= 0.0F) {
+        request.scaleFactor <= 0.0F ||
+        !(request.horizontalPixelOffset >= 0.0F &&
+          request.horizontalPixelOffset < 1.0F)) {
       return std::unexpected(
           NativeTextError(UIErrorCode::InvalidArgument,
                           "A live face, positive size, and scale are required",
                           "ResolveGlyph"));
     }
-    const auto pixelSize = static_cast<UInt32>(
-        std::max(1.0F, std::round(request.fontSize * request.scaleFactor)));
+    const auto size26Dot6 = Impl::Size26Dot6(
+        static_cast<double>(request.fontSize) * request.scaleFactor);
+    // Bake one of four grayscale coverage phases into the outline. A phase
+    // rounded to four reuses the zero-phase bitmap one pixel farther right.
+    const bool scalable = FT_IS_SCALABLE(face->value);
+    const auto quarters = scalable ? static_cast<UInt8>(std::round(
+                                         request.horizontalPixelOffset * 4.0F))
+                                   : 0;
+    const auto phase = static_cast<UInt8>(quarters % 4);
+    const auto bearingOffset = scalable ? static_cast<F32>(quarters / 4) -
+                                              request.horizontalPixelOffset
+                                        : 0.0F;
+    const auto logicalEntry = [&](GlyphAtlasEntry entry) {
+      entry.size.width /= request.scaleFactor;
+      entry.size.height /= request.scaleFactor;
+      entry.bearing.x = (entry.bearing.x + bearingOffset) / request.scaleFactor;
+      entry.bearing.y /= request.scaleFactor;
+      return entry;
+    };
     const Impl::GlyphKey key{request.fontFace.index, request.glyphIndex,
-                             pixelSize};
+                             size26Dot6, phase};
     if (const auto found = m_impl->glyphs.find(key);
         found != m_impl->glyphs.end()) {
       ++m_impl->diagnostics.hitCount;
@@ -1309,20 +1432,28 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
         lease = std::make_shared<GlyphAtlasLease>();
         found->second.lease = lease;
       }
-      auto entry = found->second.entry;
+      auto entry = logicalEntry(found->second.pixels);
       entry.lease = std::move(lease);
       auto &page = m_impl->pages[found->second.pageIndex];
       page.lastUse = ++m_impl->useClock;
       return entry;
     }
     ++m_impl->diagnostics.missCount;
-    auto sized = m_impl->SetPixelSize(*face, pixelSize, "ResolveGlyph");
+    auto sized = m_impl->SetFaceSize(
+        *face, m_impl->instances[request.fontFace.index].weight, size26Dot6,
+        "ResolveGlyph");
     if (!sized) {
       return std::unexpected(sized.error());
     }
-    auto error =
-        FT_Load_Glyph(face->value, request.glyphIndex, FT_LOAD_DEFAULT);
+    // Light hinting preserves horizontal letterforms while aligning vertical
+    // metrics for grayscale screens. Translate the loaded outline only: the
+    // shared FreeType face is also used by HarfBuzz for shaping.
+    auto error = FT_Load_Glyph(
+        face->value, request.glyphIndex,
+        scalable ? FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_LIGHT : FT_LOAD_DEFAULT);
     if (error == 0) {
+      if (phase && face->value->glyph->format == FT_GLYPH_FORMAT_OUTLINE)
+        FT_Outline_Translate(&face->value->glyph->outline, phase * 16, 0);
       error = FT_Render_Glyph(face->value->glyph, FT_RENDER_MODE_NORMAL);
     }
     if (error != 0) {
@@ -1373,7 +1504,6 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     const auto inverseWidth = 1.0F / static_cast<F32>(m_impl->atlasSize.width);
     const auto inverseHeight =
         1.0F / static_cast<F32>(m_impl->atlasSize.height);
-    const auto inverseScale = 1.0F / request.scaleFactor;
     auto lease = std::make_shared<GlyphAtlasLease>();
     GlyphAtlasEntry entry{
         .texture = page.texture,
@@ -1386,15 +1516,13 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
             },
         .size =
             Size{
-                static_cast<F32>(width) * inverseScale,
-                static_cast<F32>(height) * inverseScale,
+                static_cast<F32>(width),
+                static_cast<F32>(height),
             },
         .bearing =
             Point{
-                static_cast<F32>(face->value->glyph->bitmap_left) *
-                    inverseScale,
-                -static_cast<F32>(face->value->glyph->bitmap_top) *
-                    inverseScale,
+                static_cast<F32>(face->value->glyph->bitmap_left),
+                -static_cast<F32>(face->value->glyph->bitmap_top),
             },
         .lease = lease,
     };
@@ -1407,7 +1535,7 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     auto cachedEntry = entry;
     cachedEntry.lease.reset();
     m_impl->glyphs.emplace(key, Impl::GlyphRecord{
-                                    .entry = std::move(cachedEntry),
+                                    .pixels = std::move(cachedEntry),
                                     .pageIndex = pageIndex.value(),
                                     .pixelArea = static_cast<UInt64>(width) *
                                                  static_cast<UInt64>(height),
@@ -1417,7 +1545,7 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     m_impl->diagnostics.entryCount = m_impl->glyphs.size();
     m_impl->diagnostics.usedPixelArea +=
         static_cast<UInt64>(width) * static_cast<UInt64>(height);
-    return entry;
+    return logicalEntry(entry);
   } catch (...) {
     return std::unexpected(
         NativeTextError(UIErrorCode::OutOfMemory,
@@ -1442,15 +1570,18 @@ auto NativeTextSystem::AtlasDiagnostics() const noexcept
       static_cast<UInt64>(m_impl->pages.size());
   try {
     for (const auto &[key, record] : m_impl->glyphs) {
-      const auto found = std::find_if(
-          diagnostics.pixelSizes.begin(), diagnostics.pixelSizes.end(),
-          [&key](const auto &size) { return size.pixelSize == key.pixelSize; });
+      const auto pixelSize = (key.size26Dot6 + 32U) / 64U;
+      const auto found = std::find_if(diagnostics.pixelSizes.begin(),
+                                      diagnostics.pixelSizes.end(),
+                                      [pixelSize](const auto &size) {
+                                        return size.pixelSize == pixelSize;
+                                      });
       if (found != diagnostics.pixelSizes.end()) {
         ++found->entryCount;
         found->usedPixelArea += record.pixelArea;
       } else {
         diagnostics.pixelSizes.push_back(GlyphAtlasSizeDiagnostics{
-            .pixelSize = key.pixelSize,
+            .pixelSize = pixelSize,
             .entryCount = 1,
             .usedPixelArea = record.pixelArea,
         });

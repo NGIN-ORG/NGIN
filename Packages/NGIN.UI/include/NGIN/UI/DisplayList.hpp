@@ -7,6 +7,7 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 #include <NGIN/UI/Style.hpp>
 
+#include <optional>
 #include <span>
 #include <variant>
 #include <vector>
@@ -44,6 +45,13 @@ struct FillRoundedRect final {
   Color color{};
 };
 
+/// @brief Paints a two-stop gradient over the original unclipped rectangle.
+struct FillGradientRect final {
+  Rect rect{};
+  CornerRadius radius{};
+  LinearGradient gradient{};
+};
+
 /// @brief Display command that outlines an axis-aligned rectangle.
 struct StrokeRect final {
   Rect rect{};
@@ -55,6 +63,14 @@ struct StrokeRect final {
 struct StrokeRoundedRect final {
   Rect rect{};
   CornerRadius radius{};
+  F32 thickness{1.0F};
+  Color color{};
+};
+
+/// @brief Round-capped line segment with a logical thickness.
+struct StrokeLine final {
+  Point from{};
+  Point to{};
   F32 thickness{1.0F};
   Color color{};
 };
@@ -72,6 +88,9 @@ struct DrawGlyphRun final {
   TextureHandle atlas{};
   std::vector<GlyphQuad> glyphs{};
   Color color{};
+  /// When present, the quads are local to this origin. Horizontal translation
+  /// is snapped once for all of the run's pre-positioned coverage masks.
+  std::optional<Point> rasterOrigin{};
 };
 
 /// @brief Display command that begins a composited opacity layer.
@@ -85,8 +104,9 @@ struct EndOpacityLayer final {};
 /// @brief Variant containing every backend-neutral display command.
 using DisplayCommand =
     std::variant<PushClipRect, PopClip, PushTransform, PopTransform, FillRect,
-                 FillRoundedRect, StrokeRect, StrokeRoundedRect, DrawImage,
-                 DrawGlyphRun, BeginOpacityLayer, EndOpacityLayer>;
+                 FillRoundedRect, FillGradientRect, StrokeRect,
+                 StrokeRoundedRect, StrokeLine, DrawImage, DrawGlyphRun,
+                 BeginOpacityLayer, EndOpacityLayer>;
 
 /// @brief Ordered sequence of commands produced during painting.
 using DisplayList = std::vector<DisplayCommand>;
@@ -102,7 +122,9 @@ public:
   auto PopTransform() noexcept -> UIResult<void>;
   void Fill(Rect rect, Color color);
   void FillRounded(Rect rect, CornerRadius radius, Color color);
+  void FillGradient(Rect rect, CornerRadius radius, LinearGradient gradient);
   void Stroke(Rect rect, F32 thickness, Color color);
+  void Line(Point from, Point to, F32 thickness, Color color);
   void StrokeRounded(Rect rect, CornerRadius radius, F32 thickness,
                      Color color);
   void Image(TextureHandle texture, Rect destination,
@@ -110,7 +132,8 @@ public:
   void ImageRegion(TextureHandle texture, Rect destination,
                    Rect textureCoordinates,
                    Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
-  void Glyphs(TextureHandle atlas, std::vector<GlyphQuad> glyphs, Color color);
+  void Glyphs(TextureHandle atlas, std::vector<GlyphQuad> glyphs, Color color,
+              std::optional<Point> rasterOrigin = {});
   void BeginOpacity(F32 opacity);
   auto EndOpacity() noexcept -> UIResult<void>;
 

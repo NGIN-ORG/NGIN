@@ -733,6 +733,7 @@ struct Track final {
 struct MotionState final {
   std::vector<Track> tracks{};
   bool hasBackground{false};
+  std::optional<GradientDirection> gradientDirection{};
   bool hasForeground{false};
   bool hasBorderColor{false};
   bool completionPending{false};
@@ -947,6 +948,56 @@ void SynchronizeAutomatic(MotionState &state,
   }
 }
 
+template <AnimatableValue T>
+[[nodiscard]] auto Read(const MotionState *state,
+                        const AnimationProperty<T> &property) noexcept -> T {
+  auto result = property.DefaultValue();
+  static_cast<void>(CopyMotionValue(state, property.Id(), typeid(T), &result));
+  return result;
+}
+
+// Gradients share the solid background track for their first stop. Only
+// nodes that display a gradient allocate an additional color track.
+const AnimationProperty<Color> GradientEnd =
+    AnimationProperty<Color>::BuiltIn("NGIN.UI.BackgroundGradientEnd", Color{},
+                                      AnimationOutputPolicy::ColorChannels);
+
+void SynchronizeBrush(MotionState &state,
+                      const std::optional<BackgroundBrush> &brush,
+                      const AnimationSpec &transition, MonotonicTime now,
+                      bool reducedMotion, bool &changed) {
+  const auto *gradient = brush ? std::get_if<LinearGradient>(&*brush) : nullptr;
+  std::optional<Color> start{};
+  if (brush)
+    start = gradient ? gradient->start : std::get<Color>(*brush);
+
+  if (gradient || (brush && state.gradientDirection)) {
+    const auto end = gradient ? gradient->end : *start;
+    if (gradient)
+      state.gradientDirection = gradient->direction;
+    // When entering a gradient from a solid, both stops start at the
+    // currently displayed color, including an interrupted transition.
+    auto target = state.hasBackground && !FindTrack(state, GradientEnd.Id())
+                      ? AnimateFrom(Read(&state, MotionProperty::Background),
+                                    end, transition)
+                      : Animate(end, transition);
+    bool ignored = false;
+    Synchronize(
+        state,
+        ViewFor(GradientEnd, target, AnimationDeclarationSource::Automatic),
+        now, reducedMotion, false, ignored, changed);
+  } else {
+    state.gradientDirection.reset();
+  }
+  SynchronizeAutomatic(state, MotionProperty::Background, start, transition,
+                       now, reducedMotion, changed);
+  if (!gradient && state.gradientDirection &&
+      !IsMotionPropertyActive(&state, GradientEnd.Id()) &&
+      !IsMotionPropertyActive(&state, MotionProperty::Background.Id()))
+    state.gradientDirection.reset();
+  state.hasBackground = brush.has_value();
+}
+
 auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
                  const bool reducedMotion,
                  const std::shared_ptr<MotionHostState> &host)
@@ -1006,12 +1057,12 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
     Synchronize(
         state, ViewFor(MotionProperty::Background, *properties.background), now,
         reducedMotion, motionRestored, explicitMotionStarted, result.changed);
+    state.gradientDirection.reset();
     state.hasBackground = true;
   } else {
-    SynchronizeAutomatic(
-        state, MotionProperty::Background, resolvedStyle.background,
-        node.properties.visual.transition, now, reducedMotion, result.changed);
-    state.hasBackground = resolvedStyle.background.has_value();
+    SynchronizeBrush(state, resolvedStyle.background,
+                     node.properties.visual.transition, now, reducedMotion,
+                     result.changed);
   }
   if (properties.foreground) {
     Synchronize(
@@ -1148,13 +1199,6 @@ void CollectSubtreeDiagnostics(const RuntimeTree &tree,
   }
 }
 
-template <AnimatableValue T>
-[[nodiscard]] auto Read(const MotionState *state,
-                        const AnimationProperty<T> &property) noexcept -> T {
-  auto result = property.DefaultValue();
-  static_cast<void>(CopyMotionValue(state, property.Id(), typeid(T), &result));
-  return result;
-}
 } // namespace
 
 auto CreateMotionHost(NGIN::Utilities::Callable<void()> wake)
@@ -1366,6 +1410,14 @@ auto IsAnyMotionPropertyActive(const MotionState *state) noexcept -> bool {
 
 auto SnapshotFor(const RuntimeNode &node) noexcept -> MotionSnapshot {
   const auto *state = node.motion.get();
+  BackgroundBrush background = Read(state, MotionProperty::Background);
+  if (state && state->gradientDirection) {
+    const auto *track = FindTrack(*state, MotionProperty::Background.Id());
+    if (track && track->source == AnimationDeclarationSource::Automatic)
+      background =
+          LinearGradient{std::get<Color>(background), Read(state, GradientEnd),
+                         *state->gradientDirection};
+  }
   return MotionSnapshot{
       .value = Read(state, MotionProperty::Value),
       .opacity = Read(state, MotionProperty::Opacity),
@@ -1374,7 +1426,7 @@ auto SnapshotFor(const RuntimeNode &node) noexcept -> MotionSnapshot {
               .translation = Read(state, MotionProperty::Translation),
               .scale = Read(state, MotionProperty::Scale),
           },
-      .background = Read(state, MotionProperty::Background),
+      .background = background,
       .foreground = Read(state, MotionProperty::Foreground),
       .borderColor = Read(state, MotionProperty::BorderColor),
       .focusOpacity = Read(state, MotionProperty::FocusOpacity),

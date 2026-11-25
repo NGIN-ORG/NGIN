@@ -128,16 +128,16 @@ auto CollectionCard(GalleryViewModel &model, const Theme &theme)
        ButtonView(
            theme, "Remove selected",
            [&model] { model.RemoveSelectedCollectionItem(); }, "remove-item",
-           142.0F),
+           142.0F, ButtonAppearance::Neutral),
        ButtonView(
            theme,
            model.IsCollectionDescending() ? "Sort ascending"
                                           : "Sort descending",
-           [&model] { model.ToggleCollectionSort(); }, "sort-items", 142.0F),
+           [&model] { model.ToggleCollectionSort(); }, "sort-items", 142.0F, ButtonAppearance::Neutral),
        ButtonView(
            theme, model.IsCollectionFiltered() ? "Show all" : "Hide even items",
            [&model] { model.ToggleCollectionFilter(); }, "filter-items",
-           152.0F)},
+           152.0F, ButtonAppearance::Neutral)},
       "collection-actions"));
   NodeProperties list{};
   list.layout.preferredSize.height = 250;

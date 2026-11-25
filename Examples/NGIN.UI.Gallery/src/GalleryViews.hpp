@@ -17,6 +17,7 @@ auto TextView(Text::String value, const F32 fontSize, const UI::Color color,
 auto ButtonView(const UI::Theme &theme, const char *label,
                 NGIN::Utilities::Callable<void()> onActivate,
                 const std::string_view key, const F32 width = 210.0F,
+                UI::ButtonAppearance appearance = UI::ButtonAppearance::Accent,
                 const bool enabled = true, const bool selected = false,
                 UI::ToolTipController *toolTip = nullptr) -> UI::Views::View;
 auto CommandButtonView(const UI::Theme &theme, const char *label,
@@ -33,6 +34,9 @@ auto TextFieldView(GalleryViewModel &model, const UI::Theme &theme,
                    const bool enabled = true, const bool invalid = false,
                    const bool password = false, const F32 width = 430.0F)
     -> UI::Views::View;
+auto NotesEditor(GalleryViewModel &model, const UI::Theme &theme,
+                 const char *label, std::string_view key, F32 height,
+                 bool invalid = false) -> UI::Views::View;
 void StyleScrollView(UI::NodeProperties &properties, const UI::Theme &theme);
 auto PageContentView(std::vector<UI::Views::View> children) -> UI::Views::View;
 auto SampleCard(const UI::Theme &theme, std::vector<UI::Views::View> children,
@@ -41,12 +45,13 @@ auto SampleCard(const UI::Theme &theme, std::vector<UI::Views::View> children,
 
 auto OverviewView(GalleryViewModel &model, const UI::Theme &theme)
     -> UI::Views::View;
-auto LayoutView(const UI::Theme &theme) -> UI::Views::View;
+auto LayoutView(GalleryViewModel &model, const UI::Theme &theme) -> UI::Views::View;
 auto TypographyView(const UI::Theme &theme) -> UI::Views::View;
 auto TextAreaView(GalleryViewModel &model, const UI::Theme &theme)
     -> UI::Views::View;
 auto ImagesView(GalleryViewModel &model, const UI::Theme &theme)
     -> UI::Views::View;
+auto TemplatesView(GalleryViewModel &model, const UI::Theme &theme) -> UI::Views::View;
 auto InputsView(GalleryViewModel &model, const UI::Theme &theme)
     -> UI::Views::View;
 auto AsyncDataView(GalleryViewModel &model, const UI::Theme &theme)

@@ -75,6 +75,16 @@ void PaintContext::FillRounded(const Rect rect, const CornerRadius radius,
   m_builder->FillRounded(rect, radius, color);
 }
 
+void PaintContext::FillGradient(Rect rect, CornerRadius radius,
+                                LinearGradient gradient) {
+  m_builder->FillGradient(rect, radius, gradient);
+}
+
+void PaintContext::Line(const Point from, const Point to, const F32 thickness,
+                        const Color color) {
+  m_builder->Line(from, to, thickness, color);
+}
+
 void PaintContext::Stroke(const Rect rect, const F32 thickness,
                           const Color color) {
   m_builder->Stroke(rect, thickness, color);

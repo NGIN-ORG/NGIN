@@ -8,6 +8,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -54,6 +55,79 @@ auto FindByTypeAndKey(const NGIN::UI::RuntimeTree &tree,
 auto Center(const NGIN::UI::Rect bounds) noexcept -> NGIN::UI::Point {
   return {bounds.x + bounds.width * 0.5F, bounds.y + bounds.height * 0.5F};
 }
+
+auto CheckFormNotes(NGIN::UI::Application &app, NGIN::UI::Window &window,
+                    NGIN::UI::Testing::TestPlatformBackend &platform,
+                    NGIN::UIGallery::GalleryViewModel &model) -> bool {
+  using namespace NGIN::UI;
+  const auto area = FindByTypeAndKey(window.Tree(), ElementType::TextArea,
+                                     "validation-notes");
+  if (!Check(area && window.Focus(area), "form notes opens a multiline editor"))
+    return false;
+
+  const auto original = model.NotesBinding().Get();
+  const auto sendKey = [&](LogicalKey key, KeyModifierFlags modifiers =
+                                               KeyModifierFlags::None) {
+    platform.InjectEvent(
+        KeyChanged{.window = window.PlatformHandle(),
+                   .logicalKey = static_cast<NGIN::UInt32>(key),
+                   .state = KeyState::Pressed,
+                   .modifiers = static_cast<NGIN::UInt32>(modifiers)});
+  };
+  // A long, unbroken paste exercises soft wrapping even without word
+  // boundaries.
+  const NGIN::Text::String pasted{std::string(800, 'w')};
+  sendKey(static_cast<LogicalKey>('A'), KeyModifierFlags::Control);
+  platform.InjectEvent(
+      TextInput{.window = window.PlatformHandle(), .text = pasted});
+  if (!app.PumpOnce())
+    return false;
+  const auto *node = window.Tree().Get(area);
+  if (!Check(node && model.NotesBinding().Get() == pasted &&
+                 node->text.paragraph.lines.size() > 1 &&
+                 node->scroll.offset.y > 0 && node->scroll.offset.x == 0 &&
+                 std::all_of(node->text.paragraph.lines.begin(),
+                             node->text.paragraph.lines.end(),
+                             [&](const ParagraphLine &line) {
+                               return line.bounds.width <=
+                                      node->scroll.viewportSize.width + 1;
+                             }),
+             "long form notes wrap inside the field and scroll to the caret"))
+    return false;
+
+  const auto lastY = node->text.caretRect.y;
+  const auto beforeWheel = node->scroll.offset.y;
+  platform.InjectEvent(
+      PointerWheelChanged{.window = window.PlatformHandle(),
+                          .pointerId = 1,
+                          .delta = {0, 1},
+                          .position = Center(node->arrangedBounds)});
+  if (!app.PumpOnce() ||
+      !Check(window.Tree().Get(area)->scroll.offset.y < beforeWheel,
+             "wheel over focused notes scrolls earlier lines into view"))
+    return false;
+  sendKey(LogicalKey::Up);
+  if (!app.PumpOnce() ||
+      !Check(window.Tree().Get(area)->text.caretRect.y < lastY,
+             "Up moves to the preceding wrapped line"))
+    return false;
+  sendKey(LogicalKey::Down);
+  if (!app.PumpOnce() ||
+      !Check(window.Tree().Get(area)->text.caretRect.y == lastY,
+             "Down returns to the last wrapped line"))
+    return false;
+
+  sendKey(LogicalKey::End);
+  sendKey(LogicalKey::Space, KeyModifierFlags::Shift);
+  platform.InjectEvent(
+      TextInput{.window = window.PlatformHandle(), .text = " "});
+  if (!app.PumpOnce() ||
+      !Check(model.NotesBinding().Get().View().ends_with("w\n"),
+             "Shift+Space ends the note with a single newline"))
+    return false;
+  return model.NotesBinding().Set(original).has_value() &&
+         app.PumpOnce().has_value();
+}
 } // namespace
 
 auto main() -> int {
@@ -75,7 +149,7 @@ auto main() -> int {
   }
   auto application = std::move(createdApplication).value();
 
-  auto createdText = NativeTextSystem::Create(application->Renderer());
+  auto createdText = NativeTextSystem::Create(application->Renderer(), NGIN::UIGallery::GalleryTextConfig());
   if (!createdText) {
     return Report("Native text creation failed", createdText.error());
   }
@@ -187,6 +261,7 @@ auto main() -> int {
     for (const auto &[key, destination] :
          {std::pair{"sample-motion", Page::Motion},
           std::pair{"sample-layout", Page::Layout},
+          std::pair{"sample-templates", Page::Templates},
           std::pair{"sample-inputs", Page::Inputs},
           std::pair{"sample-collections", Page::Collections}}) {
       model.SelectPage(Page::Overview);
@@ -216,6 +291,95 @@ auto main() -> int {
           !Check(!window->Semantics().Nodes().empty(),
                  "every page emits semantics")) {
         return 1;
+      }
+      if (page == Page::Templates) {
+        const auto find = [&](ElementType type, const char *key) {
+          return window->Tree().Get(
+              FindByTypeAndKey(window->Tree(), type, key));
+        };
+        const auto *pier = find(ElementType::ListItem, "breakwater");
+        const auto *tram = find(ElementType::ListItem, "night-tram");
+        const auto *clip =
+            tram ? window->Semantics().FindByOwner(tram->id) : nullptr;
+        if (!Check(pier && tram &&
+                       tram->arrangedBounds.x > pier->arrangedBounds.x,
+                   "waveform cards share a row on desktop") ||
+            !Check(clip &&
+                       window->PerformSemanticAction(
+                           {.node = clip->id,
+                            .action = SemanticActionKind::Select}) &&
+                       application->PumpOnce(),
+                   "a recording can be selected by its accessible list item") ||
+            !activate("archive-save") || !activate("archive-rows"))
+          return 1;
+        pier = find(ElementType::ListItem, "breakwater");
+        tram = find(ElementType::ListItem, "night-tram");
+        const auto *metadata = find(ElementType::Text, "clip-format");
+        if (!Check(pier && tram &&
+                       tram->arrangedBounds.y > pier->arrangedBounds.y &&
+                       HasSemanticState(tram->properties.semantics.states,
+                                        SemanticStateFlags::Selected) &&
+                       metadata &&
+                       metadata->properties.text.value.View().find("96 kHz") !=
+                           std::string_view::npos,
+                   "file rows stack vertically and preserve the selected "
+                   "recording and its details") ||
+            !activate("archive-filter") ||
+            !Check(
+                find(ElementType::ListItem, "night-tram") &&
+                    !find(ElementType::ListItem, "breakwater"),
+                "saved clips follow their stable identity across templates") ||
+            !activate("archive-save") ||
+            !Check(find(ElementType::Text, "empty-archive") &&
+                       !find(ElementType::Button, "archive-save"),
+                   "removing the final saved clip clears the inspector") ||
+            !activate("archive-filter") ||
+            !Check(find(ElementType::ListItem, "breakwater"),
+                   "all clips restores the complete archive"))
+          return 1;
+      }
+      if (page == Page::Resources) {
+        using NGIN::UIGallery::GalleryAccent;
+        const auto initial = model.CurrentTheme().colors.accent;
+        if (!Check(activate("accent-jade") &&
+                       model.AccentBinding().Get() == GalleryAccent::Jade &&
+                       model.CurrentTheme().colors.accent != initial,
+                   "choosing a swatch changes the live accent"))
+          return 1;
+        if (!activate("gradient-diagonal-up"))
+          return 1;
+        const auto *ramp = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::Border, "accent-ramp"));
+        const auto *gradient =
+            ramp && ramp->properties.visual.base.background
+                ? std::get_if<LinearGradient>(
+                      &*ramp->properties.visual.base.background)
+                : nullptr;
+        if (!Check(gradient &&
+                       gradient->direction == GradientDirection::DiagonalUp &&
+                       gradient->start == model.CurrentTheme().colors.accent,
+                   "changing direction redraws the live gradient using the "
+                   "chosen accent"))
+          return 1;
+        const auto toggle =
+            window->Tree().FindBySemanticIdentifier("theme-gradients");
+        const auto *owner = window->Tree().Get(toggle);
+        const auto *semantics =
+            owner ? window->Semantics().FindByOwner(owner->id) : nullptr;
+        if (!Check(semantics &&
+                       window->PerformSemanticAction(
+                           {.node = semantics->id,
+                            .action = SemanticActionKind::Activate}) &&
+                       application->PumpOnce() &&
+                       !model.CurrentTheme().gradientControls,
+                   "the finish switch changes the gallery's control theme") ||
+            !Check(activate("toggle-theme") &&
+                       model.AccentBinding().Get() == GalleryAccent::Jade &&
+                       !model.CurrentTheme().gradientControls,
+                   "accent and finish survive changing appearance mode") ||
+            !activate("toggle-theme") || !activate("accent-cobalt") ||
+            !model.GradientBinding().Set(true))
+          return 1;
       }
       if (page == NGIN::UIGallery::Page::Overview) {
         const auto progressRing = FindByTypeAndKey(
@@ -326,13 +490,20 @@ auto main() -> int {
         return 1;
       }
       if (page == NGIN::UIGallery::Page::Inputs) {
+        if (!CheckFormNotes(*application, *window, *platformObserver, model))
+          return 1;
         const auto original = model.PasswordBinding().Get();
         if (!model.PasswordBinding().Set(NGIN::Text::String{"short"}) ||
             !activate("validation-check"))
           return 1;
         const auto *message = window->Tree().Get(FindByTypeAndKey(
             window->Tree(), ElementType::Text, "validation-password-message"));
-        if (!Check(
+        const auto *field = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::TextField, "validation-password"));
+        if (!Check(field && HasVisualState(field->properties.visual.state,
+                                           VisualStateFlags::Invalid),
+                   "an invalid field displays its error treatment") ||
+            !Check(
                 message && message->properties.text.value.View() ==
                                "Use at least 8 characters",
                 "checking the form shows feedback beside the password field") ||
@@ -464,7 +635,28 @@ auto main() -> int {
           return window->Tree().Get(
               FindByTypeAndKey(window->Tree(), type, key));
         };
-        if (!activate("tracks-two"))
+        const auto tracks = [&]() -> std::vector<NGIN::F32> {
+          const auto *queue = node(ElementType::Grid, "export-queue");
+          return queue ? queue->grid.resolvedColumns : std::vector<NGIN::F32>{};
+        };
+        const auto full = tracks();
+        if (!activate("sizing-narrow"))
+          return 1;
+        const auto narrow = tracks();
+        if (!Check(full.size() == 3 && narrow.size() == 3 && full[0] == 52 &&
+                       narrow[0] == full[0] && narrow[1] < full[1] &&
+                       narrow[2] == full[2],
+                   "narrowing the queue only shrinks its stretch column") ||
+            !activate("status-full"))
+          return 1;
+        const auto detailed = tracks();
+        if (!Check(detailed.size() == 3 && detailed[0] == narrow[0] &&
+                       detailed[2] > narrow[2] && detailed[1] < narrow[1] &&
+                       std::abs((detailed[2] - narrow[2]) -
+                                (narrow[1] - detailed[1])) < 1,
+                   "full status labels borrow their measured width from "
+                   "filenames") ||
+            !activate("layout-grid") || !activate("tracks-two"))
           return 1;
         const auto *grid = node(ElementType::Grid, "track-artboard");
         if (!Check(grid && grid->grid.resolvedColumns.size() == 2 &&
@@ -492,7 +684,10 @@ auto main() -> int {
             [](const auto &face) {
               return face.fallback && face.resolvedCodePointCount > 0;
             });
-        if (!Check(fontDiagnostics.missingCodePointCount == 0,
+        if (!Check(!fontDiagnostics.faces.empty() &&
+                       fontDiagnostics.faces.front().family.View() == "Inter",
+                   "the Gallery opens with its packaged Inter typeface") ||
+            !Check(fontDiagnostics.missingCodePointCount == 0,
                    "typography samples have complete packaged coverage") ||
             !Check(fontDiagnostics.fallbackCodePointCount > 0,
                    "typography samples exercise fallback fonts") ||
@@ -505,9 +700,14 @@ auto main() -> int {
         const auto *proof = window->Tree().Get(
             FindByTypeAndKey(window->Tree(), ElementType::Text, "type-proof"));
         if (!Check(proof && proof->properties.text.fontSize == 44,
-                   "selecting display size updates the proof")) {
+                   "selecting display size updates the proof") ||
+            !Check(activate("type-semibold"), "the proof exposes font weights")) {
           return 1;
         }
+        const auto *weighted = window->Tree().Get(
+            FindByTypeAndKey(window->Tree(), ElementType::Text, "type-proof"));
+        if (!Check(weighted && weighted->properties.text.font.weight == 600,
+                   "selecting semibold updates the typeset proof")) return 1;
       }
       if (page == NGIN::UIGallery::Page::Images &&
           (!Check(HasRole(window->Semantics(), SemanticRole::Image),
@@ -565,7 +765,12 @@ auto main() -> int {
             !Check(pressKey("property-Mute", LogicalKey::Space) &&
                        outputIs("0"),
                    "the reflected mute checkbox changes the object's output "
-                   "level")) {
+                   "level") ||
+            !Check(activate("editor-mixer") && outputIs("0%"), "the mixer reads the same muted document") ||
+            !Check(pressKey("property-Mute", LogicalKey::Space) && outputIs("51%"),
+                   "the mixer switch writes through the reflected setter") ||
+            !Check(activate("editor-inspector") && outputIs("51"),
+                   "switching back preserves volume and mute")) {
           return 1;
         }
       }

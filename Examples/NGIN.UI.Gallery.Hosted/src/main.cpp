@@ -137,6 +137,7 @@ auto main(const int argc, char **argv) -> int {
                       Accessibility::Windows::CreateAccessibilityBackend(),
 #endif
               },
+          .text = NGIN::UIGallery::GalleryTextConfig(),
       });
   if (!hosting) {
     return ReportUIError("UI hosting configuration failed", hosting.error());

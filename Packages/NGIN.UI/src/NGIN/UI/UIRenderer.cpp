@@ -337,10 +337,11 @@ void AppendRingIndices(PreparedRenderPacket &packet, const UInt32 outer,
   }
 }
 
-void AppendAntialiasedFill(PreparedRenderPacket &packet, const Rect rect,
-                           const CornerRadius radii,
-                           const Transform2D transform, const F32 scaleFactor,
-                           const UInt32 color, const PixelRect scissor) {
+template <class ColorAt>
+void AppendShadedFill(PreparedRenderPacket &packet, const Rect rect,
+                      const CornerRadius radii, const Transform2D transform,
+                      const F32 scaleFactor, const ColorAt &colorAt,
+                      const PixelRect scissor) {
   if (rect.width <= 0.0F || rect.height <= 0.0F || scissor.width == 0 ||
       scissor.height == 0) {
     return;
@@ -360,14 +361,14 @@ void AppendAntialiasedFill(PreparedRenderPacket &packet, const Rect rect,
       RoundedContour(shape, coverageHalfWidth, segments, rounded);
   const auto firstIndex = static_cast<UInt32>(packet.indices.size());
   const auto center = static_cast<UInt32>(packet.vertices.size());
-  packet.vertices.push_back(RenderVertex{
-      shape.rect.x + shape.rect.width * 0.5F,
-      shape.rect.y + shape.rect.height * 0.5F,
-      0.0F,
-      0.0F,
-      color,
-  });
-  const auto innerStart = AppendContour(packet, inner, color);
+  const Point midpoint{shape.rect.x + shape.rect.width * 0.5F,
+                       shape.rect.y + shape.rect.height * 0.5F};
+  packet.vertices.push_back({midpoint.x, midpoint.y, 0, 0, colorAt(midpoint)});
+  const auto innerStart = static_cast<UInt32>(packet.vertices.size());
+  for (UIntSize i = 0; i < inner.count; ++i) {
+    const auto point = inner.points[i];
+    packet.vertices.push_back({point.x, point.y, 0, 0, colorAt(point)});
+  }
   const auto outerStart = AppendContour(packet, outer, 0U);
   const auto count = static_cast<UInt32>(inner.count);
   for (UInt32 index = 0; index < count; ++index) {
@@ -378,6 +379,90 @@ void AppendAntialiasedFill(PreparedRenderPacket &packet, const Rect rect,
   AppendRingIndices(packet, innerStart, outerStart, count);
   AppendBatch(packet, {}, scissor, firstIndex,
               static_cast<UInt32>(packet.indices.size()) - firstIndex);
+}
+
+void AppendAntialiasedFill(PreparedRenderPacket &packet, Rect rect,
+                           CornerRadius radii, Transform2D transform, F32 scale,
+                           UInt32 color, PixelRect scissor) {
+  AppendShadedFill(
+      packet, rect, radii, transform, scale, [color](Point) { return color; },
+      scissor);
+}
+
+void AppendGradientFill(PreparedRenderPacket &packet,
+                        const FillGradientRect &fill, Transform2D transform,
+                        F32 scale, F32 opacity, PixelRect scissor) {
+  const auto width = fill.rect.width * scale * transform.scaleX;
+  const auto height = fill.rect.height * scale * transform.scaleY;
+  if (width == 0 || height == 0)
+    return;
+
+  auto origin = TransformPoint({fill.rect.x, fill.rect.y}, transform);
+  origin.x *= scale;
+  origin.y *= scale;
+  Point slope{};
+  switch (fill.gradient.direction) {
+  case GradientDirection::Vertical:
+    slope.y = 1 / height;
+    break;
+  case GradientDirection::Horizontal:
+    slope.x = 1 / width;
+    break;
+  case GradientDirection::DiagonalDown:
+    slope = {0.5F / width, 0.5F / height};
+    break;
+  case GradientDirection::DiagonalUp:
+    origin.y += height;
+    slope = {0.5F / width, -0.5F / height};
+    break;
+  }
+
+  const auto start = PackColor(fill.gradient.start, opacity);
+  const auto end = PackColor(fill.gradient.end, opacity);
+  // Both backends interpolate packed premultiplied vertex colors. The
+  // existing contour and transparent coverage fringe need no extra triangles.
+  const auto colorAt = [=](Point p) -> UInt32 {
+    const F32 t = std::clamp(
+        (p.x - origin.x) * slope.x + (p.y - origin.y) * slope.y, 0.0F, 1.0F);
+    UInt32 result = 0;
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+      const F32 a = static_cast<F32>((start >> shift) & 255U);
+      const F32 b = static_cast<F32>((end >> shift) & 255U);
+      result |= static_cast<UInt32>(std::lround(std::lerp(a, b, t))) << shift;
+    }
+    return result;
+  };
+  AppendShadedFill(packet, fill.rect, fill.radius, transform, scale, colorAt,
+                   scissor);
+}
+
+// Tessellate a horizontal capsule with the rounded-fill coverage fringe, then
+// orient it in local space before applying the host's scale and translation.
+void AppendLine(PreparedRenderPacket &packet, const StrokeLine &line,
+                const Transform2D transform, const F32 scaleFactor,
+                const UInt32 color, const PixelRect scissor) {
+  if (line.thickness <= 0 || transform.scaleX == 0 || transform.scaleY == 0)
+    return;
+  const F32 dx = line.to.x - line.from.x;
+  const F32 dy = line.to.y - line.from.y;
+  const F32 length = std::hypot(dx, dy);
+  const F32 ux = length > 0 ? dx / length : 1.0F;
+  const F32 uy = length > 0 ? dy / length : 0.0F;
+  const F32 radius = line.thickness / 2;
+  const F32 resolution = scaleFactor * std::max(std::abs(transform.scaleX),
+                                                std::abs(transform.scaleY));
+  const auto first = packet.vertices.size();
+  AppendAntialiasedFill(
+      packet, {-radius, -radius, length + line.thickness, line.thickness},
+      CornerRadius::Uniform(Dp{radius}), {}, resolution, color, scissor);
+  const auto origin = TransformPoint(line.from, transform);
+  for (auto i = first; i < packet.vertices.size(); ++i) {
+    auto &vertex = packet.vertices[i];
+    const F32 x = vertex.x / resolution;
+    const F32 y = vertex.y / resolution;
+    vertex.x = (origin.x + transform.scaleX * (ux * x - uy * y)) * scaleFactor;
+    vertex.y = (origin.y + transform.scaleY * (uy * x + ux * y)) * scaleFactor;
+  }
 }
 
 void AppendAntialiasedStroke(PreparedRenderPacket &packet, const Rect rect,
@@ -501,6 +586,11 @@ auto UIRenderer::Build(const DisplayList &displayList,
                 packet, value.rect, value.radius, transforms.back(),
                 effectiveScale, PackColor(value.color, opacities.back()),
                 ToScissor(clips.back(), effectiveScale, targetSize));
+          } else if constexpr (std::is_same_v<Command, FillGradientRect>) {
+            AppendGradientFill(
+                packet, value, transforms.back(), effectiveScale,
+                opacities.back(),
+                ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, StrokeRect>) {
             AppendAntialiasedStroke(
                 packet, value.rect, CornerRadius{}, value.thickness,
@@ -513,6 +603,10 @@ auto UIRenderer::Build(const DisplayList &displayList,
                 transforms.back(), effectiveScale,
                 PackColor(value.color, opacities.back()),
                 ToScissor(clips.back(), effectiveScale, targetSize));
+          } else if constexpr (std::is_same_v<Command, StrokeLine>) {
+            AppendLine(packet, value, transforms.back(), effectiveScale,
+                       PackColor(value.color, opacities.back()),
+                       ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, DrawImage>) {
             if (value.texture) {
               AppendQuad(packet, value.destination, transforms.back(),
@@ -526,9 +620,21 @@ auto UIRenderer::Build(const DisplayList &displayList,
               const auto color = PackColor(value.color, opacities.back());
               const auto scissor =
                   ToScissor(clips.back(), effectiveScale, targetSize);
+              auto glyphTransform = transforms.back();
+              if (value.rasterOrigin) {
+                const auto origin =
+                    TransformPoint(*value.rasterOrigin, glyphTransform);
+                // Local ink is already phase-positioned. Snap the label's
+                // horizontal translation before adding individual glyphs,
+                // so a half-pixel origin moves the entire word together.
+                glyphTransform.translateX =
+                    std::round(origin.x * effectiveScale) / effectiveScale;
+                glyphTransform.translateY = origin.y;
+              }
               for (const auto &glyph : value.glyphs) {
-                if (glyph.lease) packet.glyphLeases.push_back(glyph.lease);
-                AppendQuad(packet, glyph.destination, transforms.back(),
+                if (glyph.lease)
+                  packet.glyphLeases.push_back(glyph.lease);
+                AppendQuad(packet, glyph.destination, glyphTransform,
                            effectiveScale, color, scissor, value.atlas,
                            glyph.textureCoordinates, true);
               }

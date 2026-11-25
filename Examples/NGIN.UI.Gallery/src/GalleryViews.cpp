@@ -1,6 +1,20 @@
 #include "GalleryViews.hpp"
 
+#include <filesystem>
 #include <utility>
+
+namespace NGIN::UIGallery {
+auto GalleryTextConfig() -> UI::NativeTextCreateInfo {
+  const auto name = "Inter-Variable.ttf";
+  auto path = std::filesystem::path{"fonts"} / "Gallery" / name;
+  std::error_code error;
+  if (!std::filesystem::is_regular_file(path, error)) {
+    path = std::filesystem::path{__FILE__}.parent_path().parent_path() /
+           "assets" / "fonts" / "Inter" / name;
+  }
+  return {.fontPath = Text::String{path.string()}};
+}
+} // namespace NGIN::UIGallery
 
 namespace NGIN::UIGallery::Pages {
 using namespace NGIN::UI;
@@ -35,12 +49,15 @@ auto TextView(String value, const F32 fontSize, const Color color,
     -> Views::View {
   auto properties = TextProperties(fontSize, color);
   properties.semantics.role = role;
+  if (role == SemanticRole::Heading)
+    properties.text.font.weight = 600;
   return Views::Label(std::move(value), properties).Key(key);
 }
 
 auto ButtonView(const Theme &theme, const char *label,
                 NGIN::Utilities::Callable<void()> onActivate,
-                const std::string_view key, const F32 width, const bool enabled,
+                const std::string_view key, const F32 width,
+                ButtonAppearance appearance, const bool enabled,
                 const bool selected, ToolTipController *toolTip)
     -> Views::View {
   NodeProperties button{};
@@ -50,21 +67,19 @@ auto ButtonView(const Theme &theme, const char *label,
   button.layout.verticalAlignment = VerticalAlignment::Start;
   button.interaction.enabled = enabled;
   button.semantics.label = String{label};
-  button.visual = MakeButtonVisual(theme);
+  button.visual = MakeButtonVisual(theme, appearance);
   if (selected) {
     button.visual.state |= VisualStateFlags::Selected;
-    button.visual.states.selected.background = theme.colors.raisedSurface;
-    button.visual.states.selected.foreground = theme.colors.foreground;
-    button.visual.states.selected.borderColor = theme.colors.focus;
+    button.semantics.states |= SemanticStateFlags::Selected;
   }
   if (toolTip != nullptr) {
     toolTip->Attach(button);
   }
 
-  const auto labelColor = enabled ? (selected ? theme.colors.foreground
-                                              : theme.colors.accentForeground)
+  const auto labelColor = enabled ? *button.visual.base.foreground
                                   : theme.colors.disabledForeground;
   auto caption = TextProperties(theme.typography.body, labelColor);
+  caption.text.font.weight = 500;
   caption.layout.horizontalAlignment = HorizontalAlignment::Center;
   caption.layout.verticalAlignment = VerticalAlignment::Center;
   return Views::Button(std::move(onActivate),
@@ -88,6 +103,7 @@ auto CommandButtonView(const Theme &theme, const char *label,
   auto labelProperties = TextProperties(
       theme.typography.body, enabled ? theme.colors.accentForeground
                                      : theme.colors.disabledForeground);
+  labelProperties.text.font.weight = 500;
   labelProperties.layout.horizontalAlignment = HorizontalAlignment::Center;
   labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
   return Views::Button(
@@ -159,6 +175,31 @@ auto TextFieldView(GalleryViewModel &model, const Theme &theme,
   };
   field.semantics.label = String{label};
   return Views::TextField(String{label}, std::move(value), field).Key(key);
+}
+
+auto NotesEditor(GalleryViewModel &model, const Theme &theme, const char *label,
+                 std::string_view key, F32 height, bool invalid)
+    -> Views::View {
+  NodeProperties area{};
+  // Bound the viewport height so additional lines scroll within the editor.
+  area.layout.preferredSize.height = height;
+  area.layout.horizontalAlignment = HorizontalAlignment::Stretch;
+  area.layout.padding = {14, 12, 14, 12};
+  area.visual = MakeTextFieldVisual(theme);
+  if (invalid)
+    area.visual.state |= VisualStateFlags::Invalid;
+  area.text.fontSize = 16;
+  area.text.lineHeight = 23;
+  area.text.wrapping = TextWrapping::Wrap;
+  area.text.color = theme.colors.foreground;
+  area.textField.selectionColor = theme.colors.selection;
+  area.textField.caretColor = area.textField.compositionColor =
+      theme.colors.focus;
+  area.textField.onError = [&model](const UIError &error) {
+    model.Report(error);
+  };
+  StyleScrollView(area, theme);
+  return Views::TextArea(label, model.NotesBinding(), area).Key(key);
 }
 
 void StyleScrollView(NodeProperties &properties, const Theme &theme) {

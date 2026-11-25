@@ -62,6 +62,16 @@ void DisplayListBuilder::FillRounded(const Rect rect, const CornerRadius radius,
   m_commands.emplace_back(FillRoundedRect{rect, radius, color});
 }
 
+void DisplayListBuilder::FillGradient(Rect rect, CornerRadius radius,
+                                      LinearGradient gradient) {
+  m_commands.emplace_back(FillGradientRect{rect, radius, gradient});
+}
+
+void DisplayListBuilder::Line(const Point from, const Point to,
+                              const F32 thickness, const Color color) {
+  m_commands.emplace_back(StrokeLine{from, to, thickness, color});
+}
+
 void DisplayListBuilder::Stroke(const Rect rect, const F32 thickness,
                                 const Color color) {
   m_commands.emplace_back(StrokeRect{rect, thickness, color});
@@ -88,8 +98,10 @@ void DisplayListBuilder::ImageRegion(const TextureHandle texture,
 
 void DisplayListBuilder::Glyphs(const TextureHandle atlas,
                                 std::vector<GlyphQuad> glyphs,
-                                const Color color) {
-  m_commands.emplace_back(DrawGlyphRun{atlas, std::move(glyphs), color});
+                                const Color color,
+                                std::optional<Point> rasterOrigin) {
+  m_commands.emplace_back(
+      DrawGlyphRun{atlas, std::move(glyphs), color, rasterOrigin});
 }
 
 void DisplayListBuilder::BeginOpacity(const F32 opacity) {
@@ -321,10 +333,14 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
   }
 
   if (style.background) {
-    if (HasRadius(style.cornerRadius)) {
-      builder.FillRounded(bounds, style.cornerRadius, *style.background);
+    if (const auto *gradient =
+            std::get_if<LinearGradient>(&*style.background)) {
+      builder.FillGradient(bounds, style.cornerRadius, *gradient);
+    } else if (HasRadius(style.cornerRadius)) {
+      builder.FillRounded(bounds, style.cornerRadius,
+                          std::get<Color>(*style.background));
     } else {
-      builder.Fill(bounds, *style.background);
+      builder.Fill(bounds, std::get<Color>(*style.background));
     }
   }
   PaintBorder(builder, bounds, style);
@@ -361,7 +377,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
             auto glyphs = run.glyphs;
             for (UIntSize glyph = 0; glyph < glyphs.size(); ++glyph)
               glyphs[glyph].lease = leases->second[glyph].lock();
-            builder.Glyphs(run.atlas, std::move(glyphs), run.color);
+            builder.Glyphs(run.atlas, std::move(glyphs), run.color,
+                           run.rasterOrigin);
           }
         }
         cache->next.slices.emplace(
@@ -410,14 +427,21 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
         builder.Fill(selection, node->properties.textField.selectionColor);
       }
     }
+    const auto rasterOrigin =
+        node->properties.text.glyphAtlas->UsesHorizontalPhases()
+            ? std::optional{Point{originX, originY}}
+            : std::nullopt;
     for (const auto &run : node->text.glyphRuns) {
       auto glyphs = run.glyphs;
-      for (auto &glyph : glyphs) {
-        glyph.destination.x += originX;
-        glyph.destination.y += originY;
+      if (!rasterOrigin) {
+        for (auto &glyph : glyphs) {
+          glyph.destination.x += originX;
+          glyph.destination.y += originY;
+        }
       }
       builder.Glyphs(run.texture, std::move(glyphs),
-                     visual.foreground.value_or(node->properties.text.color));
+                     visual.foreground.value_or(node->properties.text.color),
+                     rasterOrigin);
     }
     if (node->type == ElementType::TextField ||
         node->type == ElementType::TextArea) {

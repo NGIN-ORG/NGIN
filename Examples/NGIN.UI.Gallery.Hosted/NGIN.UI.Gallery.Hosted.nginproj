@@ -13,6 +13,8 @@
     <Source Include="src/**/*.cpp" />
   </Build>
   <Stage>
+    <File From="../NGIN.UI.Gallery/assets/fonts/Inter/Inter-Variable.ttf" To="fonts/Gallery/Inter-Variable.ttf" />
+    <File From="../NGIN.UI.Gallery/assets/fonts/Inter/OFL.txt" To="licenses/NGIN.UI.Gallery/Inter-OFL.txt" />
     <File From="../NGIN.UI.Gallery/assets/images/gallery-sample.png" To="images/gallery-sample.png" />
     <File From="../NGIN.UI.Gallery/RELEASE.md" To="README.md" />
     <File From="../../LICENSE" To="licenses/NGIN/LICENSE" />

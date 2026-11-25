@@ -246,6 +246,55 @@ TEST_CASE("semantic text field edits bindings and retains its session") {
   REQUIRE(node->textField.editing->State().caretCluster == 3);
 }
 
+TEST_CASE(
+    "Shift Space inserts one multiline break and preserves other text input") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> notes{NGIN::Text::String{"Notes"}};
+  State<NGIN::Text::String> name{NGIN::Text::String{}};
+  Composer composer;
+  composer.TextArea(Bind(notes), segmenter, {}, "notes");
+  composer.TextField(Bind(name), segmenter, {}, "name");
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto &editors = tree.Get(tree.Root())->children;
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(editors[0]));
+
+  const auto space = [&](KeyModifierFlags modifiers,
+                         KeyState state = KeyState::Pressed) {
+    return input.Route(KeyChanged{
+        .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+        .state = state,
+        .modifiers = static_cast<NGIN::UInt32>(modifiers),
+    });
+  };
+  const TextInput committedSpace{.text = " "};
+  REQUIRE(space(KeyModifierFlags::Shift).layoutStateChanged);
+  REQUIRE(input.Route(committedSpace).handled);
+  REQUIRE(notes.Get().View() == "Notes\n");
+  REQUIRE(
+      space(KeyModifierFlags::Shift, KeyState::Repeated).layoutStateChanged);
+  // Some platforms send the key without any text event.
+  REQUIRE_FALSE(space(KeyModifierFlags::None).handled);
+  REQUIRE(input.Route(committedSpace).layoutStateChanged);
+  REQUIRE(notes.Get().View() == "Notes\n\n ");
+
+  REQUIRE(input.Route(TextComposition{.text = "e"}).handled);
+  REQUIRE_FALSE(space(KeyModifierFlags::Shift).handled);
+  REQUIRE(input.Route(TextInput{.text = "é"}).layoutStateChanged);
+  REQUIRE(notes.Get().View() == "Notes\n\n é");
+
+  REQUIRE(space(KeyModifierFlags::Shift).handled);
+  REQUIRE(input.SetFocus(editors[1]));
+  REQUIRE(input.Route(committedSpace).layoutStateChanged);
+  REQUIRE_FALSE(space(KeyModifierFlags::Shift).handled);
+  REQUIRE(input.Route(committedSpace).layoutStateChanged);
+  REQUIRE(name.Get().View() == "  ");
+}
+
 TEST_CASE("text field composition changes binding only when committed") {
   using namespace NGIN::UI;
 

@@ -295,3 +295,71 @@ TEST_CASE("shared shape geometry renders smooth edges at every scale") {
     CHECK(strokeHasPartialCoverage);
   }
 }
+
+TEST_CASE(
+    "gradient fills interpolate premultiplied stops in local coordinates") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+  constexpr PixelSize size{80, 40};
+  constexpr Rect rect{0, 0, 40, 20};
+  const auto corners = CornerRadius::Uniform(Dp{5});
+  const Color transparentRed{1, 0, 0, 0};
+  const Color blue{0, 0, 1, 1};
+
+  SoftwareRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).has_value());
+  const auto surface = renderer.CreateSurface(PlatformWindowHandle{1, 1}, size);
+  REQUIRE(surface.has_value());
+  DisplayListBuilder builder;
+  builder.PushClip({6, 0, 34, 20});
+  builder.PushTransform(40, 0, -1, 1);
+  builder.BeginOpacity(0.5F);
+  builder.FillGradient(rect, corners,
+                       {transparentRed, blue, GradientDirection::Horizontal});
+  REQUIRE(builder.EndOpacity());
+  REQUIRE(builder.PopTransform());
+  REQUIRE(builder.PopClip());
+  auto list = std::move(builder).Finish();
+  REQUIRE(list);
+  const auto packet = UIRenderer{}.Build(*list, size, 2, {0, 0, 0, 0});
+  REQUIRE(packet.batches.size() == 1);
+  auto solid =
+      UIRenderer{}.Build({FillRoundedRect{rect, corners, blue}}, size, 2);
+  CHECK(packet.vertices.size() == solid.vertices.size());
+  CHECK(packet.indices.size() == solid.indices.size());
+  REQUIRE(renderer.Render(*surface, packet.View()));
+  auto image = renderer.Snapshot(*surface);
+  REQUIRE(image);
+  CHECK(image->Pixel(10, 20).alpha == 0);
+  CHECK(image->Pixel(79, 0).alpha == 0);
+  // World x=20.25 maps to local x=19.75 even after clipping, mirroring and DPI
+  // scaling.
+  const auto middle = image->Pixel(40, 20);
+  CHECK(middle.red == 0);
+  CHECK(middle.blue >= 61);
+  CHECK(middle.blue <= 65);
+  CHECK(middle.alpha == middle.blue);
+  CHECK(image->Pixel(15, 20).blue > middle.blue);
+  CHECK(image->Pixel(65, 20).blue < middle.blue);
+
+  for (auto direction :
+       {GradientDirection::Vertical, GradientDirection::DiagonalDown,
+        GradientDirection::DiagonalUp}) {
+    auto shaded = UIRenderer{}.Build(
+        {FillGradientRect{rect, {}, {transparentRed, blue, direction}}}, size,
+        2, {0, 0, 0, 0});
+    REQUIRE(renderer.Render(*surface, shaded.View()));
+    image = renderer.Snapshot(*surface);
+    REQUIRE(image);
+    const auto topLeft = image->Pixel(12, 8).blue;
+    const auto topRight = image->Pixel(66, 8).blue;
+    const auto bottomLeft = image->Pixel(12, 32).blue;
+    if (direction == GradientDirection::Vertical) {
+      CHECK(std::abs(static_cast<int>(topLeft) - topRight) <= 1);
+    } else {
+      CHECK(topRight > topLeft);
+    }
+    CHECK((bottomLeft > topLeft) ==
+          (direction != GradientDirection::DiagonalUp));
+  }
+}

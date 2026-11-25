@@ -33,18 +33,13 @@ auto SamplePicker(const UI::Theme &theme, UI::Binding<T> selection,
     UI::NodeProperties button{};
     button.layout.minimumSize.height = 36;
     button.layout.padding = UI::Thickness{12, 6, 12, 6};
-    button.visual = UI::MakeButtonVisual(theme);
-    button.visual.base.background =
-        selected ? theme.colors.foreground : theme.colors.surface;
-    button.visual.states.hovered.background =
-        selected ? theme.colors.foreground : theme.colors.raisedSurface;
-    button.visual.states.pressed.background = theme.colors.border;
-    button.visual.base.borderColor =
-        selected ? theme.colors.foreground : theme.colors.border;
+    button.visual =
+        UI::MakeButtonVisual(theme, selected ? UI::ButtonAppearance::Accent
+                                             : UI::ButtonAppearance::Neutral);
     button.semantics.label = Text::String{choice.label};
     if (selected)
       button.semantics.states |= UI::SemanticStateFlags::Selected;
-    auto caption = TextProperties(14, selected ? theme.colors.background
+    auto caption = TextProperties(14, selected ? theme.colors.accentForeground
                                                : theme.colors.foreground);
     caption.layout.verticalAlignment = UI::VerticalAlignment::Center;
     buttons.push_back(UI::Views::Button(

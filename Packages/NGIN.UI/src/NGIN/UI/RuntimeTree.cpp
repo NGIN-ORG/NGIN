@@ -214,6 +214,8 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
     auto reset = node.textField.editing->Reset(properties.value.Get());
     if (!reset) {
       report(reset.error());
+    } else {
+      node.textField.revealCaret = true;
     }
   }
 }

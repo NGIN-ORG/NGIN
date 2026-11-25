@@ -51,9 +51,12 @@ struct EditorDocument final {
   State<UInt64> revision{0};
 };
 
+enum class EditorLayout { Inspector, Mixer };
+
 struct PropertyEditor final {
   Type type;
   std::shared_ptr<EditorDocument> document;
+  State<EditorLayout> layout{EditorLayout::Inspector};
 };
 
 template <typename T, typename Convert>
@@ -137,52 +140,122 @@ auto PropertyValue(const Property &property, const Value &value,
   return readout;
 }
 
-auto BuildProperties(const Type &type,
-                     const std::shared_ptr<EditorDocument> &document,
-                     GalleryViewModel &gallery) -> UIResult<Views::View> {
-  // A write may change several reflected getters (e.g. Muted affects
-  // OutputLevel).
-  static_cast<void>(document->revision.Get());
+// The inspector and the mixer receive the same reflected field and document.
+// A template owns the choice of editor and its layout; writes still go through
+// the property's setter, including in the alternate switch below.
+using FieldTemplate = Views::View (*)(const Property &, const Value &,
+                                      const std::shared_ptr<EditorDocument> &,
+                                      const ControlPresentation &);
+
+auto FieldLabel(const Property &property, const Theme &theme, F32 width = 0)
+    -> Views::View {
+  const std::string name{property.Name()};
+  auto label =
+      Pages::TextProperties(theme.typography.body, theme.colors.foreground);
+  if (width > 0)
+    label.layout.preferredSize.width = width;
+  label.layout.verticalAlignment = VerticalAlignment::Center;
+  label.semantics.labelFor = String{"property-" + name};
+  return Views::Label(String{name}, label).Key("name");
+}
+
+auto InspectorRow(const Property &property, const Value &value,
+                  const std::shared_ptr<EditorDocument> &document,
+                  const ControlPresentation &presentation) -> Views::View {
+  return Pages::ActionRow(
+      {FieldLabel(property, presentation.theme, 110),
+       PropertyValue(property, value, document, presentation)},
+      property.Name());
+}
+
+auto MixerModule(const Property &property, const Value &value,
+                 const std::shared_ptr<EditorDocument> &document,
+                 const ControlPresentation &presentation) -> Views::View {
+  const auto &theme = presentation.theme;
+  const std::string name{property.Name()};
+  std::vector<Views::View> content{FieldLabel(property, theme)};
+  if (const auto *flag = value.TryAs<bool>(); flag && property.IsWritable()) {
+    auto binding = BindProperty(*flag, property, document,
+                                [](bool muted) { return Value{muted}; });
+    NodeProperties toggle{};
+    toggle.semantics.identifier = String{"property-" + name};
+    toggle.semantics.label = String{name};
+    content.push_back(Pages::TextView(*flag ? "Muted" : "Live", 21,
+                                      theme.colors.foreground, "state"));
+    content.push_back(
+        Views::ToggleSwitch(std::move(binding), presentation, toggle));
+  } else if (const auto *number = value.TryAs<std::int64_t>()) {
+    auto label = Pages::TextProperties(23, theme.colors.foreground);
+    if (!property.IsWritable())
+      label.semantics.identifier = String{"property-" + name};
+    content.push_back(Views::Label(String{std::to_string(*number) + "%"}, label)
+                          .Key("reading"));
+    if (property.IsWritable()) {
+      content.push_back(PropertyValue(property, value, document, presentation));
+    } else {
+      NodeProperties meter{};
+      meter.layout.preferredSize = {156, 12};
+      meter.semantics.label = String{name};
+      content.push_back(Views::ProgressBar(
+          {.value = static_cast<F32>(*number), .maximum = 100}, presentation,
+          meter));
+    }
+  } else {
+    content.push_back(PropertyValue(property, value, document, presentation));
+  }
+  NodeProperties body{};
+  body.layout.preferredSize.width = 194;
+  body.layout.minimumSize.height = 112;
+  body.layout.padding = Thickness::Uniform(Dp{12});
+  body.layout.gap = 6;
+  body.visual = MakePanelVisual(theme);
+  body.visual.base.background = theme.colors.raisedSurface;
+  return Views::Column(std::move(content), body).Key(name);
+}
+
+auto BuildProperties(PropertyEditor &editor, GalleryViewModel &gallery)
+    -> UIResult<Views::View> {
+  // A write may change several getters (e.g. muting changes the output).
+  static_cast<void>(editor.document->revision.Get());
   const auto theme = gallery.CurrentTheme();
   const ControlPresentation presentation{
       .theme = theme,
       .onError = [&gallery](const UIError &error) { gallery.Report(error); }};
-  std::vector<Views::View> rows;
-  rows.reserve(type.PropertyCount() + 1);
-  rows.push_back(Pages::TextView("Playback settings", 22,
-                                 theme.colors.foreground, "playback-title",
-                                 SemanticRole::Heading));
-  NodeProperties row{};
-  row.wrapPanel.itemGap = 16;
-  row.wrapPanel.lineGap = 6;
-  for (std::size_t index = 0; index < type.PropertyCount(); ++index) {
-    auto property = type.PropertyAt(index);
-    if (!property) {
+  const bool mixer = editor.layout.Get() == EditorLayout::Mixer;
+  const FieldTemplate renderField = mixer ? MixerModule : InspectorRow;
+  std::vector<Views::View> fields;
+  for (std::size_t index = 0; index < editor.type.PropertyCount(); ++index) {
+    auto property = editor.type.PropertyAt(index);
+    if (!property)
       return std::unexpected(EditorError(property.error()));
-    }
-    auto value = property->Read(document->instance);
-    if (!value) {
+    auto value = property->Read(editor.document->instance);
+    if (!value)
       return std::unexpected(EditorError(value.error()));
-    }
-    const std::string name{property->Name()};
-    auto label = Pages::TextProperties(16, theme.colors.foreground);
-    label.layout.preferredSize.width = 110;
-    label.layout.verticalAlignment = VerticalAlignment::Center;
-    label.semantics.labelFor = String{"property-" + name};
-    rows.push_back(
-        Views::WrapPanel(
-            {Views::Label(String{name}, label).Key("name"),
-             PropertyValue(*property, *value, document, presentation)},
-            row)
-            .Key(name));
+    fields.push_back(
+        renderField(*property, *value, editor.document, presentation));
   }
+  NodeProperties column{};
+  column.layout.gap = theme.spacing.regular;
+  auto body =
+      mixer ? Pages::ActionRow(std::move(fields), "mixer-modules")
+            : Views::Column(std::move(fields), column).Key("inspector-fields");
   return Pages::PageContentView(
-      {Pages::PageHeadingView(theme, "Property editor",
-                              "Edit a reflected playback object and watch its "
-                              "output level change."),
-       Pages::SampleCard(theme, std::move(rows), "playback-settings",
-                         "property-editor-card")});
+      {Pages::PageHeadingView(
+           theme, "Property editor",
+           "Edit one playback object through two different field templates."),
+       Pages::SamplePicker(
+           theme, Bind(editor.layout), "Editor template",
+           {{EditorLayout::Inspector, "Inspector", "editor-inspector"},
+            {EditorLayout::Mixer, "Mixer", "editor-mixer"}}),
+       Pages::SampleCard(
+           theme,
+           {Pages::TextView(mixer ? "Mix strip" : "Playback settings", 22,
+                            theme.colors.foreground, "playback-title",
+                            SemanticRole::Heading),
+            std::move(body)},
+           "playback-settings", "property-editor-card")});
 }
+
 } // namespace
 
 auto RegisterPropertyEditor(UI::PageRegistry &registry,
@@ -211,11 +284,10 @@ auto RegisterPropertyEditor(UI::PageRegistry &registry,
         }
         auto document = std::make_shared<EditorDocument>(std::move(*settings));
         return UI::PageLease<PropertyEditor>{
-            .viewModel = std::make_shared<PropertyEditor>(
-                PropertyEditor{*type, std::move(document)})};
+            .viewModel = std::make_shared<PropertyEditor>(*type, std::move(document))};
       },
       [&gallery](PropertyEditor &page, const UI::NoNavigationParameter &) {
-        auto properties = BuildProperties(page.type, page.document, gallery);
+        auto properties = BuildProperties(page, gallery);
         if (!properties) {
           gallery.Report(properties.error());
           return Views::View{};

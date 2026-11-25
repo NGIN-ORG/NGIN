@@ -53,7 +53,9 @@ TEST_CASE("theme helpers honor palette and metric overrides") {
   REQUIRE(resolved->revision == 7);
 
   const auto button = MakeButtonVisual(*resolved);
-  REQUIRE(button.base.background == theme.colors.accent);
+  REQUIRE(button.base.background.has_value());
+  REQUIRE(std::get<LinearGradient>(*button.base.background).start ==
+          theme.colors.accent);
   REQUIRE(button.base.borderThickness ==
           Thickness::Uniform(Dp{theme.controls.borderThickness}));
   REQUIRE(button.base.cornerRadius ==
@@ -90,7 +92,7 @@ TEST_CASE("rounded chrome and focus visuals lower into DPI-aware geometry") {
   const auto displayList = BuildDisplayList(tree);
   REQUIRE(displayList.size() == 3);
   REQUIRE(std::holds_alternative<StrokeRoundedRect>(displayList[0]));
-  REQUIRE(std::holds_alternative<FillRoundedRect>(displayList[1]));
+  REQUIRE(std::holds_alternative<FillGradientRect>(displayList[1]));
   REQUIRE(std::holds_alternative<StrokeRoundedRect>(displayList[2]));
   REQUIRE(std::get<StrokeRoundedRect>(displayList[0]).rect ==
           Rect{-2.0F, -2.0F, 104.0F, 44.0F});
@@ -217,8 +219,9 @@ TEST_CASE("hover press and disabled states change rendered control colors") {
 
   tree.Get(handle)->interaction.hovered = true;
   auto displayList = BuildDisplayList(tree);
-  REQUIRE(std::get<FillRoundedRect>(displayList[0]).color ==
-          *properties.visual.states.hovered.background);
+  REQUIRE(
+      std::get<FillGradientRect>(displayList[0]).gradient ==
+      std::get<LinearGradient>(*properties.visual.states.hovered.background));
 
   tree.Get(handle)->interaction.pressed = true;
   displayList = BuildDisplayList(tree);
@@ -229,4 +232,33 @@ TEST_CASE("hover press and disabled states change rendered control colors") {
   displayList = BuildDisplayList(tree);
   REQUIRE(std::get<FillRoundedRect>(displayList[0]).color ==
           *properties.visual.states.disabled.background);
+}
+
+TEST_CASE(
+    "button appearances keep quiet actions subtle and allow flat accents") {
+  using namespace NGIN::UI;
+  auto theme = MakeLightTheme();
+  auto subtle = MakeButtonVisual(theme, ButtonAppearance::Subtle);
+  CHECK(subtle.base.background == Color{0, 0, 0, 0});
+  CHECK(subtle.base.foreground == theme.colors.foreground);
+  CHECK(subtle.base.borderThickness == Thickness{});
+  CHECK(ResolveVisualStyle(subtle, VisualStateFlags::Hovered).background ==
+        theme.colors.sunkenSurface);
+  CHECK(ResolveVisualStyle(subtle, VisualStateFlags::Disabled).foreground ==
+        theme.colors.disabledForeground);
+  auto neutral = MakeButtonVisual(theme, ButtonAppearance::Neutral);
+  CHECK(neutral.base.background == theme.colors.raisedSurface);
+  CHECK(neutral.base.borderThickness ==
+        Thickness::Uniform(Dp{theme.controls.borderThickness}));
+
+  theme.gradientControls = false;
+  const auto flat = MakeButtonVisual(theme);
+  CHECK(flat.base.background == theme.colors.accent);
+  CHECK(ResolveVisualStyle(flat, VisualStateFlags::Hovered).background ==
+        theme.colors.accentHovered);
+  theme.gradientControls = true;
+  auto custom = MakeButtonVisual(theme);
+  custom.base.background = theme.colors.selection;
+  CHECK(ResolveVisualStyle(custom, VisualStateFlags::None).background ==
+        theme.colors.selection);
 }

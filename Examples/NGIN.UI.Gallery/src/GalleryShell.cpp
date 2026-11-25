@@ -18,7 +18,7 @@ struct Section {
 constexpr std::array Library{Page::Overview};
 constexpr std::array Foundations{Page::Layout, Page::Typography, Page::Images,
                                  Page::TextArea};
-constexpr std::array Interaction{Page::Motion, Page::Inputs, Page::Collections,
+constexpr std::array Interaction{Page::Motion, Page::Templates, Page::Inputs, Page::Collections,
                                  Page::AsyncData, Page::Overlays};
 constexpr std::array ApplicationPages{Page::PropertyEditor, Page::Resources,
                                       Page::Windows, Page::Accessibility,
@@ -61,6 +61,7 @@ auto Brand(const Theme &theme) -> Views::View {
   row.layout.gap = 10;
   row.layout.verticalAlignment = VerticalAlignment::Center;
   auto type = TextProperties(21, theme.colors.foreground);
+  type.text.font.weight = 600;
   type.layout.verticalAlignment = VerticalAlignment::Center;
   return Views::Row({Views::Row({bar(9), bar(18), bar(13)}, mark),
                      Views::Label("NGIN.UI", type)},
@@ -75,7 +76,7 @@ auto QuietButton(const Theme &theme, String label,
   p.layout.minimumSize.height = 32;
   p.layout.padding = {10, 5, 10, 5};
   p.semantics.label = label;
-  p.visual = MakeButtonVisual(theme);
+  p.visual = MakeButtonVisual(theme, ButtonAppearance::Subtle);
   p.visual.base.background =
       selected ? theme.colors.selection : Color{0, 0, 0, 0};
   p.visual.base.borderThickness = {};
@@ -85,6 +86,7 @@ auto QuietButton(const Theme &theme, String label,
     p.semantics.states |= SemanticStateFlags::Selected;
   auto type = TextProperties(14, selected ? theme.colors.focus
                                           : theme.colors.foreground);
+  type.text.font.weight = selected ? 600 : 400;
   type.layout.verticalAlignment = VerticalAlignment::Center;
   return Views::Button(std::move(action), Views::Label(label, type), p)
       .Key(key);
@@ -298,7 +300,20 @@ auto Catalogue(GalleryViewModel &model) -> Views::View {
 }
 } // namespace
 
-auto GalleryViewModel::CurrentTheme() const -> UI::Theme {
+auto AccentColor(GalleryAccent accent, bool light) -> UI::Color {
+  switch (accent) {
+  case GalleryAccent::Jade:
+    return Ink(light ? 0x176749 : 0x72D2AB);
+  case GalleryAccent::Mulberry:
+    return Ink(light ? 0x933F76 : 0xEAA4CF);
+  default:
+    return Ink(light ? 0x2949CE : 0x92A5FF);
+  }
+}
+
+auto GalleryViewModel::CurrentTheme() const -> UI::Theme { return m_currentTheme.Get(); }
+
+auto GalleryViewModel::BuildTheme() const -> UI::Theme {
   const bool light = IsLightTheme();
   auto theme = light ? UI::MakeLightTheme() : UI::Theme{};
   auto &c = theme.colors;
@@ -309,12 +324,10 @@ auto GalleryViewModel::CurrentTheme() const -> UI::Theme {
   c.foreground = Ink(light ? 0x202423 : 0xF5F3EB);
   c.mutedForeground = Ink(light ? 0x565E60 : 0xB2BABD);
   c.border = Ink(light ? 0xCFD2CD : 0x49505A);
-  c.accent = Ink(light ? 0x2949CE : 0x344FC9);
-  c.accentHovered = Ink(light ? 0x1F3AB8 : 0x405BDD);
-  c.accentPressed = Ink(0x203599);
-  c.accentForeground = Ink(0xFFFFFF);
-  c.focus = Ink(light ? 0x2644BC : 0xABC0FF);
-  c.selection = Ink(light ? 0xDDE5FF : 0x323E62);
+  // Seed the accent after the neutral surfaces: focus and selection need to
+  // remain legible against the actual paper or charcoal canvas.
+  UI::ApplyAccent(theme, AccentColor(m_accent.Get(), light));
+  theme.gradientControls = m_gradients.Get();
   theme.radii = {.small = 3, .regular = 5, .large = 8};
   theme.controls.regularHeight = 36;
   theme.controls.spaciousHeight = 40;

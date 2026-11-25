@@ -129,6 +129,45 @@ TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
   REQUIRE(selection.value().front().width > 0.0F);
 }
 
+TEST_CASE("variable weights shape and cache distinct native outlines") {
+  using namespace NGIN::UI;
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  const auto regular = text->ResolveFont({});
+  const auto semibold = text->ResolveFont({.weight = 600});
+  REQUIRE(regular);
+  REQUIRE(semibold);
+  REQUIRE(*regular != *semibold);
+  REQUIRE(text->ResolveFont({.weight = 600}).value() == *semibold);
+  const TextRun sample{.text = "MMMM", .fontSize = 40};
+  const auto regularRun = text->Shape(sample, *regular);
+  const auto semiboldRun = text->Shape(sample, *semibold);
+  REQUIRE(regularRun);
+  REQUIRE(semiboldRun);
+  CHECK(semiboldRun->size.width > regularRun->size.width);
+  CHECK(text->Shape(sample, *regular)->size.width == regularRun->size.width);
+
+  const auto glyph = regularRun->glyphs.front().glyphIndex;
+  const auto regularGlyph = text->ResolveGlyph(
+      {.fontFace = *regular, .glyphIndex = glyph, .fontSize = 40});
+  const auto semiboldGlyph = text->ResolveGlyph(
+      {.fontFace = *semibold, .glyphIndex = glyph, .fontSize = 40});
+  REQUIRE(regularGlyph);
+  REQUIRE(semiboldGlyph);
+  CHECK(regularGlyph->textureCoordinates != semiboldGlyph->textureCoordinates);
+  CHECK(text->AtlasDiagnostics().entryCount == 2);
+
+  const auto mixed = text->LayoutParagraph(
+      {.runs = {
+           {.text = "Hello مرحبا", .font = {.weight = 600}, .fontSize = 18}}});
+  REQUIRE(mixed);
+  const auto arabic =
+      text->ResolveFont({.families = {"Noto Sans Arabic"}, .weight = 600});
+  REQUIRE(arabic);
+  REQUIRE(std::ranges::any_of(
+      mixed->runs, [&](const auto &run) { return run.run.fontFace == *arabic; }));
+}
+
 TEST_CASE("bundled fallback fonts cover the gallery language contract") {
   using namespace NGIN::UI;
 
@@ -254,6 +293,43 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   REQUIRE(invisible.value().size == Size{});
   CHECK(text->AtlasDiagnostics().missCount == 2);
   CHECK(text->AtlasDiagnostics().entryCount == 1);
+}
+
+TEST_CASE("native glyph cache shares physical masks across scales and nearby "
+          "phases") {
+  using namespace NGIN::UI;
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  const auto face = text->ResolveFont({}).value();
+  const auto glyph = text->Shape({.text = "T", .fontSize = 20}, face)
+                         ->glyphs.front()
+                         .glyphIndex;
+  const auto at = [&](float size, float scale, float offset = 0) {
+    return text
+        ->ResolveGlyph({.fontFace = face,
+                        .glyphIndex = glyph,
+                        .fontSize = size,
+                        .scaleFactor = scale,
+                        .horizontalPixelOffset = offset})
+        .value();
+  };
+
+  const auto normal = at(20, 1);
+  const auto dense = at(10, 2);
+  CHECK(dense.textureCoordinates == normal.textureCoordinates);
+  CHECK(dense.size.width * 2 == normal.size.width);
+  CHECK(dense.size.height * 2 == normal.size.height);
+  CHECK(dense.bearing.x * 2 == normal.bearing.x);
+  CHECK(dense.bearing.y * 2 == normal.bearing.y);
+  CHECK(renderer.TextureUpdates().size() == 1);
+
+  // Scrolling across one pixel reuses the same four physical masks.
+  for (int step = 0; step < 16; ++step)
+    static_cast<void>(at(20, 1, step / 16.F));
+  const auto nearlyNextPixel = at(20, 1, 15.F / 16);
+  CHECK(nearlyNextPixel.textureCoordinates == normal.textureCoordinates);
+  CHECK(nearlyNextPixel.bearing.x + 15.F / 16 == normal.bearing.x + 1);
+  CHECK(renderer.TextureUpdates().size() == 4);
 }
 
 TEST_CASE(
@@ -495,6 +571,88 @@ TEST_CASE("native centered text stays pixel aligned at common DPI scales") {
   }
 }
 
+TEST_CASE("ink spacing follows shaped positions for small labels") {
+  using namespace NGIN::UI;
+  constexpr PixelSize atlas{256, 256};
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+
+  // The first horizontal moment includes the partially covered edge pixels.
+  // Measuring the bounds alone would hide the spacing error inside each quad.
+  const auto inkCenter = [&](float u, float v) {
+    const auto x = std::lround(u * atlas.width);
+    const auto y = std::lround(v * atlas.height);
+    const auto &uploads = renderer.TextureUpdates();
+    const auto found =
+        std::find_if(uploads.begin(), uploads.end(), [&](const auto &upload) {
+          return upload.region.x == x && upload.region.y == y;
+        });
+    REQUIRE(found != uploads.end());
+    double moment = 0, coverage = 0;
+    for (NGIN::UInt32 row = 0; row < found->region.height; ++row) {
+      for (NGIN::UInt32 column = 0; column < found->region.width; ++column) {
+        const auto alpha = static_cast<unsigned>(
+            found->bytes[row * found->bytesPerRow + column]);
+        coverage += alpha;
+        moment += alpha * (column + 0.5);
+      }
+    }
+    REQUIRE(coverage > 0);
+    return moment / coverage;
+  };
+
+  const auto face = text->ResolveFont({}).value();
+  for (const auto word : {"Themes", "status"}) {
+    const auto shape =
+        text->Shape({.text = word, .fontSize = 14}, face).value();
+    for (const float scale : {1.F, 1.25F, 1.5F, 2.F}) {
+      for (const float origin : {0.F, 0.5F}) {
+        CAPTURE(word, scale, origin);
+        Composer composer;
+        NodeProperties label{};
+        label.text.fontSize = 14;
+        composer.Text(word, *text, *text, label);
+        RuntimeTree tree;
+        Reconciler reconciler{tree};
+        static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+        LayoutEngine layout{tree};
+        static_cast<void>(layout.Perform({.maximum = {136, 30}},
+                                         {origin / scale, 0, 136, 30}, scale));
+        const auto packet =
+            UIRenderer{}.Build(BuildDisplayList(tree), {280, 64}, scale);
+        REQUIRE(packet.vertices.size() == 4 * shape.glyphs.size());
+        REQUIRE(renderer.Textures().size() == 1);
+
+        // Remove each glyph's own optical center using its unshifted mask;
+        // the remaining distance should equal HarfBuzz's actual pen advance.
+        double firstOrigin = 0;
+        float pen = 0;
+        for (std::size_t i = 0; i < shape.glyphs.size(); ++i) {
+          const auto &glyph = shape.glyphs[i];
+          const auto mask = text->ResolveGlyph({.fontFace = face,
+                                                .glyphIndex = glyph.glyphIndex,
+                                                .fontSize = 14,
+                                                .scaleFactor = scale})
+                                .value();
+          const auto &vertex = packet.vertices[4 * i];
+          const auto paintedCenter = vertex.x + inkCenter(vertex.u, vertex.v);
+          const auto intrinsicCenter =
+              mask.bearing.x * scale +
+              inkCenter(mask.textureCoordinates.x, mask.textureCoordinates.y);
+          const auto originError =
+              paintedCenter - intrinsicCenter - (pen + glyph.offset.x) * scale;
+          if (i == 0)
+            firstOrigin = originError;
+          CAPTURE(i);
+          // Nearest quarter-pixel placement plus grayscale raster precision.
+          CHECK(std::abs(originError - firstOrigin) < 0.17);
+          pen += glyph.advance.x;
+        }
+      }
+    }
+  }
+}
+
 TEST_CASE(
     "native text captures preserve antialiasing descenders and clipping") {
   using namespace NGIN::UI;
@@ -704,4 +862,101 @@ TEST_CASE("TextArea edits lines navigates vertically and scrolls its caret") {
   REQUIRE(semantic != nullptr);
   REQUIRE(semantic->role == SemanticRole::TextBox);
   REQUIRE(semantic->value == value.Get());
+}
+
+TEST_CASE("wrapped editor lines follow the allocated width and wheel history "
+          "survives layout") {
+  using namespace NGIN::UI;
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  State<NGIN::Text::String> value{
+      "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"};
+  NodeProperties properties{};
+  properties.layout.preferredSize = {220, 42};
+  properties.layout.padding = Thickness::Uniform(Dp{4});
+  properties.text.layout = text.get();
+  properties.text.geometry = text.get();
+  properties.text.glyphAtlas = text.get();
+  properties.text.fontSize = 16;
+  properties.scroll.wheelStep = 10;
+  Composer composer;
+  composer.TextArea(Bind(value), *text, properties, "notes");
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto area = tree.Get(tree.Root())->children.front();
+  auto *node = tree.Get(area);
+  LayoutEngine layout{tree};
+  const auto reflow = [&] {
+    static_cast<void>(layout.Perform({.maximum = {220, 42}}, {0, 0, 60, 42}));
+  };
+  reflow();
+  REQUIRE(node->text.paragraph.lines.size() > 4);
+  for (const auto &line : node->text.paragraph.lines)
+    CHECK(line.bounds.width <= node->scroll.viewportSize.width);
+  CHECK(node->scroll.contentSize == node->text.paragraph.size);
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(area));
+  const auto key = [&](LogicalKey code) {
+    REQUIRE(input
+                .Route(KeyChanged{.logicalKey = static_cast<NGIN::UInt32>(code),
+                                  .state = KeyState::Pressed})
+                .layoutStateChanged);
+    reflow();
+  };
+  key(LogicalKey::Home);
+  REQUIRE(node->scroll.offset.y > 0);
+  const auto previousY = node->text.caretRect.y;
+  key(LogicalKey::Up);
+  REQUIRE(node->text.caretRect.y < previousY);
+  key(LogicalKey::Down);
+  REQUIRE(node->text.caretRect.y == previousY);
+  const auto beforeWheel = node->scroll.offset.y;
+  REQUIRE(input
+              .Route(PointerWheelChanged{
+                  .pointerId = 1, .delta = {0, 1}, .position = {15, 15}})
+              .handled);
+  reflow();
+  CHECK(node->scroll.offset.y == beforeWheel - 10);
+  key(LogicalKey::Right);
+  CHECK(node->scroll.offset.y >= beforeWheel);
+  CHECK(node->scroll.offset.x == 0);
+}
+
+TEST_CASE("fractional font sizes preserve shaped width and raster size") {
+  using namespace NGIN::UI;
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  const auto face = text->ResolveFont({});
+  REQUIRE(face.has_value());
+
+  const auto measure = [&](NGIN::F32 size) {
+    auto run = text->Shape(TextRun{.text = "Themes status", .fontSize = size}, *face);
+    REQUIRE(run.has_value());
+    return run->size.width;
+  };
+  const auto baseWidth = measure(14.0F);
+  // Both requests round to the same whole ppem. The advances retain the
+  // requested size to within the 1/64-pixel precision of each shaped glyph.
+  for (const auto size : {14.25F, 14.375F}) {
+    const auto expectedWidth = baseWidth * size / 14.0F;
+    CHECK(std::abs(measure(size) - expectedWidth) < 0.18F);
+  }
+
+  const auto run = text->Shape(TextRun{.text = "m", .fontSize = 14.0F}, *face);
+  REQUIRE(run.has_value());
+  const auto glyph = run->glyphs.front().glyphIndex;
+  const auto resolve = [&](NGIN::F32 size, NGIN::F32 scale) {
+    return text->ResolveGlyph({.fontFace = *face, .glyphIndex = glyph,
+                               .fontSize = size, .scaleFactor = scale});
+  };
+  const auto first = resolve(14.0F, 1.25F); // 17.5 physical pixels
+  const auto second = resolve(18.0F, 1.0F);
+  const auto alias = resolve(17.5F, 1.0F);
+  REQUIRE(first.has_value());
+  REQUIRE(second.has_value());
+  REQUIRE(alias.has_value());
+  CHECK(text->AtlasDiagnostics().uploadCount == 2);
+  CHECK(first->textureCoordinates == alias->textureCoordinates);
+  CHECK(std::abs(first->size.width * 1.25F - alias->size.width) < 0.001F);
 }

@@ -408,14 +408,20 @@ auto Button(CommandBinding command, View content, NodeProperties properties)
 
 auto Button(NGIN::Text::String label, Utilities::Callable<void()> activate)
     -> View {
+  return Button(std::move(label), std::move(activate),
+                ButtonAppearance::Accent);
+}
+
+auto Button(NGIN::Text::String label, Utilities::Callable<void()> activate,
+            ButtonAppearance appearance) -> View {
   auto action =
       std::make_shared<Utilities::Callable<void()>>(std::move(activate));
-  return Element([label = std::move(label), action = std::move(action)](
-                     Composer &composer, const ViewEnvironment &env,
-                     std::string_view key) {
+  return Element([label = std::move(label), action = std::move(action),
+                  appearance](Composer &composer, const ViewEnvironment &env,
+                              std::string_view key) {
     NodeProperties button;
     button.semantics.label = label;
-    button.visual = MakeButtonVisual(env.theme);
+    button.visual = MakeButtonVisual(env.theme, appearance);
     button.layout.minimumSize.height = env.theme.controls.regularHeight;
     button.layout.padding = Thickness::Uniform(Dp{env.theme.spacing.regular});
     button.interaction.enabled = static_cast<bool>(*action);
@@ -428,7 +434,9 @@ auto Button(NGIN::Text::String label, Utilities::Callable<void()> activate)
     auto text = TextProperties(env);
     text.interaction.hitTestVisible = false;
     text.semantics.hidden = true;
-    text.text.color = env.theme.colors.accentForeground;
+    text.text.color = button.interaction.enabled
+                          ? *button.visual.base.foreground
+                          : env.theme.colors.disabledForeground;
     text.text.alignment = TextAlignment::Center;
     composer.Text(label, env.layout, env.atlas, text);
   });

@@ -10,6 +10,7 @@
 #include <limits>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace NGIN::UI {
 namespace {
@@ -943,6 +944,7 @@ void InputRouter::StartTextInput(const RuntimeNode &node) noexcept {
 }
 
 void InputRouter::StopTextInput(const RuntimeNode &node) noexcept {
+  m_expectShortcutSpace = false;
   if (!IsTextEditor(node.type)) {
     return;
   }
@@ -960,6 +962,7 @@ void InputRouter::StopTextInput(const RuntimeNode &node) noexcept {
 }
 
 void InputRouter::StopOrphanedTextInput() noexcept {
+  m_expectShortcutSpace = false;
   if (!m_textInputActive) {
     return;
   }
@@ -1010,6 +1013,7 @@ auto InputRouter::CommitTextFieldEdit(
     return result;
   }
 
+  node.textField.revealCaret = true;
   result.layoutStateChanged = true;
   return result;
 }
@@ -1040,6 +1044,7 @@ auto InputRouter::RouteTextFieldComposition(RuntimeNode &node,
         static_cast<bool>(node.properties.textField.onError);
     return result;
   }
+  node.textField.revealCaret = true;
   result.layoutStateChanged = true;
   return result;
 }
@@ -1058,9 +1063,11 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
 
   if (command && IsLogicalCharacter(key, 'A')) {
     editing.SelectAll();
+    node.textField.revealCaret = true;
     return InputDispatchResult{
         .handled = true,
         .visualStateChanged = true,
+        .layoutStateChanged = true,
     };
   }
 
@@ -1120,7 +1127,12 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
     return RouteTextFieldInput(node, pasted.value());
   }
 
-  if (node.type == ElementType::TextArea && key == LogicalKey::Enter) {
+  const bool shiftSpace = key == LogicalKey::Space && extend && !command &&
+                          !HasKeyModifier(event.modifiers, KeyModifierFlags::Alt);
+  if (node.type == ElementType::TextArea && !editing.HasComposition() &&
+      (key == LogicalKey::Enter || shiftSpace)) {
+    // SDL can also deliver a committed space for this printable shortcut.
+    m_expectShortcutSpace = shiftSpace;
     return CommitTextFieldEdit(
         node, [](TextEditingBuffer &buffer) -> UIResult<void> {
           return buffer.ReplaceSelection(NGIN::Text::String{"\n"});
@@ -1176,8 +1188,14 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
               : std::min(node.text.paragraph.lines.size() - 1, currentLine + 1);
       const auto &candidateLine = node.text.paragraph.lines[nextLine];
       const auto first = editing.ClusterForByteOffset(candidateLine.byteOffset);
-      const auto last = editing.ClusterForByteOffset(candidateLine.byteOffset +
-                                                     candidateLine.byteLength);
+      const auto endByte = candidateLine.byteOffset + candidateLine.byteLength;
+      auto last = editing.ClusterForByteOffset(endByte);
+      // A soft break shares one byte offset with the following line. The
+      // geometry service draws that caret at the start of the following line.
+      if (nextLine + 1 < node.text.paragraph.lines.size() && last > first &&
+          node.text.paragraph.lines[nextLine + 1].byteOffset == endByte) {
+        --last;
+      }
       target = first;
       auto bestDistance = std::numeric_limits<F32>::infinity();
       for (auto cluster = first; cluster <= last; ++cluster) {
@@ -1204,6 +1222,7 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
               static_cast<bool>(node.properties.textField.onError),
       };
     }
+    node.textField.revealCaret = true;
     return InputDispatchResult{
         .handled = true,
         .visualStateChanged = true,
@@ -1239,9 +1258,11 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
         .callbackInvoked = static_cast<bool>(node.properties.textField.onError),
     };
   }
+  node.textField.revealCaret = true;
   return InputDispatchResult{
       .handled = true,
       .visualStateChanged = true,
+      .layoutStateChanged = true,
   };
 }
 
@@ -1581,6 +1602,7 @@ auto InputRouter::RouteMenuKey(const ElementHandle itemHandle,
 }
 
 auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
+  m_expectShortcutSpace = false;
   if (event.state == KeyState::Pressed &&
       event.Logical() == LogicalKey::Escape) {
     const auto popup = TopPopup();
@@ -1738,6 +1760,9 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
 }
 
 auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
+  if (std::exchange(m_expectShortcutSpace, false) && event.text.View() == " ") {
+    return {.handled = true};
+  }
   RoutedTextEvent routed{
       .eventKind = RoutedTextEventKind::Input,
       .text = event.text,
@@ -1761,6 +1786,7 @@ auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
 
 auto InputRouter::RouteText(const TextComposition &event)
     -> InputDispatchResult {
+  m_expectShortcutSpace = false;
   RoutedTextEvent routed{
       .eventKind = RoutedTextEventKind::Composition,
       .text = event.text,

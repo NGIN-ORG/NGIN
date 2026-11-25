@@ -68,7 +68,7 @@ auto main(const int argc, char **argv) -> int {
   }
   auto application = std::move(createdApplication).value();
 
-  auto createdText = NativeTextSystem::Create(application->Renderer());
+  auto createdText = NativeTextSystem::Create(application->Renderer(), NGIN::UIGallery::GalleryTextConfig());
   if (!createdText) {
     return ReportError("Native text creation failed", createdText.error());
   }

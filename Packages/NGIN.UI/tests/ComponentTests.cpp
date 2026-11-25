@@ -214,3 +214,29 @@ TEST_CASE("changing a nested component key replaces a same-type runtime leaf") {
   CHECK_FALSE(surface.Tree().IsAlive(oldButton));
   CHECK_FALSE(surface.FocusedElement());
 }
+
+TEST_CASE(
+    "labelled button appearance and disabled ink follow the mounted theme") {
+  HeadlessText text;
+  auto env = text.Environment();
+  env.theme = MakeLightTheme();
+  Surface surface;
+  surface.SetContent(
+      Views::Column({Views::Button(
+                         "Cancel", [] {}, ButtonAppearance::Neutral),
+                     Views::Button("Save", {}, ButtonAppearance::Accent)}),
+      env);
+  REQUIRE(surface.Update({300, 120}, 1));
+  const auto &tree = surface.Tree();
+  const auto *column = tree.Get(tree.Get(tree.Root())->children.front());
+  REQUIRE(column->children.size() == 2);
+  const auto *neutral = tree.Get(column->children[0]);
+  const auto *disabled = tree.Get(column->children[1]);
+  CHECK(neutral->properties.visual.base.background ==
+        env.theme.colors.raisedSurface);
+  CHECK(tree.Get(neutral->children.front())->properties.text.color ==
+        env.theme.colors.foreground);
+  CHECK_FALSE(disabled->properties.interaction.enabled);
+  CHECK(tree.Get(disabled->children.front())->properties.text.color ==
+        env.theme.colors.disabledForeground);
+}

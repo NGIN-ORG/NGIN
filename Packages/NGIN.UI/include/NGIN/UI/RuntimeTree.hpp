@@ -62,6 +62,7 @@ struct WrapPanelLayoutState final {
 struct TextFieldRuntimeState final {
   std::shared_ptr<TextEditingBuffer> editing{};
   IGraphemeSegmenter *graphemeSegmenter{nullptr};
+  bool revealCaret{false};
 };
 
 /// @brief Glyph atlas and positioned quads retained for one text run.

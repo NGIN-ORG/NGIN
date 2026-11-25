@@ -8,7 +8,104 @@ using namespace NGIN::UI;
 using NGIN::Text::String;
 
 namespace {
-enum class LayoutStudy { Tracks, Flow, Canvas };
+enum class LayoutStudy { Sizing, Tracks, Flow, Canvas };
+
+// A file queue has three distinct sizing needs. Every row shares the same
+// column definitions, so a longer status moves the boundary for both files.
+auto ExportQueue(const Theme &theme, bool narrow, bool detailed)
+    -> Views::View {
+  NodeProperties grid{};
+  if (narrow)
+    grid.layout.maximumSize.width = 320;
+  grid.layout.padding = Thickness::Uniform(Dp{12});
+  grid.visual = MakePanelVisual(theme);
+  grid.visual.base.background = theme.colors.raisedSurface;
+  grid.grid.columns = {GridTrack::Fixed(52), GridTrack::Weighted(),
+                       GridTrack::Auto()};
+  grid.grid.rows = {GridTrack::Auto(), GridTrack::Auto(), GridTrack::Auto()};
+  grid.grid.columnGap = 10;
+  grid.grid.rowGap = 12;
+  grid.semantics.role = SemanticRole::Group;
+  grid.semantics.label = "Export queue";
+
+  std::vector<Views::View> cells;
+  constexpr std::array rules{"Fixed", "Stretch", "Fit text"};
+  for (UIntSize i = 0; i < rules.size(); ++i) {
+    auto label = TextProperties(12, theme.colors.mutedForeground);
+    label.gridPlacement.column = i;
+    cells.push_back(Views::Label(rules[i], label).Key(rules[i]));
+  }
+  struct File {
+    const char *format;
+    const char *name;
+    const char *metadata;
+    const char *shortStatus;
+    const char *longStatus;
+  };
+  constexpr std::array files{File{"WAV", "Rain on glass", "48 kHz · stereo",
+                                  "Ready", "Ready to export"},
+                             File{"FLAC", "Room tone", "96 kHz · mono",
+                                  "Queued", "Awaiting mix"}};
+  for (UIntSize i = 0; i < files.size(); ++i) {
+    const auto &file = files[i];
+    const auto row = i + 1;
+    NodeProperties tile{};
+    tile.gridPlacement = {.row = row, .column = 0};
+    tile.layout.minimumSize.height = 44;
+    tile.visual.base.background = theme.colors.selection;
+    tile.visual.base.cornerRadius =
+        CornerRadius::Uniform(Dp{theme.radii.small});
+    auto format = TextProperties(13, theme.colors.focus);
+    format.layout.horizontalAlignment = HorizontalAlignment::Center;
+    format.layout.verticalAlignment = VerticalAlignment::Center;
+    cells.push_back(Views::Border({Views::Label(file.format, format)}, tile)
+                        .Key(file.format));
+
+    NodeProperties fileInfo{};
+    fileInfo.gridPlacement = {.row = row, .column = 1};
+    fileInfo.layout.verticalAlignment = VerticalAlignment::Center;
+    cells.push_back(
+        Views::Column(
+            {TextView(file.name, 16, theme.colors.foreground, "file-name"),
+             TextView(file.metadata, 12, theme.colors.mutedForeground,
+                      "file-details")},
+            fileInfo)
+            .Key(file.name));
+
+    auto status = TextProperties(13, theme.colors.foreground);
+    status.gridPlacement = {.row = row, .column = 2};
+    status.layout.verticalAlignment = VerticalAlignment::Center;
+    cells.push_back(
+        Views::Label(detailed ? file.longStatus : file.shortStatus, status)
+            .Key(file.shortStatus));
+  }
+  return Views::Grid(std::move(cells), grid).Key("export-queue");
+}
+
+auto SizingStudy(const Theme &theme) -> Views::View {
+  return Views::Component([theme](Views::ComponentScope &scope) {
+    auto narrow = scope.Local("narrow", false);
+    auto detailed = scope.Local("detailed", false);
+    return SampleCard(
+        theme,
+        {TextView("Export queue", 22, theme.colors.foreground, "sizing-title",
+                  SemanticRole::Heading),
+         ActionRow({SamplePicker(theme, narrow, "Queue width",
+                                 {{false, "Fill panel", "sizing-fill"},
+                                  {true, "320 dp", "sizing-narrow"}})
+                        .Key("queue-width"),
+                    SamplePicker(theme, detailed, "Status labels",
+                                 {{false, "Short status", "status-short"},
+                                  {true, "Full status", "status-full"}})
+                        .Key("status-labels")},
+                   "sizing-options"),
+         ExportQueue(theme, narrow.Get(), detailed.Get()),
+         TextView("The format takes 52 dp. Status fits its longest label, and "
+                  "filenames take the remaining space.",
+                  14, theme.colors.mutedForeground, "sizing-description")},
+        "sizing", "sizing-study");
+  });
+}
 
 // The artboard uses the same public layout primitives as an application. Each
 // study changes their actual inputs so layout diagnostics match the preview.
@@ -119,11 +216,14 @@ auto CanvasStudy(const Theme &theme) -> Views::View {
 }
 } // namespace
 
-auto LayoutView(const Theme &theme) -> Views::View {
-  return Views::Component([theme](Views::ComponentScope &scope) {
-    auto study = scope.Local("layout", LayoutStudy::Tracks);
+auto LayoutView(GalleryViewModel &model, const Theme &theme) -> Views::View {
+  return Views::Component([&model, theme](Views::ComponentScope &scope) {
+    auto study = scope.Local("layout", LayoutStudy::Sizing);
     Views::View artboard;
     switch (study.Get()) {
+    case LayoutStudy::Sizing:
+      artboard = SizingStudy(theme);
+      break;
     case LayoutStudy::Tracks:
       artboard = TrackStudy(theme);
       break;
@@ -134,23 +234,37 @@ auto LayoutView(const Theme &theme) -> Views::View {
       artboard = CanvasStudy(theme);
       break;
     }
-    return PageContentView(
-        {PageHeadingView(
-             theme, "Responsive layout",
-             "Change the space, tracks or coordinates of a layout."),
-         SamplePicker(theme, study, "Layout primitive",
-                      {{LayoutStudy::Tracks, "Grid", "layout-grid"},
-                       {LayoutStudy::Flow, "Wrap", "layout-wrap"},
-                       {LayoutStudy::Canvas, "Canvas", "layout-canvas"}}),
-         std::move(artboard)});
+    const bool compact = model.IsCompact();
+    auto heading =
+        compact ? TextView("Responsive layout", 30, theme.colors.foreground,
+                           "page-title", SemanticRole::Heading)
+                : PageHeadingView(
+                      theme, "Responsive layout",
+                      "Change the space, tracks or coordinates of a layout.");
+    std::vector<Views::View> content{
+        std::move(heading),
+        SamplePicker(theme, study, "Layout primitive",
+                     {{LayoutStudy::Sizing, "Sizing", "layout-sizing"},
+                      {LayoutStudy::Tracks, "Grid", "layout-grid"},
+                      {LayoutStudy::Flow, "Wrap", "layout-wrap"},
+                      {LayoutStudy::Canvas, "Canvas", "layout-canvas"}}),
+        std::move(artboard)};
+    if (!compact)
+      return PageContentView(std::move(content));
+    NodeProperties column{};
+    column.layout.gap = 12;
+    return Views::Column(std::move(content), column)
+        .Key("gallery-page-content");
   });
 }
 
 auto TypographyView(const Theme &theme) -> Views::View {
   return Views::Component([theme](Views::ComponentScope &scope) {
     auto size = scope.Local("size", 30);
+    auto weight = scope.Local("weight", UInt16{400});
     auto line =
         TextProperties(static_cast<F32>(size.Get()), theme.colors.foreground);
+    line.text.font.weight = weight.Get();
     line.text.lineHeight = static_cast<F32>(size.Get()) * 1.35F;
     line.layout.horizontalAlignment = HorizontalAlignment::Stretch;
     NodeProperties paper{};
@@ -159,12 +273,16 @@ auto TypographyView(const Theme &theme) -> Views::View {
     return PageContentView(
         {PageHeadingView(
              theme, "Typography",
-             "Set a line of type and compare the shapes across scripts."),
+             "Set the size and weight of Inter, the gallery typeface."),
          SampleCard(theme,
                     {SamplePicker(theme, size, "Preview type size",
                                   {{16, "Body 16", "type-body"},
                                    {30, "Title 30", "type-title"},
                                    {44, "Display 44", "type-display"}}),
+                     SamplePicker<UInt16>(theme, weight, "Preview font weight",
+                                          {{400, "Regular", "type-regular"},
+                                           {500, "Medium", "type-medium"},
+                                           {600, "Semibold", "type-semibold"}}),
                      Views::Border(
                          {Views::Label(
                               "Pack my box with five dozen liquor jugs.", line)
@@ -193,32 +311,16 @@ auto TypographyView(const Theme &theme) -> Views::View {
 }
 
 auto TextAreaView(GalleryViewModel &model, const Theme &theme) -> Views::View {
-  NodeProperties area{};
-  area.layout.preferredSize.height = 230;
-  area.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-  area.layout.padding = {14, 12, 14, 12};
-  area.visual = MakeTextFieldVisual(theme);
-  area.text.fontSize = 16;
-  area.text.lineHeight = 23;
-  area.text.wrapping = TextWrapping::Wrap;
-  area.text.color = theme.colors.foreground;
-  area.textField.selectionColor = theme.colors.selection;
-  area.textField.caretColor = area.textField.compositionColor =
-      theme.colors.focus;
-  area.textField.onError = [&model](const UIError &error) {
-    model.Report(error);
-  };
-  StyleScrollView(area, theme);
   return PageContentView(
       {PageHeadingView(theme, "Text editor",
                        "Write a few lines. Use Shift and the arrow keys to "
                        "extend a selection."),
-       SampleCard(theme,
-                  {TextView("Project notes", 21, theme.colors.foreground,
-                            "text-area-title", SemanticRole::Heading),
-                   Views::TextArea("Project notes", model.NotesBinding(), area)
-                       .Key("project-notes")},
-                  "text-area-column", "text-area-card")});
+       SampleCard(
+           theme,
+           {TextView("Project notes", 21, theme.colors.foreground,
+                     "text-area-title", SemanticRole::Heading),
+            NotesEditor(model, theme, "Project notes", "project-notes", 230)},
+           "text-area-column", "text-area-card")});
 }
 
 auto ImagesView(GalleryViewModel &model, const Theme &theme) -> Views::View {

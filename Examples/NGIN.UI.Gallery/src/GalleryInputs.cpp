@@ -133,7 +133,7 @@ auto TextEntry(GalleryViewModel &model, const Theme &theme) -> Views::View {
           if (!result)
             model.Report(result.error());
         },
-        "tooltip-target", 125, true, false, help));
+        "tooltip-target", 125, ButtonAppearance::Neutral, true, false, help));
     content.push_back(
         Views::ToolTip(
             *help, CardView(theme,
@@ -151,36 +151,46 @@ auto Validation(GalleryViewModel &model, const Theme &theme) -> Views::View {
                "validation-title", SemanticRole::Heading),
       TextView("Try “admin” to check an unavailable name.", 14,
                theme.colors.mutedForeground, "name-hint")};
-  const auto field = [&](const char *name, Binding<String> binding,
-                         const char *key, String feedback,
-                         bool masked = false) {
+  const auto field = [&](const char *name, const char *key,
+                         FieldFeedback feedback, Views::View editor) {
     content.push_back(TextView(name, 15, theme.colors.foreground,
                                std::string{key} + "-label"));
-    content.push_back(TextFieldView(model, theme, std::move(binding), name, key,
-                                    false, true, false, masked));
-    content.push_back(TextView(std::move(feedback), 13,
-                               theme.colors.mutedForeground,
+    content.push_back(std::move(editor));
+    content.push_back(TextView(std::move(feedback.message), 13,
+                               feedback.invalid ? theme.colors.error
+                                                : theme.colors.mutedForeground,
                                std::string{key} + "-message"));
   };
-  field("Display name", model.NameBinding(), "validation-name",
-        model.NameValidationMessage());
-  field("Password", model.PasswordBinding(), "validation-password",
-        model.PasswordValidationMessage(), true);
-  field("Notes", model.NotesBinding(), "validation-notes",
-        model.NotesValidationMessage());
+  const auto singleLine = [&](const char *name, Binding<String> binding,
+                              const char *key, FieldFeedback feedback,
+                              bool masked = false) {
+    auto editor = TextFieldView(model, theme, std::move(binding), name, key,
+                                false, true, feedback.invalid, masked);
+    field(name, key, std::move(feedback), std::move(editor));
+  };
+  singleLine("Display name", model.NameBinding(), "validation-name",
+             model.NameFeedback());
+  singleLine("Password", model.PasswordBinding(), "validation-password",
+             model.PasswordFeedback(), true);
+  auto notes = model.NotesFeedback();
+  auto editor = NotesEditor(model, theme, "Notes", "validation-notes", 138,
+                            notes.invalid);
+  field("Notes", "validation-notes", std::move(notes), std::move(editor));
   content.push_back(ActionRow(
       {ButtonView(
            theme, "Check form", [&model] { model.ValidateForm(); },
-           "validation-check", 124,
+           "validation-check", 124, ButtonAppearance::Neutral,
            !model.IsFormValidating() && !model.IsFormSaving()),
        CommandButtonView(theme, "Save", model.FormSaveBinding(),
                          "validation-save", 82),
        ButtonView(
            theme, "Simulate error", [&model] { model.StartFailingFormSave(); },
-           "validation-fail", 140, model.FormSaveBinding().CanExecute()),
+           "validation-fail", 140, ButtonAppearance::Neutral,
+           model.FormSaveBinding().CanExecute()),
        ButtonView(
            theme, "Cancel", [&model] { model.CancelFormSave(); },
-           "validation-cancel", 92, model.IsFormSaving())},
+           "validation-cancel", 92, ButtonAppearance::Subtle,
+           model.IsFormSaving())},
       "validation-actions"));
   content.push_back(TextView(model.ValidationSummary(), 14,
                              theme.colors.foreground, "validation-summary"));
@@ -228,7 +238,10 @@ auto AsyncDataView(GalleryViewModel &model, const Theme &theme) -> Views::View {
   auto select = [&](const char *label, const char *source, const char *id) {
     return ButtonView(
         theme, label, [&model, source] { model.SelectAsyncDemo(source); }, id,
-        116, true, key.View() == source);
+        116,
+        key.View() == source ? ButtonAppearance::Accent
+                             : ButtonAppearance::Neutral,
+        true, key.View() == source);
   };
   std::vector<Views::View> mailbox{ActionRow(
       {select("Inbox", "inbox", "async-items"),
@@ -236,7 +249,7 @@ auto AsyncDataView(GalleryViewModel &model, const Theme &theme) -> Views::View {
        select("Offline", "broken", "async-error"),
        ButtonView(
            theme, "Switch rapidly", [&model] { model.RunRapidAsyncDemo(); },
-           "async-rapid", 152)},
+           "async-rapid", 152, ButtonAppearance::Subtle)},
       "async-choices")};
   const auto state = model.AsyncDemoState();
   const char *heading = "Ready to load";

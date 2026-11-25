@@ -29,6 +29,53 @@ tokens. A `Theme` can be published through `ThemeResource` in a
 `ResourceScope`; controls should receive or resolve that theme during
 composition rather than copying colors into control code.
 
+## Accent and control finish
+
+Once the neutral surfaces are set, use `ApplyAccent` to derive hover,
+pressed, label, focus and selection colors from one opaque RGB seed. Call
+it when a theme changes. The Gallery’s Themes page lets you try this
+across the running application.
+
+```cpp
+using namespace NGIN::UI;
+
+auto theme = MakeLightTheme();
+ApplyAccent(theme, Color{0.09F, 0.40F, 0.29F, 1.0F});
+auto save = MakeButtonVisual(theme);
+auto cancel = MakeButtonVisual(theme, ButtonAppearance::Neutral);
+auto dismiss = MakeButtonVisual(theme, ButtonAppearance::Subtle);
+```
+
+Accent buttons use the theme's accent foreground. Neutral and subtle buttons
+use its ordinary foreground. The labelled button overload selects its text color
+automatically, as in `Views::Button("Cancel", cancel, ButtonAppearance::Neutral)`.
+For custom content, pass the matching foreground to child labels.
+Setting `theme.gradientControls = false` gives controls a flat finish.
+
+### Drawing a gradient
+
+A background or state patch accepts a solid `Color` or a `LinearGradient`.
+The direction is relative to the element’s own bounds. Endpoints can have
+different alpha values. The renderer interpolates premultiplied RGBA and
+uses the same clipping, corner radii and geometry as a solid fill.
+
+```cpp
+NodeProperties preview{};
+preview.visual.base.cornerRadius = CornerRadius::Uniform(Dp{8});
+preview.visual.base.background = LinearGradient{
+    theme.colors.accentHovered, theme.colors.accentPressed,
+    GradientDirection::Horizontal};
+preview.visual.states.disabled.background = theme.colors.disabledSurface;
+```
+
+The other directions are `Vertical`, `DiagonalDown` (top left to bottom
+right) and `DiagonalUp` (bottom left to top right). A state patch replaces
+the whole brush. With a visual transition configured, the two color stops
+animate when the element changes state. To draw the same fill inside a custom
+element, call `paint.FillGradient(bounds, radius, gradient)`. The gradient
+shares the existing solid-fill geometry and can batch with adjacent untextured
+shapes that use the same clip.
+
 ## Visual Properties
 
 Every `NodeProperties` has `visual` properties:

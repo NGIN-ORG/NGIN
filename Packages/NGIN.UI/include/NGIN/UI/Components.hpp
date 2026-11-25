@@ -157,6 +157,9 @@ template <typename Factory>
 }
 [[nodiscard]] auto Button(NGIN::Text::String label,
                           Utilities::Callable<void()> activate) -> View;
+[[nodiscard]] auto Button(NGIN::Text::String label,
+                          Utilities::Callable<void()> activate,
+                          ButtonAppearance appearance) -> View;
 [[nodiscard]] auto TextField(NGIN::Text::String label,
                              Binding<NGIN::Text::String> value) -> View;
 [[nodiscard]] auto Slider(NGIN::Text::String label, Binding<F32> value,

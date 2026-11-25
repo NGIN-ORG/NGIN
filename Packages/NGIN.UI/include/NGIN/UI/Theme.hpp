@@ -12,8 +12,8 @@ struct ColorPalette final {
   Color sunkenSurface{0.055F, 0.06F, 0.08F, 1.0F};
   Color foreground{0.94F, 0.95F, 0.97F, 1.0F};
   Color mutedForeground{0.65F, 0.68F, 0.72F, 1.0F};
-  Color accent{0.20F, 0.48F, 0.92F, 1.0F};
-  Color accentHovered{0.25F, 0.55F, 1.0F, 1.0F};
+  Color accent{0.20F, 0.38F, 0.80F, 1.0F};
+  Color accentHovered{0.25F, 0.41F, 0.83F, 1.0F};
   Color accentPressed{0.14F, 0.38F, 0.78F, 1.0F};
   Color accentForeground{1.0F, 1.0F, 1.0F, 1.0F};
   Color border{0.29F, 0.31F, 0.37F, 1.0F};
@@ -61,7 +61,8 @@ struct MotionTheme final {
   F32 regularMilliseconds{180.0F};
 };
 
-/// @brief Complete palette, typography, spacing, radius, size, and motion theme.
+/// @brief Complete palette, typography, spacing, radius, size, and motion
+/// theme.
 struct Theme final {
   UInt64 revision{1};
   ColorPalette colors{};
@@ -70,6 +71,8 @@ struct Theme final {
   RadiusScale radii{};
   ControlSizeScale controls{};
   MotionTheme motion{};
+  /// Apply a subtle directional finish to primary controls and active tracks.
+  bool gradientControls{true};
 };
 
 [[nodiscard]] inline auto MakePanelVisual(const Theme &theme)
@@ -83,21 +86,59 @@ struct Theme final {
   return result;
 }
 
-[[nodiscard]] inline auto MakeButtonVisual(const Theme &theme)
+/// @brief Hierarchy for command buttons. Neutral and subtle share the ordinary
+/// text color.
+enum class ButtonAppearance : UInt8 { Accent, Neutral, Subtle };
+
+/// @brief Active fill derived from the supplied state color and the theme's
+/// accent ink.
+[[nodiscard]] inline auto MakeAccentBrush(const Theme &theme, Color color)
+    -> BackgroundBrush {
+  if (!theme.gradientControls)
+    return color;
+  // Shade away from the label's ink, preserving its contrast across the face.
+  const auto ink = theme.colors.accentForeground;
+  const auto edge = ink.red + ink.green + ink.blue > 1.5F ? 0.0F : 1.0F;
+  const Color shade{std::lerp(color.red, edge, 0.14F),
+                    std::lerp(color.green, edge, 0.14F),
+                    std::lerp(color.blue, edge, 0.14F), color.alpha};
+  return LinearGradient{color, shade};
+}
+
+[[nodiscard]] inline auto
+MakeButtonVisual(const Theme &theme,
+                 ButtonAppearance appearance = ButtonAppearance::Accent)
     -> VisualProperties {
   auto result = MakePanelVisual(theme);
-  result.base.background = theme.colors.accent;
-  result.base.foreground = theme.colors.accentForeground;
-  result.states.hovered.background = theme.colors.accentHovered;
-  result.states.pressed.background = theme.colors.accentPressed;
-  result.states.disabled.background = theme.colors.disabledSurface;
-  result.states.disabled.foreground = theme.colors.disabledForeground;
+  const auto &c = theme.colors;
+  if (appearance == ButtonAppearance::Accent) {
+    result.base.background = MakeAccentBrush(theme, c.accent);
+    result.base.foreground = c.accentForeground;
+    result.base.borderColor = c.accentPressed;
+    result.states.hovered.background = MakeAccentBrush(theme, c.accentHovered);
+    result.states.pressed.background = c.accentPressed;
+  } else {
+    result.base.foreground = c.foreground;
+    result.base.background = c.raisedSurface;
+    result.states.hovered.background = c.sunkenSurface;
+    result.states.pressed.background = c.selection;
+    if (appearance == ButtonAppearance::Subtle) {
+      result.base.background = Color{0, 0, 0, 0};
+      result.base.borderThickness = {};
+      result.states.disabled.background = Color{0, 0, 0, 0};
+    }
+  }
+  if (appearance != ButtonAppearance::Subtle)
+    result.states.disabled.background = c.disabledSurface;
+  result.states.disabled.borderColor = c.border;
+  result.states.disabled.foreground = c.disabledForeground;
   result.transition = AnimationSpec{
-      .timing = TweenTiming{
-          .duration = std::chrono::milliseconds{
-              static_cast<Int64>(theme.motion.fastMilliseconds)},
-          .curve = EasingCurve::Standard(),
-      },
+      .timing =
+          TweenTiming{
+              .duration = std::chrono::milliseconds{static_cast<Int64>(
+                  theme.motion.fastMilliseconds)},
+              .curve = EasingCurve::Standard(),
+          },
   };
   result.focus = FocusVisual{
       .color = theme.colors.focus,
@@ -113,20 +154,21 @@ struct Theme final {
 [[nodiscard]] inline auto MakeTextFieldVisual(const Theme &theme)
     -> VisualProperties {
   auto result = MakePanelVisual(theme);
-  result.base.background = theme.colors.sunkenSurface;
+  result.base.background = theme.colors.raisedSurface;
   result.base.foreground = theme.colors.foreground;
   result.states.hovered.borderColor = theme.colors.mutedForeground;
   result.states.focused.borderColor = theme.colors.focus;
   result.states.invalid.borderColor = theme.colors.error;
-  result.states.readOnly.background = theme.colors.disabledSurface;
+  result.states.readOnly.background = theme.colors.surface;
   result.states.disabled.background = theme.colors.disabledSurface;
   result.states.disabled.foreground = theme.colors.disabledForeground;
   result.transition = AnimationSpec{
-      .timing = TweenTiming{
-          .duration = std::chrono::milliseconds{
-              static_cast<Int64>(theme.motion.fastMilliseconds)},
-          .curve = EasingCurve::Standard(),
-      },
+      .timing =
+          TweenTiming{
+              .duration = std::chrono::milliseconds{static_cast<Int64>(
+                  theme.motion.fastMilliseconds)},
+              .curve = EasingCurve::Standard(),
+          },
   };
   result.focus = FocusVisual{
       .color = theme.colors.focus,
@@ -157,7 +199,7 @@ struct Theme final {
       .foreground = Color{0.08F, 0.1F, 0.14F, 1.0F},
       .mutedForeground = Color{0.34F, 0.38F, 0.45F, 1.0F},
       .accent = Color{0.08F, 0.38F, 0.82F, 1.0F},
-      .accentHovered = Color{0.05F, 0.45F, 0.94F, 1.0F},
+      .accentHovered = Color{0.12F, 0.40F, 0.83F, 1.0F},
       .accentPressed = Color{0.04F, 0.3F, 0.68F, 1.0F},
       .accentForeground = Color{1.0F, 1.0F, 1.0F, 1.0F},
       .border = Color{0.7F, 0.73F, 0.78F, 1.0F},

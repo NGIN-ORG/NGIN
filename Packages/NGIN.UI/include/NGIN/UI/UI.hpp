@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/UI/Accent.hpp>
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Application.hpp>

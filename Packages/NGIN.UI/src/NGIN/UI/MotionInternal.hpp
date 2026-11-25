@@ -12,7 +12,7 @@ struct MotionSnapshot final {
   F32 value{0.0F};
   F32 opacity{1.0F};
   MotionTransform transform{};
-  Color background{};
+  BackgroundBrush background{};
   Color foreground{};
   Color borderColor{};
   F32 focusOpacity{0.0F};

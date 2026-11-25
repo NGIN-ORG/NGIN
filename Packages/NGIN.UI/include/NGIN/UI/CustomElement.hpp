@@ -193,7 +193,9 @@ public:
   [[nodiscard]] auto Bounds() const noexcept -> Rect;
   void Fill(Rect rect, Color color);
   void FillRounded(Rect rect, CornerRadius radius, Color color);
+  void FillGradient(Rect rect, CornerRadius radius, LinearGradient gradient);
   void Stroke(Rect rect, F32 thickness, Color color);
+  void Line(Point from, Point to, F32 thickness, Color color);
   void StrokeRounded(Rect rect, CornerRadius radius, F32 thickness,
                      Color color);
   void Image(TextureHandle texture, Rect destination,

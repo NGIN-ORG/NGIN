@@ -1,35 +1,10 @@
 #include "GallerySamplePicker.hpp"
 
-#include <cmath>
-#include <cstdio>
-#include <memory>
-
 namespace NGIN::UIGallery::Pages {
 using namespace UI;
 using Text::String;
 
 namespace {
-auto Swatch(const Theme &theme, const char *name, Color color) -> Views::View {
-  NodeProperties sample{};
-  sample.layout.preferredSize = {118, 52};
-  sample.visual = MakePanelVisual(theme);
-  sample.visual.base.background = color;
-  char hex[16]{};
-  const auto channel = [](F32 c) {
-    return static_cast<unsigned>(std::lround(c * 255));
-  };
-  std::snprintf(hex, sizeof(hex), "#%02X%02X%02X", channel(color.red),
-                channel(color.green), channel(color.blue));
-  NodeProperties column{};
-  column.layout.gap = 4;
-  return Views::Column(
-             {Views::Border({}, sample),
-              TextView(name, 15, theme.colors.foreground, "name"),
-              TextView(hex, 13, theme.colors.mutedForeground, "value")},
-             column)
-      .Key(name);
-}
-
 auto WindowAction(GalleryViewModel &model, const Theme &theme, bool modal)
     -> Views::View {
   return ButtonView(
@@ -123,32 +98,6 @@ auto WindowsView(GalleryViewModel &model, const Theme &theme) -> Views::View {
                      theme.colors.mutedForeground, "dialog-description"),
             WindowAction(model, theme, true)},
            "dialog-actions", "dialog-card")});
-}
-
-auto ResourcesView(GalleryViewModel &model, const Theme &theme) -> Views::View {
-  auto resources = std::make_shared<ResourceScope>();
-  resources->Provide(ThemeResource, theme);
-  const auto &palette = resources->Resolve(ThemeResource)->colors;
-  auto paletteCard = SampleCard(
-      theme,
-      {TextView(model.IsLightTheme() ? "Light palette" : "Dark palette", 22,
-                theme.colors.foreground, "resources-title",
-                SemanticRole::Heading),
-       ActionRow({Swatch(theme, "Canvas", palette.background),
-                  Swatch(theme, "Surface", palette.surface),
-                  Swatch(theme, "Text", palette.foreground),
-                  Swatch(theme, "Accent", palette.accent)},
-                 "theme-swatches"),
-       ButtonView(
-           theme, model.IsLightTheme() ? "Use dark theme" : "Use light theme",
-           [&model] { model.ToggleTheme(); }, "toggle-theme", 160)},
-      "palette", "resources-card");
-  return PageContentView(
-      {PageHeadingView(theme, "Themes",
-                       "Inspect the colors used by the running gallery."),
-       Views::Box(ElementType::Custom, {std::move(paletteCard)},
-                  NodeProperties{.resources = resources})
-           .Key("resource-scope")});
 }
 
 auto AccessibilityView(GalleryViewModel &model, const Theme &theme)

@@ -70,6 +70,13 @@ font. The default packaged order is:
 2. Noto Sans Arabic variable;
 3. Noto Sans Symbols 2.
 
+The Gallery uses Inter for interface text and retains the packaged fallback
+chain. On variable fonts with a `wght` axis, `FontRequest::weight` selects
+the actual outlines for shaping, measurement and rendering. Requests clamp
+to the typeface's supported range. The atlas caches glyphs per weight, so
+regular and semibold text can share a paragraph. Static fonts use their
+supplied outlines.
+
 Set `includeBundledFallbacks` to `false` when an application needs to own the
 complete fallback policy. Applications own and license any additional files
 they configure. NGIN.UI does not search operating-system fonts silently.
@@ -113,9 +120,19 @@ texture handle. `AtlasDiagnostics()` reports the page limit, active and peak
 page counts, occupancy, stored pixel sizes, evictions, rebuilds, allocation
 failures, and device restorations.
 
-FreeType rasterizes at the active window scale. Glyph textures use nearest
-sampling and their rendered quads are aligned to physical pixels. Image
-textures keep their independent linear-sampling policy.
+FreeType rasterizes scalable glyphs at the requested physical size, including
+fractional sizes such as 17.5 pixels for a 14 dp label at 125% scale. Each
+glyph can have up to four horizontal positions cached per face and size.
+The mask encodes the nearest quarter-pixel position of the shaped glyph,
+so the renderer can sample it on the pixel grid while preserving the spacing
+within a word. Vertical baselines stay pixel aligned.
+
+Custom glyph atlases receive the fractional physical pen position in
+`GlyphAtlasRequest::horizontalPixelOffset`. Atlases that bake the shift
+into their masks account for it in the returned logical bearing and return
+`true` from `UsesHorizontalPhases()`. The renderer then snaps the translation
+of the whole label once, including during scrolling. Whole-pixel atlases
+can use the default implementation.
 
 ## TextArea
 
@@ -123,12 +140,13 @@ textures keep their independent linear-sampling policy.
 editing buffer, grapheme segmenter, selection, clipboard, and IME path as
 `TextField`. It adds:
 
-- Enter insertion;
+- newline insertion with Enter, Shift+Enter, or Shift+Space;
 - line-relative Home and End;
 - Up and Down navigation that retains the preferred caret x position;
 - multiline selection and composition geometry;
 - vertical scrolling and optional horizontal scrolling;
-- automatic caret reveal after layout.
+- scrolling that follows the caret as you type or navigate. You can scroll back
+  to read earlier lines while the editor keeps focus.
 
 ```cpp
 NGIN::UI::State<NGIN::Text::String> notes{

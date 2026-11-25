@@ -41,6 +41,10 @@ can already see. Removing the element destroys its tracks and deadlines.
 `Animate(target, spec)` presents the first target immediately and animates later
 changes.
 
+Color transitions interpolate in premultiplied alpha. A button fading from a
+transparent background to its hover color keeps the hover tint throughout the
+fade, even when the pointer leaves halfway through.
+
 ## Curves
 
 Built-in curves are allocation-free values:
