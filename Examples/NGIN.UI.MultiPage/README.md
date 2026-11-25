@@ -12,6 +12,9 @@ ngin run --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --confi
 Pass `--smoke` after `--` to create both pages, begin async loading, and exit
 through the normal cancellation path.
 
-The `ComposeHome` and `ComposeDetail` functions own views, ViewModels own state
-and actions, `NGIN.Core` owns service lifetimes, and the navigation service owns
-the page stack.
+The page registry pairs each route with its ViewModel and a function that returns
+a component tree. `DetailView` uses the typed navigation parameter for its title.
+Its status component reads observable ViewModel state and updates when the
+page-scoped loading task completes. The window mounts
+`NavigationHost::ContentView()` once. Navigating changes the active page and
+leaving it cancels pending work.

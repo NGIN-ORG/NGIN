@@ -100,6 +100,5 @@ remain in the summary but do not make the field invalid. Command binding uses
 a weak subscription internally, so the derived value does not own the command
 and no ownership cycle is created.
 
-Views remain synchronous: read these bindings during `Compose(Composer&)` and
-let normal state invalidation request the next composition pass. Never retain
-the `Composer` in a validator or task.
+Read the field bindings inside a `Views::Component` factory. When validation
+completes, the mounted component observes the change and refreshes its fields.

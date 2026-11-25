@@ -42,7 +42,7 @@ use lazy workers.
 `BackgroundEntry` creates a runner before starting tasks. Main may block in
 SyncWait because the runner independently drives the required loop. It also
 starts an accept with no incoming client, calls RequestStop from a task, and
-joins that accept through an explicit TaskScope and its already reserved
+joins that accept through WithScope and its already reserved
 continuation while stopping. Sequential operations use direct Task awaits or
 AsCompletion when the example checks all terminal outcomes.
 New tasks and I/O are rejected after stop; existing joins continue.
@@ -63,7 +63,7 @@ thread: first drive fixes ownership for the runtime's lifetime.
 - `SaveMissionLog` writes, copies, reads back, and verifies the complete log.
   The coroutine owns the string while its write borrows the bytes. Native file
   completion is used where available; unsupported operations use lazy workers.
-- `ExchangeWithMissionControl` starts server and client children in TaskScope.
+- `ExchangeWithMissionControl` starts server and client children inside an inherited WithScope.
   A failed peer requests sibling cancellation, and both join before the listener
   or borrowed log leaves scope. Retained child factories preserve their captures.
 - TCP uses TcpByteStream and LengthPrefixedMessageStream for framing and partial
@@ -80,9 +80,9 @@ is also attempted on failure.
 
 ## Ownership and host integration
 
-TaskScope owns child operations, contexts, and factories. It does not make borrowed
-root-local data live beyond its C++ scope: join those children before leaving the
-scope, as the TCP exchange does. Dropping an Operation is not a join. Runtime
+The TCP exchange uses `WithScope` to inherit the active environment and keep both peers
+joined. Its listener lives in the enclosing task through the join. The shutdown example
+uses the same helper while its pending accept retires. Runtime
 shutdown can transfer completions to an external executor before their application
 tasks consume them; keep that executor and all borrowed resources alive until the
 tasks finish. Destroying a scope with unfinished children terminates rather than

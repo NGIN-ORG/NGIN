@@ -8,7 +8,7 @@ export interface StatusPresentationInput {
   graphError?: string;
   analysisState?: 'idle' | 'analyzing' | 'ready' | 'failed' | 'disabled';
   analysisMessage?: string;
-  lastOperation?: { command: string; state: 'succeeded' | 'failed'; completedAt: number; durationMs: number };
+  lastOperation?: { command: string; state: 'succeeded' | 'failed' | 'canceled'; completedAt: number; durationMs: number };
 }
 
 export interface StatusPresentation {

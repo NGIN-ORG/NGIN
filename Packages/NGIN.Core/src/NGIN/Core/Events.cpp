@@ -36,7 +36,7 @@ auto EventBus::SubscribeRaw(std::string channel, RawEventCallback callback,
                             const NGIN::Int32 priority) noexcept
     -> CoreResult<EventSubscriptionToken> {
   if (auto validation = ValidateChannel(channel, "SubscribeRaw"); !validation) {
-    return NGIN::Utilities::Unexpected<KernelError>(validation.Error());
+    return NGIN::Utilities::Unexpected<KernelError>(validation.error());
   }
   if (!callback) {
     return NGIN::Utilities::Unexpected<KernelError>(
@@ -123,7 +123,7 @@ auto EventBus::PublishRawImmediate(RawEventRecord eventRecord) noexcept
   if (auto validation =
           ValidateChannel(eventRecord.channel, "PublishRawImmediate");
       !validation) {
-    return NGIN::Utilities::Unexpected<KernelError>(validation.Error());
+    return NGIN::Utilities::Unexpected<KernelError>(validation.error());
   }
 
   std::vector<Subscription> callbacks;
@@ -176,7 +176,7 @@ auto EventBus::EnqueueRawTo(const EventQueue queue,
     -> CoreResult<void> {
   if (auto validation = ValidateChannel(eventRecord.channel, "EnqueueRawTo");
       !validation) {
-    return NGIN::Utilities::Unexpected<KernelError>(validation.Error());
+    return NGIN::Utilities::Unexpected<KernelError>(validation.error());
   }
 
   try {
@@ -206,7 +206,7 @@ auto EventBus::FlushRaw(const std::string_view channel) noexcept
                            EventQueue::Background, EventQueue::Render}) {
     auto flush = FlushRawFrom(queue, channel);
     if (!flush) {
-      return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(flush.error());
     }
   }
   return CoreResult<void>{};
@@ -218,7 +218,7 @@ auto EventBus::FlushRawFrom(const EventQueue queue,
   if (!channel.empty()) {
     if (auto validation = ValidateChannel(channel, "FlushRawFrom");
         !validation) {
-      return NGIN::Utilities::Unexpected<KernelError>(validation.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(validation.error());
     }
   }
 
@@ -264,7 +264,7 @@ auto EventBus::FlushRawFrom(const EventQueue queue,
 
     auto dispatch = PublishRawImmediate(std::move(next));
     if (!dispatch) {
-      return NGIN::Utilities::Unexpected<KernelError>(dispatch.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(dispatch.error());
     }
   }
 

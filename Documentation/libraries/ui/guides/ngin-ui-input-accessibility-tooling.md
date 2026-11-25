@@ -87,14 +87,15 @@ whole view can recompose from a different theme value.
 
 ## Typed resource scopes
 
-`ResourceScope` is an immutable typed parent chain:
+Attach a shared resource scope to the parent view.
 
 ```cpp
 auto resources = std::make_shared<ResourceScope>();
-resources = resources->With<Theme>(theme);
-resources = resources->With<AppLocale>(AppLocale{"sv-SE"});
-
-composer.Scope(resources, [&] { ComposeSettings(composer); }, "settings");
+resources->Provide(ThemeResource, theme);
+resources->Provide(LocaleResource, std::string{"sv-SE"});
+NodeProperties section{};
+section.resources = resources;
+auto settings = Views::Column({SettingsView()}, section).Key("settings");
 ```
 
 Lookup starts at the node and follows parents. Keep frequently changing model
@@ -135,7 +136,7 @@ semantic roles on every control page.
 
 Treat these as UI-thread-only unless an interface explicitly says otherwise:
 
-- `Application`, `Window`, `Composer`, `RuntimeTree`, and `InputRouter`;
+- `Application`, `Window`, `Surface`, `RuntimeTree`, and `InputRouter`;
 - platform and render backends;
 - `NativeTextSystem` and `ImageTextureCache`;
 - model mutation that triggers window invalidation.
@@ -145,7 +146,7 @@ Standalone applications normally perform all UI work from event callbacks or
 `NGIN::UI::Hosting::IUIDispatcher`.
 
 Workers may own ordinary values and logical `ImageResource` decode work. They
-must not retain a composer, node pointer, backend handle, or renderer-bound
+must not retain a runtime node pointer, backend handle, or renderer-bound
 cache. Post the completed value back, update model state, then invalidate.
 
 ## Error handling

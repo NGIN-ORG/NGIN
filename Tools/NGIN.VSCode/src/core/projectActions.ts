@@ -29,7 +29,7 @@ export interface ProjectActionState {
   selectedRun?: string;
   busy?: string;
   graphError?: string;
-  lastOperation?: { command: string; state: 'succeeded' | 'failed' };
+  lastOperation?: { command: string; state: 'succeeded' | 'failed' | 'canceled' };
   trusted?: boolean;
 }
 

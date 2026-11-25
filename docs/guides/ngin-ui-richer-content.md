@@ -29,11 +29,10 @@ textProperties.layout.preferredSize.width = 520.0F;
 textProperties.text.wrapping = NGIN::UI::TextWrapping::Wrap;
 textProperties.text.alignment = NGIN::UI::TextAlignment::Center;
 textProperties.text.lineHeight = 24.0F;
-textProperties.text.geometry = &text;
 
-composer.Text(
+auto paragraph = NGIN::UI::Views::Label(
     NGIN::Text::String{"A wrapped paragraph\nwith an authored line break."},
-    text, text, textProperties, "paragraph");
+    textProperties).Key("paragraph");
 ```
 
 `TextWrapping::NoWrap` still honors authored line breaks. It disables automatic
@@ -120,7 +119,7 @@ textures keep their independent linear-sampling policy.
 
 ## TextArea
 
-`Composer::TextArea()` uses the same typed `Binding<String>`, transactional
+`Views::TextArea` uses the same typed `Binding<String>`, transactional
 editing buffer, grapheme segmenter, selection, clipboard, and IME path as
 `TextField`. It adds:
 
@@ -138,14 +137,11 @@ NGIN::UI::State<NGIN::Text::String> notes{
 NGIN::UI::NodeProperties area{};
 area.layout.preferredSize = {520.0F, 220.0F};
 area.layout.padding = NGIN::UI::Thickness::Uniform(NGIN::UI::Dp{12.0F});
-area.text.layout = &text;
-area.text.geometry = &text;
-area.text.glyphAtlas = &text;
 area.text.wrapping = NGIN::UI::TextWrapping::Wrap;
 area.text.lineHeight = 22.0F;
-area.semantics.label = NGIN::Text::String{"Notes"};
 
-composer.TextArea(NGIN::UI::Bind(notes), text, area, "notes");
+auto notesEditor = NGIN::UI::Views::TextArea("Notes", NGIN::UI::Bind(notes), area)
+                       .Key("notes");
 ```
 
 The editing control is a semantic text box. Its semantic value follows the
@@ -231,7 +227,7 @@ is available.
 
 ## Image element
 
-`Composer::Image()` combines a logical resource and resolver with:
+`Views::Image` combines a logical resource and resolver with:
 
 - `None`, `Fill`, `Contain`, `Cover`, and `ScaleDown` fit modes;
 - normalized horizontal and vertical alignment;
@@ -246,9 +242,9 @@ image.image.fit = NGIN::UI::ImageFit::Cover;
 image.image.alignment = {0.5F, 0.25F};
 image.image.tint = {1.0F, 0.9F, 0.85F, 1.0F};
 
-composer.Image(resource, imageCache,
-               NGIN::Text::String{"Sunset over a wooded ridge"},
-               image, "hero-image");
+auto hero = NGIN::UI::Views::Image(resource, imageCache,
+                                  "Sunset over a wooded ridge", image)
+                .Key("hero-image");
 ```
 
 Decorative images may set `properties.semantics.hidden = true`; otherwise the

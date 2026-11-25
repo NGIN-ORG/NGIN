@@ -572,8 +572,10 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
         }
         const selectedContext = sourceAnalysis.contextForProject(project);
         if (!selectedContext.configurePreset) return undefined;
+        if (command === 'build') return tasks.runBuild(selectedContext);
         return controller.execute(command, [], true, selectedContext);
       }
+      if (command === 'build') return tasks.runBuild(context ?? controller.requireContext());
       return controller.execute(command, [], false, context);
     });
   }
@@ -583,7 +585,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (!project || project.projectSystem !== 'CMake' || !node.cmakeTarget) return;
     const context = sourceAnalysis.contextForProject(project);
     if (!context.configurePreset) await vscode.commands.executeCommand('ngin.selectConfigurePreset', project);
-    return controller.execute('build', ['--target', node.cmakeTarget.id], true, sourceAnalysis.contextForProject(project));
+    return tasks.runBuild(sourceAnalysis.contextForProject(project), ['--target', node.cmakeTarget.id]);
   });
   register(extensionContext, 'ngin.runCMakeTests', async (argument?: unknown) => {
     return vscode.commands.executeCommand('ngin.test', argument);
@@ -817,7 +819,7 @@ export async function activate(extensionContext: vscode.ExtensionContext): Promi
     if (current.projectSystem === 'CMake') {
       throw new Error('Rebuild is unavailable for CMake projects because NGIN does not own the preset build directory.');
     }
-    if (await clean(true, current)) await controller.execute('build', [], false, current);
+    if (await clean(true, current)) await tasks.runBuild(current);
   });
 
   register(extensionContext, 'ngin.showGraph', async (argument?: unknown) => {

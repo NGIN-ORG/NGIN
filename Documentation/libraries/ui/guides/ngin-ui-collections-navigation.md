@@ -1,8 +1,8 @@
 # NGIN.UI Collections and Navigation
 
-`<NGIN/UI/Collections.hpp>` provides the model and composition foundations for
+`<NGIN/UI/CollectionViews.hpp>` provides the model and composition foundations for
 selectable lists, combo boxes, tabs, menu buttons, context menus, and future
-incremental collections. The header is also included by `<NGIN/UI/UI.hpp>`.
+incremental collections. Its view factories live in `NGIN::UI::Views`. The header is also included by `<NGIN/UI/UI.hpp>`.
 
 ## Typed Selection
 
@@ -35,23 +35,21 @@ NodeProperties list{};
 list.layout.preferredSize = Size{420.0F, 280.0F};
 list.interaction.focusable = true;
 list.scroll.vertical = true;
+list.semantics.role = SemanticRole::List;
 list.semantics.label = NGIN::Text::String{"Project files"};
 
-composer.ListView(
-    [&] {
-      composer.Column([&] {
-        for (const auto &item : VisibleItems()) {
-          NodeProperties row{};
-          row.layout.preferredSize.height = 40.0F;
-          row.semantics.label = item.name;
-          SelectableListItem(
-              composer, BindListItem(selection, item.id),
-              [&] { ComposeItemContents(composer, item); }, row, {},
-              item.stableKey);
-        }
-      });
-    },
-    list, "files");
+auto filesView = Views::Component([&, list] {
+  std::vector<Views::View> rows;
+  for (const auto &item : VisibleItems()) {
+    NodeProperties row{};
+    row.layout.preferredSize.height = 40.0F;
+    row.semantics.label = item.name;
+    rows.push_back(Views::SelectableListItem(BindListItem(selection, item.id),
+                                            Views::Label(item.name), row)
+                       .Key(item.stableKey.View()));
+  }
+  return Views::Box(ElementType::ListView, {Views::Column(std::move(rows))}, list);
+}).Key("files");
 ```
 
 `ListView` is a semantic list and `SelectableListItem` emits semantic
@@ -75,19 +73,22 @@ identifier that is unique within the window:
 
 ```cpp
 PopupController densityPopup{scheduleInvalidation};
-
-ComboBox(
-    composer, densityPopup, "density-combo",
-    [&] { ComposeSummary(composer, density.Get()); },
-    [&] {
-      for (const auto option : densityOptions) {
-        SelectableListItem(
-            composer, BindListItem(Bind(density), option),
-            [&] { ComposeOption(composer, option); }, {}, {},
-            KeyFor(option));
-      }
-    },
-    buttonProperties, popupProperties, "density");
+auto combo = Views::Component([&] {
+  std::vector<Views::View> options;
+  for (auto value : densityOptions) {
+    auto selection = BindListItem(Bind(density), value);
+    auto select = std::move(selection.select);
+    selection.select = [&, select = std::move(select)] {
+      auto result = select();
+      if (result) densityPopup.Close();
+      return result;
+    };
+    options.push_back(Views::SelectableListItem(std::move(selection), OptionView(value))
+                          .Key(KeyFor(value)));
+  }
+  return Views::ComboBox(densityPopup, "density-combo", SummaryView(density.Get()),
+                         Views::Column(std::move(options)), buttonProperties, popupProperties);
+});
 ```
 
 The control button exposes `ComboBox` and expanded semantics. Its popup is
@@ -109,15 +110,11 @@ const std::array definitions{
                         NGIN::Text::String{"Advanced"}},
 };
 
-Tabs<Page>(
-    composer, Bind(page), definitions,
-    [&](Composer &, const auto &tab, bool selected) {
-      ComposeTabHeader(composer, tab.label, selected);
-    },
-    [&](Composer &, const auto &tab, bool) {
-      ComposePage(composer, tab.value);
-    },
-    presentation, "settings-tabs");
+auto tabs = Views::Tabs<Page>(
+    Bind(page), definitions,
+    [](const auto &tab, bool) { return Views::Label(tab.label); },
+    [&](const auto &tab, bool) { return PageContent(tab.value); },
+    presentation).Key("settings-tabs");
 ```
 
 Every panel remains declared with its stable key. Inactive panels use
@@ -135,17 +132,12 @@ semantics.
 `MenuButton` uses the same anchored popup controller:
 
 ```cpp
-MenuButton(composer, actionsMenu, "actions-button",
-           [&] { ComposeButtonLabel(composer, "Actions"); },
-           [&] {
-             MenuItem(composer,
-                      [&] { ComposeButtonLabel(composer, "Duplicate"); },
-                      [&] {
-                        DuplicateSelection();
-                        actionsMenu.Close();
-                      },
-                      {}, "duplicate");
-           });
+auto duplicateItem = Views::MenuItem(Views::Label("Duplicate"), [&] {
+  DuplicateSelection();
+  actionsMenu.Close();
+}).Key("duplicate");
+auto menu = Views::MenuButton(actionsMenu, "actions-button", Views::Label("Actions"),
+                              Views::Column({duplicateItem}));
 ```
 
 Menu items are focusable, activate with pointer, Enter, or Space, and expose
@@ -157,9 +149,9 @@ the popup beside it:
 
 ```cpp
 AttachContextMenu(targetProperties, contextMenu);
-composer.Border([&] { ComposeTarget(composer); }, targetProperties, "target");
-ContextMenu(composer, contextMenu,
-            [&] { ComposeContextItems(composer, contextMenu); });
+auto target = Views::Border({TargetView()}, targetProperties).Key("target");
+auto panel = Views::Overlay(
+                        {target, Views::ContextMenu(contextMenu, ContextItems(contextMenu))});
 ```
 
 The controller records the pointer position as the popup anchor. It must
@@ -168,7 +160,7 @@ outlive the composed handlers.
 ## Virtualized Lists
 
 Use an ordinary `ListView` for small in-memory collections. Use
-`VirtualizedListView` when the logical collection is large or loaded in ranges.
+`Views::VirtualizedList` when the logical collection is large or loaded in ranges.
 The two paths are separate, so adding virtualization does not change an
 existing list.
 
@@ -213,27 +205,24 @@ Compose only the range selected by the controller:
 ```cpp
 VirtualizedListPresentation view{};
 view.list.layout.preferredSize = Size{640.0F, 320.0F};
-view.selectedIndex = [&] { return source.IndexOfKey(selectedKey); };
+State<NGIN::Text::String> selectedKey;
+view.selectedIndex = [&] { return source.IndexOfKey(selectedKey.Get()); };
 view.isSelected = [&](UIntSize index) {
-  return source.IndexOfKey(selectedKey) == index;
+  return source.IndexOfKey(selectedKey.Get()) == index;
 };
 view.activate = [&](UIntSize index) -> UIResult<void> {
   auto key = source.KeyAt(index);
   if (!key) {
-    return std::move(key).Error();
+    return std::unexpected(std::move(key).error());
   }
-  selectedKey = std::move(key).Value();
-  scheduleInvalidation(InvalidationKind::All);
+  static_cast<void>(selectedKey.Set(std::move(key).value()));
   return {};
 };
 view.onError = ReportUIError;
 
-VirtualizedListView<Item>(
-    composer, filesController, source,
-    [&](Composer &, const Item &item, UIntSize) {
-      ComposeFileRow(composer, item);
-    },
-    view, "files");
+auto files = Views::VirtualizedList<Item>(
+    filesController, source,
+    [](const Item &item, UIntSize) { return Views::Label(item.name); }, view).Key("files");
 ```
 
 The controller requests the visible range plus `overscanItems`, gives the list
@@ -251,7 +240,8 @@ publishes a stable virtual item until the selected row is realized. Native
 accessibility providers can then use Select, Scroll Into View, and Realize.
 
 For asynchronous loading, keep the requested range alive until it completes,
-increment `Revision()`, and request composition. When the new revision is
+store the new revision in a `State<UInt64>` and return its value from
+`Revision()`. The list observes that read and rebuilds when the revision changes. When the new revision is
 observed, the controller anchors the current top key and its within-row offset.
 It also cancels and repeats the current range request against the new revision,
 so `RequestRange()` should be idempotent. The same anchoring path covers

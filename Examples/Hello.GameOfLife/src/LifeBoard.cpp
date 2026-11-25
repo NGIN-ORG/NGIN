@@ -35,27 +35,27 @@ auto LifeBoardElement::Paint(CustomElementContext &context, PaintContext &paint)
     -> UIResult<void> {
   auto viewport = context.State<Viewport>("viewport");
   if (!viewport) {
-    return viewport.Error();
+    return std::unexpected(viewport.error());
   }
-  ClampViewport(*viewport.Value());
+  ClampViewport(*viewport.value());
   const auto board = BoardBounds(paint.Extent());
-  const auto source = SourceRect(*viewport.Value());
+  const auto source = SourceRect(*viewport.value());
   paint.FillRounded(paint.Bounds(), CornerRadius::Uniform(Dp{12.0F}),
                     BoardBackground);
 
   auto resolved = m_resolver->Resolve(m_surface);
   if (!resolved) {
-    return resolved.Error();
+    return std::unexpected(resolved.error());
   }
-  if (resolved.Value().state == ImageLoadState::Ready &&
-      resolved.Value().texture) {
-    paint.ImageRegion(resolved.Value().texture, board, source);
+  if (resolved.value().state == ImageLoadState::Ready &&
+      resolved.value().texture) {
+    paint.ImageRegion(resolved.value().texture, board, source);
 
     const auto miniMap = MiniMapBounds(paint.Extent());
     paint.FillRounded(Rect{miniMap.x - 4.0F, miniMap.y - 4.0F,
                            miniMap.width + 8.0F, miniMap.height + 8.0F},
                       CornerRadius::Uniform(Dp{6.0F}), BoardBackground);
-    paint.Image(resolved.Value().texture, miniMap);
+    paint.Image(resolved.value().texture, miniMap);
     paint.StrokeRounded(miniMap, CornerRadius::Uniform(Dp{3.0F}), 1.5F,
                         MiniMapBorder);
     paint.Stroke(Rect{miniMap.x + source.x * miniMap.width,
@@ -66,14 +66,14 @@ auto LifeBoardElement::Paint(CustomElementContext &context, PaintContext &paint)
   }
 
   if (const auto *cursor = context.FindState<Cursor>("cursor");
-      cursor != nullptr && viewport.Value()->Zoom >= 8.0F) {
+      cursor != nullptr && viewport.value()->Zoom >= 8.0F) {
     const auto x = static_cast<NGIN::F32>(cursor->X) / m_simulation->Width();
     const auto y = static_cast<NGIN::F32>(cursor->Y) / m_simulation->Height();
     if (x >= source.x && y >= source.y && x < source.x + source.width &&
         y < source.y + source.height) {
-      const auto cellWidth = board.width * viewport.Value()->Zoom /
+      const auto cellWidth = board.width * viewport.value()->Zoom /
                              static_cast<NGIN::F32>(m_simulation->Width());
-      const auto cellHeight = board.height * viewport.Value()->Zoom /
+      const auto cellHeight = board.height * viewport.value()->Zoom /
                               static_cast<NGIN::F32>(m_simulation->Height());
       paint.Stroke(Rect{board.x + (x - source.x) / source.width * board.width,
                         board.y + (y - source.y) / source.height * board.height,
@@ -116,20 +116,20 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
   auto cursor = context.State<Cursor>("cursor");
   auto viewport = context.State<Viewport>("viewport");
   if (!drag) {
-    return drag.Error();
+    return std::unexpected(drag.error());
   }
   if (!cursor) {
-    return cursor.Error();
+    return std::unexpected(cursor.error());
   }
   if (!viewport) {
-    return viewport.Error();
+    return std::unexpected(viewport.error());
   }
 
   const auto local = context.ToLocal(event.position);
   const auto board = BoardBounds(context.ArrangedSize());
   if (event.eventKind == RoutedPointerEventKind::Wheel &&
       board.Contains(local)) {
-    const auto oldSource = SourceRect(*viewport.Value());
+    const auto oldSource = SourceRect(*viewport.value());
     const auto anchorX =
         std::clamp((local.x - board.x) / board.width, 0.0F, 1.0F);
     const auto anchorY =
@@ -137,12 +137,12 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
     const auto worldX = oldSource.x + anchorX * oldSource.width;
     const auto worldY = oldSource.y + anchorY * oldSource.height;
     const auto wheel = std::clamp(event.wheelDelta.y, -4.0F, 4.0F);
-    viewport.Value()->Zoom = std::clamp(
-        viewport.Value()->Zoom * std::pow(1.32F, wheel), 1.0F, 128.0F);
-    const auto span = 1.0F / viewport.Value()->Zoom;
-    viewport.Value()->CenterX = worldX - (anchorX - 0.5F) * span;
-    viewport.Value()->CenterY = worldY - (anchorY - 0.5F) * span;
-    ClampViewport(*viewport.Value());
+    viewport.value()->Zoom = std::clamp(
+        viewport.value()->Zoom * std::pow(1.32F, wheel), 1.0F, 128.0F);
+    const auto span = 1.0F / viewport.value()->Zoom;
+    viewport.value()->CenterX = worldX - (anchorX - 0.5F) * span;
+    viewport.value()->CenterY = worldY - (anchorY - 0.5F) * span;
+    ClampViewport(*viewport.value());
     event.Handle();
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
@@ -151,12 +151,12 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
       event.button == PointerButton::Primary) {
     const auto miniMap = MiniMapBounds(context.ArrangedSize());
     if (miniMap.Contains(local)) {
-      viewport.Value()->CenterX =
+      viewport.value()->CenterX =
           std::clamp((local.x - miniMap.x) / miniMap.width, 0.0F, 1.0F);
-      viewport.Value()->CenterY =
+      viewport.value()->CenterY =
           std::clamp((local.y - miniMap.y) / miniMap.height, 0.0F, 1.0F);
-      viewport.Value()->Zoom = std::max(4.0F, viewport.Value()->Zoom);
-      ClampViewport(*viewport.Value());
+      viewport.value()->Zoom = std::max(4.0F, viewport.value()->Zoom);
+      ClampViewport(*viewport.value());
       event.Handle();
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
@@ -165,8 +165,8 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
   if (event.eventKind == RoutedPointerEventKind::ButtonPressed &&
       (event.button == PointerButton::Middle ||
        event.button == PointerButton::Secondary)) {
-    drag.Value()->Mode = DragMode::Pan;
-    drag.Value()->LastPointer = local;
+    drag.value()->Mode = DragMode::Pan;
+    drag.value()->LastPointer = local;
     event.CapturePointer();
     event.Handle();
     return InvalidationKind::Paint;
@@ -174,42 +174,42 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
 
   if (event.eventKind == RoutedPointerEventKind::ButtonPressed &&
       event.button == PointerButton::Primary) {
-    const auto cell = CellAt(local, context.ArrangedSize(), *viewport.Value());
+    const auto cell = CellAt(local, context.ArrangedSize(), *viewport.value());
     if (!cell) {
       return InvalidationKind::None;
     }
-    *cursor.Value() = *cell;
-    drag.Value()->Mode = DragMode::Paint;
-    drag.Value()->PaintAlive = !m_simulation->IsAlive(cell->X, cell->Y);
-    drag.Value()->LastCell = cell->Y * m_simulation->Width() + cell->X;
-    PaintCell(*cell, drag.Value()->PaintAlive);
+    *cursor.value() = *cell;
+    drag.value()->Mode = DragMode::Paint;
+    drag.value()->PaintAlive = !m_simulation->IsAlive(cell->X, cell->Y);
+    drag.value()->LastCell = cell->Y * m_simulation->Width() + cell->X;
+    PaintCell(*cell, drag.value()->PaintAlive);
     event.CapturePointer();
     event.Handle();
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
 
   if (event.eventKind == RoutedPointerEventKind::Moved &&
-      drag.Value()->Mode == DragMode::Pan) {
-    const auto source = SourceRect(*viewport.Value());
-    viewport.Value()->CenterX -=
-        (local.x - drag.Value()->LastPointer.x) / board.width * source.width;
-    viewport.Value()->CenterY -=
-        (local.y - drag.Value()->LastPointer.y) / board.height * source.height;
-    ClampViewport(*viewport.Value());
-    drag.Value()->LastPointer = local;
+      drag.value()->Mode == DragMode::Pan) {
+    const auto source = SourceRect(*viewport.value());
+    viewport.value()->CenterX -=
+        (local.x - drag.value()->LastPointer.x) / board.width * source.width;
+    viewport.value()->CenterY -=
+        (local.y - drag.value()->LastPointer.y) / board.height * source.height;
+    ClampViewport(*viewport.value());
+    drag.value()->LastPointer = local;
     event.Handle();
     return InvalidationKind::Paint;
   }
 
   if (event.eventKind == RoutedPointerEventKind::Moved &&
-      drag.Value()->Mode == DragMode::Paint) {
-    const auto cell = CellAt(local, context.ArrangedSize(), *viewport.Value());
+      drag.value()->Mode == DragMode::Paint) {
+    const auto cell = CellAt(local, context.ArrangedSize(), *viewport.value());
     if (cell) {
       const auto index = cell->Y * m_simulation->Width() + cell->X;
-      if (index != drag.Value()->LastCell) {
-        *cursor.Value() = *cell;
-        drag.Value()->LastCell = index;
-        PaintCell(*cell, drag.Value()->PaintAlive);
+      if (index != drag.value()->LastCell) {
+        *cursor.value() = *cell;
+        drag.value()->LastCell = index;
+        PaintCell(*cell, drag.value()->PaintAlive);
       }
     }
     event.Handle();
@@ -217,9 +217,9 @@ auto LifeBoardElement::PointerEvent(CustomElementContext &context,
   }
 
   if (event.eventKind == RoutedPointerEventKind::ButtonReleased &&
-      drag.Value()->Mode != DragMode::None) {
-    drag.Value()->Mode = DragMode::None;
-    drag.Value()->LastCell = LifeSimulation::EntityCount;
+      drag.value()->Mode != DragMode::None) {
+    drag.value()->Mode = DragMode::None;
+    drag.value()->LastCell = LifeSimulation::EntityCount;
     event.ReleasePointerCapture();
     event.Handle();
     return InvalidationKind::Paint;
@@ -236,33 +236,33 @@ auto LifeBoardElement::KeyEvent(CustomElementContext &context,
   auto cursor = context.State<Cursor>("cursor");
   auto viewport = context.State<Viewport>("viewport");
   if (!cursor) {
-    return cursor.Error();
+    return std::unexpected(cursor.error());
   }
   if (!viewport) {
-    return viewport.Error();
+    return std::unexpected(viewport.error());
   }
   switch (event.logicalKey) {
   case LogicalKey::Left:
-    cursor.Value()->X =
-        (cursor.Value()->X + m_simulation->Width() - 1) % m_simulation->Width();
+    cursor.value()->X =
+        (cursor.value()->X + m_simulation->Width() - 1) % m_simulation->Width();
     break;
   case LogicalKey::Right:
-    cursor.Value()->X = (cursor.Value()->X + 1) % m_simulation->Width();
+    cursor.value()->X = (cursor.value()->X + 1) % m_simulation->Width();
     break;
   case LogicalKey::Up:
-    cursor.Value()->Y = (cursor.Value()->Y + m_simulation->Height() - 1) %
+    cursor.value()->Y = (cursor.value()->Y + m_simulation->Height() - 1) %
                         m_simulation->Height();
     break;
   case LogicalKey::Down:
-    cursor.Value()->Y = (cursor.Value()->Y + 1) % m_simulation->Height();
+    cursor.value()->Y = (cursor.value()->Y + 1) % m_simulation->Height();
     break;
   case LogicalKey::Space:
-    PaintCell(*cursor.Value(),
-              !m_simulation->IsAlive(cursor.Value()->X, cursor.Value()->Y));
+    PaintCell(*cursor.value(),
+              !m_simulation->IsAlive(cursor.value()->X, cursor.value()->Y));
     event.Handle();
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   case LogicalKey::Home:
-    *viewport.Value() = Viewport{};
+    *viewport.value() = Viewport{};
     event.Handle();
     return InvalidationKind::Paint | InvalidationKind::Semantics;
   default:
@@ -280,10 +280,10 @@ auto LifeBoardElement::SemanticAction(CustomElementContext &context,
   }
   auto cursor = context.State<Cursor>("cursor");
   if (!cursor) {
-    return cursor.Error();
+    return std::unexpected(cursor.error());
   }
-  PaintCell(*cursor.Value(),
-            !m_simulation->IsAlive(cursor.Value()->X, cursor.Value()->Y));
+  PaintCell(*cursor.value(),
+            !m_simulation->IsAlive(cursor.value()->X, cursor.value()->Y));
   return InvalidationKind::Paint | InvalidationKind::Semantics;
 }
 

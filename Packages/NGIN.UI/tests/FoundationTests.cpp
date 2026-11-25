@@ -1,3 +1,4 @@
+#include <NGIN/UI/SurfaceComposition.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/UI/Application.hpp>
@@ -109,7 +110,7 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
 
-  window->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{100.0F, 40.0F};
     properties.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -178,7 +179,7 @@ TEST_CASE("inspector snapshots runtime state and appends debugging overlays") {
   });
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
-  window->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{100.0F, 40.0F};
     properties.layout.horizontalAlignment = HorizontalAlignment::Start;

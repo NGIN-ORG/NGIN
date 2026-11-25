@@ -1,5 +1,10 @@
 # NGIN.UI Developer Documentation
 
+Start with [your first component window](ngin-ui-first-window.md), then try the
+[same settings panel in a game host](../../Examples/NGIN.UI.Settings/). The
+[components and surfaces guide](ngin-ui-surfaces.md) covers the retained runtime.
+
+
 NGIN.UI is a retained, backend-neutral C++23 desktop UI toolkit. Start with one
 of the runnable paths, then use the topic guides as needed.
 
@@ -9,8 +14,8 @@ of the runnable paths, then use the topic guides as needed.
   minutes.
 - [NGIN.Core hosted first window](ngin-ui-hosted-first-window.md): the same
   view under the Core host and dispatcher.
-- [Gallery catalogue](../../Examples/NGIN.UI.Gallery/): every public control,
-  state, and diagnostics surface in a native window.
+- [Sample library](../../Examples/NGIN.UI.Gallery/) with interactive layout, motion,
+  controls and diagnostics in a native window.
 - [Headless gallery](../../Examples/NGIN.UI.Gallery.Tests/): deterministic
   application-level tests without SDL or a GPU.
 

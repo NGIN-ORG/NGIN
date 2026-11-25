@@ -23,6 +23,7 @@ export interface LifecyclePresentationOptions {
   args: string[];
   label: string;
   append(value: string): void;
+  activity?(target: string, action: string, progress?: NinjaProgress): void;
   now?: () => number;
 }
 
@@ -111,7 +112,10 @@ export function parseNinjaProgress(line: string): NinjaProgress | undefined {
   const resource = /^Building RC object (.+)$/u.exec(raw);
   if (compile) action = `Compiling ${buildInputName(compile[1])}`;
   else if (resource) action = `Compiling resource ${buildInputName(resource[1])}`;
-  else if (/^Linking /u.test(raw)) action = 'Linking';
+  else if (/^Linking /u.test(raw)) {
+    const artifact = /^Linking .+? (?:executable|(?:static|shared) library|shared module) (.+)$/u.exec(raw);
+    action = artifact ? `Linking ${artifact[1].split(/[\\/]/u).pop()}` : 'Linking';
+  }
   else if (/^Generating /u.test(raw)) action = raw;
   else return undefined;
   return { current, total, action };
@@ -128,11 +132,13 @@ export class LifecycleOutputPresenter {
   private readonly startedAt: number;
   private readonly pending = { stdout: '', stderr: '' };
   private readonly warnings = new Set<string>();
-  private readonly sections = new Set<string>();
+  private lastSection?: string;
+  private completed = false;
   private phase: string | undefined;
   private phaseStartedAt = 0;
+  private lastConfigureUpdate = 0;
   private activeTarget: string | undefined;
-  private activeBuild: { upToDate: boolean; lastProgressBucket: number } | undefined;
+  private activeBuild: { upToDate: boolean; lastProgressBucket: number; lastPrintedAt: number } | undefined;
   private sawEvent = false;
   private sawRun = false;
   private warningSummaryWritten = false;
@@ -156,30 +162,52 @@ export class LifecycleOutputPresenter {
     for (const line of lines) this.line(line);
   }
 
+  logLocation(path: string): void {
+    this.options.append(`Full log: ${path}\n`);
+  }
+
+  cancel(): void {
+    if (this.completed) return;
+    this.completed = true;
+    this.options.append(`\nCanceled ${this.options.label} after ${formatDuration(this.now() - this.startedAt)}\n`);
+  }
+
+  failedToStart(message: string): void {
+    if (this.completed) return;
+    this.completed = true;
+    this.options.append(`  ✗ ${this.options.label}: ${message}\n`);
+  }
+
   complete(exitCode: number): void {
+    this.completed = true;
     for (const stream of ['stdout', 'stderr'] as const) {
       if (this.pending[stream]) this.line(this.pending[stream]);
       this.pending[stream] = '';
     }
-    if (!this.sawEvent) {
-      this.options.append(this.raw);
-      return;
-    }
-    if (exitCode !== 0 && !this.sawRun) {
-      const target = this.activeTarget ?? this.options.label;
-      this.options.append(`  ✗ ${target}\n\n${this.rawWithoutEvents()}`);
-      return;
-    }
     this.writeWarningSummary();
     if (this.sawRun) this.options.append(`\n  Process exited with code ${exitCode}\n`);
-    if (exitCode !== 0) return;
-    this.options.append(`\nCompleted in ${formatDuration(this.now() - this.startedAt)}\n`);
+    const duration = formatDuration(this.now() - this.startedAt);
+    if (exitCode !== 0) {
+      if (this.sawEvent && !this.sawRun) {
+        const lines = this.rawWithoutEvents().trimEnd().split(/\r?\n/u).slice(-12);
+        for (const line of lines) {
+          if (line.trim()) this.options.append(`  ${line.length > 500 ? line.slice(0, 500) + '…' : line}\n`);
+        }
+      }
+      this.options.append(`\n✗ ${this.activeTarget ?? this.options.label} failed in ${duration} (exit code ${exitCode})\n`);
+    } else if (this.options.command === 'build') {
+      this.options.append(`\n✓ Built ${this.options.label} in ${duration}\n`);
+    } else {
+      this.options.append(`\nCompleted in ${duration}\n`);
+    }
   }
 
   private line(line: string): void {
     for (const diagnostic of parseCompilerDiagnostics(line)) {
       if (diagnostic.severity === 'warning') {
         this.warnings.add(`${diagnostic.path}:${diagnostic.line}:${diagnostic.column}:${diagnostic.code ?? ''}`);
+      } else if (this.phase === 'build') {
+        this.options.append(`    ${line.trim()}\n`);
       }
     }
 
@@ -189,7 +217,27 @@ export class LifecycleOutputPresenter {
       this.event(event);
       return;
     }
-    if (!this.sawEvent) return;
+    if (this.options.activity && (this.phase === 'build' || !this.sawEvent)) {
+      const progress = parseNinjaProgress(line);
+      if (progress) {
+        this.options.activity(this.activeTarget ?? this.options.label, progress.action, progress);
+        return;
+      }
+    }
+    if (!this.sawEvent) {
+      this.options.append(`${line}\n`);
+      return;
+    }
+    if (this.phase === 'configure' && line.startsWith('-- ')) {
+      const now = this.now();
+      if (/^-- (?:Configuring done|Generating done|Fetching |Downloading )/u.test(line) ||
+          (line.trim().length > 3 && now - this.lastConfigureUpdate >= 5000)) {
+        if (this.options.activity) this.options.activity(this.activeTarget ?? this.options.label, line.slice(3));
+        else this.options.append(`    ${line.slice(3)}\n`);
+        this.lastConfigureUpdate = now;
+      }
+      return;
+    }
     if (this.phase === 'build') {
       if (line.trim() === 'ninja: no work to do.') {
         if (this.activeBuild) this.activeBuild.upToDate = true;
@@ -211,6 +259,7 @@ export class LifecycleOutputPresenter {
   private event(value: EditorEvent): void {
     const [phase, transition] = value.event.split('-');
     if (transition === 'skip' && phase === 'configure') {
+      if (this.options.activity) return;
       this.section('CONFIGURE');
       const target = value.target ?? this.options.label;
       this.options.append(`  ✓ ${target.padEnd(32)} up to date\n`);
@@ -220,13 +269,15 @@ export class LifecycleOutputPresenter {
       this.phase = phase;
       this.phaseStartedAt = this.now();
       this.activeTarget = value.target ?? this.options.label;
-      if (phase === 'configure') {
-        this.section('CONFIGURE');
-        this.options.append(`  ${this.activeTarget}\n`);
-      } else if (phase === 'build') {
-        this.section('BUILD');
-        this.activeBuild = { upToDate: false, lastProgressBucket: -1 };
-        this.options.append(`  ${this.activeTarget}\n`);
+      if (phase === 'configure' || phase === 'build') {
+        if (phase === 'configure') this.lastConfigureUpdate = this.phaseStartedAt;
+        else this.activeBuild = { upToDate: false, lastProgressBucket: -1, lastPrintedAt: this.phaseStartedAt };
+        if (this.options.activity) {
+          this.options.activity(this.activeTarget, phase === 'configure' ? 'Configuring' : 'Building');
+        } else {
+          this.section(phase.toUpperCase());
+          this.options.append(`  ${this.activeTarget}\n`);
+        }
       } else if (phase === 'stage') {
         this.writeWarningSummary();
         this.section('STAGE');
@@ -245,9 +296,11 @@ export class LifecycleOutputPresenter {
     }
     if (transition !== 'end') return;
     if (phase === 'build') {
-      const result = this.activeBuild?.upToDate ? 'up to date' : formatDuration(this.now() - this.phaseStartedAt);
-      this.options.append(`  ✓ ${'Completed'.padEnd(32)} ${result}\n`);
+      const result = this.activeBuild?.upToDate ? 'Up to date' : `Built in ${formatDuration(this.now() - this.phaseStartedAt)}`;
+      this.options.append(this.options.activity ? `  ✓ ${this.activeTarget} · ${result}\n` : `  ✓ ${result}\n`);
       this.activeBuild = undefined;
+    } else if (phase === 'configure' && this.options.activity) {
+      this.options.append(`  ✓ ${this.activeTarget} · Configured in ${formatDuration(this.now() - this.phaseStartedAt)}\n`);
     } else if (phase === 'configure' || phase === 'publish') {
       this.options.append(`  ✓ ${'Completed'.padEnd(32)} ${formatDuration(this.now() - this.phaseStartedAt)}\n`);
     } else if (phase === 'stage') {
@@ -259,16 +312,18 @@ export class LifecycleOutputPresenter {
 
   private shouldWriteProgress(progress: NinjaProgress): boolean {
     if (!this.activeBuild) return false;
-    if (progress.total <= 20 || progress.current === 1 || progress.current === progress.total) return true;
     const bucket = Math.floor(progress.current * 10 / progress.total);
-    if (bucket <= this.activeBuild.lastProgressBucket) return false;
+    const now = this.now();
+    if (progress.total > 20 && progress.current !== progress.total &&
+        bucket <= this.activeBuild.lastProgressBucket && now - this.activeBuild.lastPrintedAt < 5000) return false;
+    this.activeBuild.lastPrintedAt = now;
     this.activeBuild.lastProgressBucket = bucket;
     return true;
   }
 
   private section(name: string): void {
-    if (this.sections.has(name)) return;
-    this.sections.add(name);
+    if (this.lastSection === name) return;
+    this.lastSection = name;
     this.options.append(`\n${name}\n`);
   }
 

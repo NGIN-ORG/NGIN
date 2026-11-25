@@ -9,12 +9,18 @@ namespace
     public:
         auto OnStart(NGIN::Core::ModuleContext& context) noexcept -> NGIN::Core::CoreResult<void> override
         {
-            auto logger = context.GetLogger("Startup");
-            if (logger)
-            {
-                logger->Info([](NGIN::Log::RecordBuilder& rec) {
-                    rec.Message("Hello.Hosted startup module started");
+            const auto task = context.Tasks().Submit(
+                NGIN::Core::TaskLane::Background, [logger = context.GetLogger("Startup")]() {
+                    if (logger)
+                    {
+                        logger->Info([](NGIN::Log::RecordBuilder& rec) {
+                            rec.Message("Hello.Hosted module task completed");
+                        });
+                    }
                 });
+            if (!task)
+            {
+                return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(task.error());
             }
             return context.RegisterSingletonValue<bool>("Hello.Hosted.Ready", true);
         }
@@ -35,15 +41,15 @@ int main(int argc, char** argv)
     auto app = builder->Build();
     if (!app)
     {
-        std::cerr << "Build failed: " << app.Error().message << "\n";
+        std::cerr << "Build failed: " << app.error().message << "\n";
         return 1;
     }
 
-    auto host = app.Value();
+    auto host = app.value();
     auto start = host->Start();
     if (!start)
     {
-        std::cerr << "Start failed: " << start.Error().message << "\n";
+        std::cerr << "Start failed: " << start.error().message << "\n";
         return 2;
     }
 
@@ -56,12 +62,12 @@ int main(int argc, char** argv)
 
     auto appName = config->GetRaw("App.Name");
     auto message = config->GetRaw("App.Message");
-    if (!appName || appName.Value() != "Hello.Hosted")
+    if (!appName || appName.value() != "Hello.Hosted")
     {
         std::cerr << "App.Name was not resolved from staged config\n";
         return 4;
     }
-    if (!message || message.Value() != "hello from staged hosted config")
+    if (!message || message.value() != "hello from staged hosted config")
     {
         std::cerr << "App.Message was not resolved from staged config\n";
         return 5;
@@ -74,7 +80,7 @@ int main(int argc, char** argv)
         return 6;
     }
     auto ready = services->ResolveOptional<bool>("Hello.Hosted.Ready");
-    if (!ready || !ready.Value().has_value())
+    if (!ready || !ready.value().has_value())
     {
         std::cerr << "Hosted module service was not registered\n";
         return 7;
@@ -84,7 +90,7 @@ int main(int argc, char** argv)
     auto shutdown = host->Shutdown();
     if (!shutdown)
     {
-        std::cerr << "Shutdown failed: " << shutdown.Error().message << "\n";
+        std::cerr << "Shutdown failed: " << shutdown.error().message << "\n";
         return 8;
     }
 

@@ -1,3 +1,4 @@
+#include <NGIN/UI/SurfaceComposition.hpp>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -197,7 +198,7 @@ TEST_CASE("custom typed properties share scheduling diagnostics and policy") {
   const auto spec = AnimationSpec{
       .timing = TweenTiming{.duration = 100ms, .curve = curve},
   };
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     node.layout.preferredSize = Size{100.0F, 40.0F};
     node.motion.opacity = AnimateFrom(0.0F, 1.0F, spec);
@@ -267,7 +268,7 @@ TEST_CASE("spring timing is deterministic and settles at its exact target") {
   auto *window = windowResult.value();
   NGIN::F32 observed = -1.0F;
   bool visible = true;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     if (!visible) {
       return;
     }
@@ -332,7 +333,7 @@ TEST_CASE("target motion retargets from the presented value and becomes idle") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   NGIN::F32 target = 1.0F;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties panel{};
     panel.layout.preferredSize = Size{100.0F, 50.0F};
     panel.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -389,7 +390,7 @@ TEST_CASE("reduced motion settles targets and unmounting removes deadlines") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   bool visible = true;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     if (!visible) {
       return;
     }
@@ -440,7 +441,7 @@ TEST_CASE("paint transforms also move clipping hit testing and semantics") {
   });
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties panel{};
     panel.layout.preferredSize = Size{50.0F, 40.0F};
     panel.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -505,7 +506,7 @@ TEST_CASE(
   auto *first = firstResult.value();
   auto *second = secondResult.value();
   AnimationHandle cancellable;
-  first->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(first->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     node.motion.opacity =
         AnimateFrom(0.0F, 1.0F,
@@ -517,7 +518,7 @@ TEST_CASE(
                     cancellable);
     composer.Border([] {}, node, "first");
   });
-  second->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(second->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     node.motion.translation =
         AnimateFrom(Point{}, Point{100.0F, 0.0F},
@@ -574,7 +575,7 @@ TEST_CASE("theme state and popup transitions use the motion scheduler") {
   auto *window = windowResult.value();
   PopupController popup{
       [window](const InvalidationKind kind) { window->Invalidate(kind); }};
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties button{};
     button.layout.preferredSize = Size{100.0F, 40.0F};
     button.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -649,7 +650,7 @@ TEST_CASE(
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   MotionController controller;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
@@ -710,7 +711,7 @@ TEST_CASE("awaited motion composes sequentially and in parallel") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   MotionController controller;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
@@ -794,7 +795,7 @@ TEST_CASE("motion controller reports interruption cancellation and unmount") {
   auto *window = windowResult.value();
   MotionController controller;
   bool mounted = true;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     if (!mounted) {
       return;
     }
@@ -858,7 +859,7 @@ TEST_CASE("declarative motion owns a property over a controller target") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   MotionController controller;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     node.motion.opacity = AnimateFrom(
         0.0F, 1.0F, AnimationSpec{.timing = TweenTiming{.duration = 500ms}});
@@ -900,7 +901,7 @@ TEST_CASE("motion controller completes immediately when motion is reduced") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   MotionController controller;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
@@ -939,7 +940,7 @@ TEST_CASE(
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   MotionController controller;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties node{};
     controller.Attach(node.motion);
     composer.Border([] {}, node, "controlled");
@@ -995,7 +996,7 @@ TEST_CASE("application shutdown cancels and drains motion continuations") {
     });
     REQUIRE(windowResult.has_value());
     auto *window = windowResult.value();
-    window->SetContent([&](Composer &composer) {
+    NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
       NodeProperties node{};
       controller.Attach(node.motion);
       composer.Border([] {}, node, "controlled");
@@ -1060,7 +1061,7 @@ struct MotionDeliveryFixture final {
                          .title = NGIN::Text::String{"Motion delivery"}});
     REQUIRE(createdWindow);
     window = *createdWindow;
-    window->SetContent([this](Composer &composer) {
+    NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [this](Composer &composer) {
       NodeProperties node;
       controller.Attach(node.motion);
       composer.Border([] {}, node, "controlled");

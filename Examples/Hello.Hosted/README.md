@@ -4,6 +4,9 @@ The smallest application hosted by `NGIN.Core`. It registers a static C++
 module, stages configuration, and declares the runtime module in the project
 manifest.
 
+The module submits a background task through `ModuleContext::Tasks()`.
+The host drains accepted tasks before releasing module scopes during shutdown.
+
 Read [`Hello.Hosted.nginproj`](Hello.Hosted.nginproj),
 [`src/main.cpp`](src/main.cpp), and [`config/app.cfg`](config/app.cfg).
 

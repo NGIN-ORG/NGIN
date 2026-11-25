@@ -77,6 +77,9 @@ struct TextRuntimeState final {
   std::vector<Rect> selectionRects{};
   std::vector<Rect> compositionRects{};
   Rect caretRect{};
+  UInt64 metricsRevision{};
+  UInt64 atlasRevision{};
+  bool glyphsPending{};
   bool hasCaret{false};
   bool valid{false};
 };
@@ -119,8 +122,14 @@ struct RuntimeNode final {
   ImageRuntimeState image{};
   CustomElementRuntimeState custom{};
   std::shared_ptr<Detail::MotionState> motion{};
+  std::weak_ptr<const ElementDeclaration> lastDeclaration{};
+  UInt64 componentInstance{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
+  SizeConstraints lastConstraints{};
+  UInt64 measuredCompositionRevision{};
+  bool measurementReusable{};
+  bool arrangementReusable{};
 
   [[nodiscard]] auto IsKeyed() const noexcept -> bool { return !key.Empty(); }
 };
@@ -129,6 +138,7 @@ struct RuntimeNode final {
 struct ReconcileStats final {
   UIntSize created{0};
   UIntSize preserved{0};
+  UIntSize skippedSubtrees{0};
   UIntSize removed{0};
 
   [[nodiscard]] constexpr auto
@@ -146,6 +156,8 @@ public:
   auto operator=(RuntimeTree &&) noexcept -> RuntimeTree & = default;
   ~RuntimeTree() = default;
 
+  /// @brief Unmount every descendant while preserving the root and slot generations.
+  void Clear() noexcept;
   [[nodiscard]] auto Root() const noexcept -> ElementHandle;
   [[nodiscard]] auto IsAlive(ElementHandle handle) const noexcept -> bool;
   [[nodiscard]] auto Get(ElementHandle handle) noexcept -> RuntimeNode *;

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Executable Name="NGIN.UI.Settings">
+  <Uses>
+    <Package Name="NGIN.UI" Version="0.4" />
+    <Package Name="NGIN.UI.Backend.SDL3" Version="0.4" />
+    <Package Name="SDL3" Version="3.4" />
+  </Uses>
+  <Build><Source Include="src/**/*.cpp" /></Build>
+  <When OS="windows">
+    <Uses><Package Name="NGIN.UI.Accessibility.Windows" Version="0.4" /></Uses>
+  </When>
+</Executable>

@@ -148,6 +148,7 @@ auto RecordingRenderBackend::Render(const RenderSurfaceHandle surface,
       .targetSize = packet.targetSize,
       .scaleFactor = packet.scaleFactor,
       .clearColor = packet.clearColor,
+      .loadAction = packet.loadAction,
   };
   copy.textureUpdates.reserve(packet.textureUpdates.size());
   for (const auto &update : packet.textureUpdates) {

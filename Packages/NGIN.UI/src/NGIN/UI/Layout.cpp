@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace NGIN::UI {
@@ -33,6 +34,17 @@ void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
   try {
     node.properties.custom.onError(error);
   } catch (...) {
+  }
+}
+
+void ReportTextError(const RuntimeNode &node, const UIError &error) {
+  if (node.properties.text.onError) {
+    node.properties.text.onError(error);
+  }
+  if ((node.type == ElementType::TextField ||
+       node.type == ElementType::TextArea) &&
+      node.properties.textField.onError) {
+    node.properties.textField.onError(error);
   }
 }
 
@@ -319,21 +331,126 @@ ResolveImageDestination(const Rect available, const PixelSize source,
 }
 } // namespace
 
+auto MeasureChildren::Count() const noexcept -> UIntSize {
+  return m_parent.children.size();
+}
+
+auto MeasureChildren::Measure(const UIntSize index,
+                              const SizeConstraints constraints) -> Size {
+  if (!(constraints.minimum.width >= 0 && constraints.minimum.height >= 0 &&
+        std::isfinite(constraints.minimum.width) &&
+        std::isfinite(constraints.minimum.height) &&
+        constraints.maximum.width >= constraints.minimum.width &&
+        constraints.maximum.height >= constraints.minimum.height)) {
+    throw std::invalid_argument("Invalid child size constraints");
+  }
+  return m_engine.Measure(m_parent.children.at(index), constraints);
+}
+
+auto ArrangeChildren::Count() const noexcept -> UIntSize {
+  return m_parent.children.size();
+}
+
+auto ArrangeChildren::DesiredSize(const UIntSize index) const -> Size {
+  return m_engine.m_tree.Get(m_parent.children.at(index))->measuredSize;
+}
+
+void ArrangeChildren::Place(const UIntSize index, Rect bounds) {
+  if (!std::isfinite(bounds.x) || !std::isfinite(bounds.y) ||
+      !std::isfinite(bounds.width) || !std::isfinite(bounds.height) ||
+      bounds.width < 0 || bounds.height < 0) {
+    throw std::invalid_argument("Invalid child bounds");
+  }
+  bounds.x += m_origin.x;
+  bounds.y += m_origin.y;
+  m_engine.Arrange(m_parent.children.at(index), bounds);
+}
+
 LayoutEngine::LayoutEngine(RuntimeTree &tree) noexcept : m_tree(tree) {}
 
-auto LayoutEngine::Perform(const SizeConstraints constraints,
-                           const Rect finalBounds, const F32 scaleFactor)
-    -> LayoutPassStats {
-  m_stats = {};
-  m_scaleFactor = scaleFactor > 0.0F ? scaleFactor : 1.0F;
-  ++m_revision;
-  for (auto &slot : m_tree.m_slots) {
-    if (slot.occupied) {
-      slot.node.text.glyphRuns.clear();
-    }
+auto LayoutEngine::PrepareSubtree(const ElementHandle handle,
+                                  const bool visible, const bool canReuse)
+    -> bool {
+  auto &node = *m_tree.Get(handle);
+  const bool participates =
+      visible && node.properties.visibility != ElementVisibility::Collapsed;
+  bool reusable = canReuse && participates && node.layoutRevision != 0 &&
+                  node.measuredCompositionRevision == node.compositionRevision;
+  // Only containers with declaration-only layout and no per-pass diagnostics
+  // can skip traversal. Editors, scroll positions, custom callbacks and image
+  // resolution may change independently of their declarations.
+  switch (node.type) {
+  case ElementType::Text: {
+    const auto &text = node.properties.text;
+    reusable = reusable && node.text.valid && node.text.metricsRevision != 0 &&
+               node.text.atlasRevision != 0 && text.layout && text.glyphAtlas &&
+               node.text.metricsRevision == text.layout->MetricsRevision() &&
+               node.text.atlasRevision == text.glyphAtlas->AtlasRevision();
+    break;
   }
+  case ElementType::Column:
+  case ElementType::Row:
+  case ElementType::Overlay:
+  case ElementType::Padding:
+  case ElementType::Border:
+  case ElementType::Spacer:
+  case ElementType::Separator:
+  case ElementType::Rectangle:
+  case ElementType::Button:
+  case ElementType::ListItem:
+  case ElementType::Tab:
+  case ElementType::MenuItem:
+    break;
+  case ElementType::Custom:
+    reusable = reusable && !node.properties.layoutPolicy;
+    break;
+  default:
+    reusable = false;
+    break;
+  }
+  for (const auto child : node.children) {
+    const auto childReusable = PrepareSubtree(child, participates, canReuse);
+    reusable = reusable && childReusable;
+  }
+  if (!reusable) {
+    node.text.glyphRuns.clear();
+    node.text.glyphsPending = false;
+    node.text.valid = false;
+  }
+  node.measurementReusable = reusable;
+  node.arrangementReusable = reusable;
+  return reusable;
+}
+
+auto LayoutEngine::Perform(const SizeConstraints constraints,
+                           const Rect finalBounds, const F32 scaleFactor,
+                           const bool reuseMeasurements) -> LayoutPassStats {
+  m_stats = {};
+  const auto scale = scaleFactor > 0.0F ? scaleFactor : 1.0F;
+  const bool canReuse =
+      reuseMeasurements && m_revision != 0 && m_scaleFactor == scale;
+  m_scaleFactor = scale;
+  ++m_revision;
+  m_incremental = canReuse;
+  m_deferGlyphs = true;
+  struct RestoreFlags {
+    bool &incremental;
+    bool &deferGlyphs;
+    ~RestoreFlags() {
+      incremental = false;
+      deferGlyphs = false;
+    }
+  } restore{m_incremental, m_deferGlyphs};
+  PrepareSubtree(m_tree.Root(), true, canReuse);
   static_cast<void>(Measure(m_tree.Root(), constraints));
   Arrange(m_tree.Root(), finalBounds);
+  // All obsolete glyph leases have now been released, including labels whose
+  // wrapping width changed. Resolve new atlas entries only after that point.
+  for (auto &slot : m_tree.m_slots) {
+    if (slot.occupied && slot.node.text.glyphsPending) {
+      ResolveTextGlyphs(slot.node);
+    }
+  }
   return m_stats;
 }
 
@@ -363,9 +480,19 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   constraints.maximum.height =
       std::max(constraints.maximum.height, constraints.minimum.height);
 
-  const auto desktopContainer = node->type == ElementType::Grid ||
-                                node->type == ElementType::WrapPanel ||
-                                node->type == ElementType::Canvas;
+  if (m_incremental && node->measurementReusable &&
+      node->lastConstraints.minimum == constraints.minimum &&
+      node->lastConstraints.maximum == constraints.maximum) {
+    ++m_stats.reusedMeasurements;
+    return node->measuredSize;
+  }
+  node->lastConstraints = constraints;
+  node->arrangementReusable = false;
+  node->measuredCompositionRevision = node->compositionRevision;
+  const auto desktopContainer =
+      node->type == ElementType::Grid || node->type == ElementType::WrapPanel ||
+      node->type == ElementType::Canvas ||
+      (node->type == ElementType::Custom && node->properties.layoutPolicy);
   auto measured = node->type == ElementType::CustomElement
                       ? MeasureCustom(*node, constraints)
                       : ((node->children.empty() && !desktopContainer) ||
@@ -454,15 +581,8 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
                                const SizeConstraints constraints,
                                const NGIN::Text::String &value) -> Size {
   const auto &properties = node.properties.text;
-  const auto report = [&node, &properties](const UIError &error) {
-    if (properties.onError) {
-      properties.onError(error);
-    }
-    if ((node.type == ElementType::TextField ||
-         node.type == ElementType::TextArea) &&
-        node.properties.textField.onError) {
-      node.properties.textField.onError(error);
-    }
+  const auto report = [&node](const UIError &error) {
+    ReportTextError(node, error);
   };
   node.text = {};
   if (properties.layout == nullptr || properties.glyphAtlas == nullptr) {
@@ -507,65 +627,12 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
   }
 
   node.text.paragraph = std::move(paragraph).value();
-  bool glyphsValid = true;
-  for (const auto &positioned : node.text.paragraph.runs) {
-    Point pen{};
-    for (const auto &glyph : positioned.run.glyphs) {
-      auto atlasEntry = properties.glyphAtlas->ResolveGlyph(GlyphAtlasRequest{
-          .fontFace = positioned.run.fontFace,
-          .glyphIndex = glyph.glyphIndex,
-          .fontSize = positioned.fontSize,
-          .scaleFactor = m_scaleFactor,
-      });
-      if (!atlasEntry) {
-        report(atlasEntry.error());
-        glyphsValid = false;
-        break;
-      }
-      const auto &entry = atlasEntry.value();
-      if (entry.size.width <= 0.0F || entry.size.height <= 0.0F) {
-        pen.x += glyph.advance.x;
-        pen.y += glyph.advance.y;
-        continue;
-      }
-      if (!entry.texture) {
-        report(MakeUIError(UIErrorCode::InvalidState,
-                           "Glyph atlas returned an invalid entry", "NGIN.UI",
-                           "LayoutEngine::MeasureText"));
-        glyphsValid = false;
-        break;
-      }
-
-      if (node.text.glyphRuns.empty() ||
-          node.text.glyphRuns.back().texture != entry.texture) {
-        node.text.glyphRuns.push_back(TextGlyphRun{
-            .texture = entry.texture,
-        });
-      }
-      node.text.glyphRuns.back().glyphs.push_back(GlyphQuad{
-          .destination =
-              Rect{
-                  positioned.origin.x + pen.x + glyph.offset.x +
-                      entry.bearing.x,
-                  positioned.origin.y + pen.y + glyph.offset.y +
-                      entry.bearing.y,
-                  entry.size.width,
-                  entry.size.height,
-              },
-          .textureCoordinates = entry.textureCoordinates,
-          .lease = entry.lease,
-      });
-      pen.x += glyph.advance.x;
-      pen.y += glyph.advance.y;
-    }
-    if (!glyphsValid) {
-      break;
-    }
+  node.text.metricsRevision = properties.layout->MetricsRevision();
+  node.text.atlasRevision = properties.glyphAtlas->AtlasRevision();
+  node.text.glyphsPending = true;
+  if (!m_deferGlyphs) {
+    ResolveTextGlyphs(node);
   }
-  if (!glyphsValid) {
-    node.text.glyphRuns.clear();
-  }
-  node.text.valid = glyphsValid;
   if ((node.type == ElementType::TextField ||
        node.type == ElementType::TextArea) &&
       node.textField.editing && properties.geometry != nullptr) {
@@ -610,6 +677,71 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
       std::max(node.properties.layout.preferredSize.height,
                node.text.paragraph.size.height + verticalPadding),
   });
+}
+
+void LayoutEngine::ResolveTextGlyphs(RuntimeNode &node) {
+  node.text.glyphsPending = false;
+  const auto &properties = node.properties.text;
+  bool glyphsValid = true;
+  for (const auto &positioned : node.text.paragraph.runs) {
+    Point pen{};
+    for (const auto &glyph : positioned.run.glyphs) {
+      auto atlasEntry = properties.glyphAtlas->ResolveGlyph(GlyphAtlasRequest{
+          .fontFace = positioned.run.fontFace,
+          .glyphIndex = glyph.glyphIndex,
+          .fontSize = positioned.fontSize,
+          .scaleFactor = m_scaleFactor,
+      });
+      if (!atlasEntry) {
+        ReportTextError(node, atlasEntry.error());
+        glyphsValid = false;
+        break;
+      }
+      const auto &entry = atlasEntry.value();
+      if (entry.size.width <= 0.0F || entry.size.height <= 0.0F) {
+        pen.x += glyph.advance.x;
+        pen.y += glyph.advance.y;
+        continue;
+      }
+      if (!entry.texture) {
+        ReportTextError(node,
+                        MakeUIError(UIErrorCode::InvalidState,
+                                    "Glyph atlas returned an invalid entry",
+                                    "NGIN.UI", "LayoutEngine::MeasureText"));
+        glyphsValid = false;
+        break;
+      }
+
+      if (node.text.glyphRuns.empty() ||
+          node.text.glyphRuns.back().texture != entry.texture) {
+        node.text.glyphRuns.push_back(TextGlyphRun{
+            .texture = entry.texture,
+        });
+      }
+      node.text.glyphRuns.back().glyphs.push_back(GlyphQuad{
+          .destination =
+              Rect{
+                  positioned.origin.x + pen.x + glyph.offset.x +
+                      entry.bearing.x,
+                  positioned.origin.y + pen.y + glyph.offset.y +
+                      entry.bearing.y,
+                  entry.size.width,
+                  entry.size.height,
+              },
+          .textureCoordinates = entry.textureCoordinates,
+          .lease = entry.lease,
+      });
+      pen.x += glyph.advance.x;
+      pen.y += glyph.advance.y;
+    }
+    if (!glyphsValid) {
+      break;
+    }
+  }
+  if (!glyphsValid) {
+    node.text.glyphRuns.clear();
+  }
+  node.text.valid = glyphsValid;
 }
 
 auto LayoutEngine::MeasureImage(RuntimeNode &node,
@@ -672,6 +804,38 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
       std::isfinite(constraints.maximum.height)
           ? InnerHeight(constraints.maximum.height, padding)
           : constraints.maximum.height;
+
+  if (node.type == ElementType::Custom && node.properties.layoutPolicy) {
+    MeasureChildren children{*this, node};
+    try {
+      const SizeConstraints inner{
+          .minimum = {InnerWidth(constraints.minimum.width, padding),
+                      InnerHeight(constraints.minimum.height, padding)},
+          .maximum = {availableWidth, availableHeight}};
+      const auto desired =
+          node.properties.layoutPolicy->Measure(children, inner);
+      if (!std::isfinite(desired.width) || !std::isfinite(desired.height) ||
+          desired.width < 0 || desired.height < 0) {
+        throw std::invalid_argument("Layout policy returned an invalid size");
+      }
+      return constraints.Constrain(
+          {std::max(node.properties.layout.preferredSize.width,
+                    desired.width + horizontalPadding),
+           std::max(node.properties.layout.preferredSize.height,
+                    desired.height + verticalPadding)});
+    } catch (const std::bad_alloc &) {
+      throw;
+    } catch (const std::exception &error) {
+      ReportCustomError(node,
+                        MakeUIError(UIErrorCode::InvalidState, error.what(),
+                                    "NGIN.UI", "ILayoutPolicy::Measure"));
+    } catch (...) {
+      ReportCustomError(node, MakeUIError(UIErrorCode::InvalidState,
+                                          "Layout policy measurement failed",
+                                          "NGIN.UI", "ILayoutPolicy::Measure"));
+    }
+    // A failed policy uses the ordinary overlay measurement below.
+  }
 
   if (node.type == ElementType::ListView &&
       node.properties.virtualizedList.controller != nullptr) {
@@ -934,6 +1098,11 @@ void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
   if (node == nullptr) {
     return;
   }
+  if (m_incremental && node->arrangementReusable &&
+      node->arrangedBounds == finalBounds) {
+    ++m_stats.reusedPlacements;
+    return;
+  }
   if (node->properties.visibility == ElementVisibility::Collapsed) {
     node->arrangedBounds = {};
     node->layoutRevision = m_revision;
@@ -1026,6 +1195,26 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   };
   F32 cursorX = content.x;
   F32 cursorY = content.y;
+
+  if (node.type == ElementType::Custom && node.properties.layoutPolicy) {
+    UI::ArrangeChildren children{*this, node, {content.x, content.y}};
+    try {
+      node.properties.layoutPolicy->Arrange(children,
+                                            {content.width, content.height});
+      return;
+    } catch (const std::bad_alloc &) {
+      throw;
+    } catch (const std::exception &error) {
+      ReportCustomError(node,
+                        MakeUIError(UIErrorCode::InvalidState, error.what(),
+                                    "NGIN.UI", "ILayoutPolicy::Arrange"));
+    } catch (...) {
+      ReportCustomError(node, MakeUIError(UIErrorCode::InvalidState,
+                                          "Layout policy arrangement failed",
+                                          "NGIN.UI", "ILayoutPolicy::Arrange"));
+    }
+    // Re-place every child with the ordinary overlay algorithm on failure.
+  }
 
   if (node.type == ElementType::Grid) {
     ArrangeGrid(node, content);

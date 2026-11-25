@@ -1,6 +1,6 @@
 #pragma once
 
-#include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Element.hpp>
 #include <NGIN/UI/State.hpp>
 
 #include <algorithm>
@@ -175,12 +175,11 @@ struct CollectionPresentation final {
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
-template <typename ComposeChildren>
-void SelectableListItem(Composer &composer, ItemSelection selection,
-                        ComposeChildren &&composeChildren,
-                        NodeProperties properties = {},
-                        const CollectionPresentation &presentation = {},
-                        std::string_view key = {}) {
+namespace Detail {
+inline auto SelectedItemProperties(ItemSelection selection,
+                                   NodeProperties properties,
+                                   const CollectionPresentation &presentation)
+    -> NodeProperties {
   const auto selected = selection.isSelected && selection.isSelected();
   properties.interaction.onActivate = [selection = std::move(selection),
                                        onError =
@@ -201,9 +200,9 @@ void SelectableListItem(Composer &composer, ItemSelection selection,
     properties.semantics.states |= SemanticStateFlags::Selected;
     properties.visual.state |= VisualStateFlags::Selected;
   }
-  composer.ListItem(std::forward<ComposeChildren>(composeChildren), properties,
-                    key);
+  return properties;
 }
+} // namespace Detail
 
 /// @brief Half-open item range requested from an incremental data source.
 struct IncrementalRange final {
@@ -290,14 +289,12 @@ struct VirtualizedListPresentation final {
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
-/// @brief Composes only the viewport and overscan rows of a stable-key source.
-template <typename T, typename ComposeItem>
-void VirtualizedListView(Composer &composer,
-                         FixedVirtualizedListController &controller,
-                         IVirtualizedDataSource<T> &source,
-                         ComposeItem &&composeItem,
-                         VirtualizedListPresentation presentation = {},
-                         std::string_view key = {}) {
+namespace Detail {
+template <typename T>
+auto PrepareVirtualizedList(FixedVirtualizedListController &controller,
+                            IVirtualizedDataSource<T> &source,
+                            const VirtualizedListPresentation &presentation)
+    -> NodeProperties {
   controller.Synchronize(VirtualizedSourceBinding{
       .logicalItemCount = source.Count(),
       .revision = source.Revision(),
@@ -333,83 +330,79 @@ void VirtualizedListView(Composer &composer,
         NGIN::Text::String{"Only visible items are loaded"};
   }
 
+  return listProperties;
+}
+
+template <typename T, typename Row>
+void ForEachRealizedRow(FixedVirtualizedListController &controller,
+                        IVirtualizedDataSource<T> &source,
+                        const VirtualizedListPresentation &presentation,
+                        Row &&row) {
   const auto range = controller.RealizedRange();
   std::vector<VirtualizedItemMapping> mappings;
   mappings.reserve(range.count);
-  composer.ListView(
-      [&] {
-        for (auto index = range.first; index < range.End(); ++index) {
-          auto sourceKey = source.KeyAt(index);
-          if (!sourceKey) {
-            if (presentation.onError) {
-              presentation.onError(sourceKey.error());
-            }
-            continue;
-          }
-          auto label = source.LabelAt(index);
-          if (!label && presentation.onError) {
-            presentation.onError(label.error());
-          }
-          auto item = source.ItemAt(index);
-          if (!item && presentation.onError) {
-            presentation.onError(item.error());
-          }
+  for (auto index = range.first; index < range.End(); ++index) {
+    auto sourceKey = source.KeyAt(index);
+    if (!sourceKey) {
+      if (presentation.onError) {
+        presentation.onError(sourceKey.error());
+      }
+      continue;
+    }
+    auto label = source.LabelAt(index);
+    if (!label && presentation.onError) {
+      presentation.onError(label.error());
+    }
+    auto item = source.ItemAt(index);
+    if (!item && presentation.onError) {
+      presentation.onError(item.error());
+    }
 
-          auto itemProperties = presentation.item;
-          itemProperties.layout.preferredSize.height = controller.ItemExtent();
-          itemProperties.layout.minimumSize.height = controller.ItemExtent();
-          itemProperties.layout.maximumSize.height = controller.ItemExtent();
-          itemProperties.layout.horizontalAlignment =
-              HorizontalAlignment::Stretch;
-          itemProperties.virtualizedItem = VirtualizedItemProperties{
-              .enabled = true,
-              .sourceIndex = index,
-              .key = sourceKey.value(),
-          };
-          itemProperties.semantics.role = SemanticRole::ListItem;
-          itemProperties.semantics.label =
-              label ? std::move(label).value()
-                    : NGIN::Text::String{"Loading item"};
-          itemProperties.semantics.collectionItem = SemanticCollectionItem{
-              .position = index + 1,
-              .count = source.Count(),
-              .level = 1,
-          };
-          itemProperties.semantics.actions =
-              SemanticActionFlags::Activate | SemanticActionFlags::Select |
-              SemanticActionFlags::ScrollIntoView |
-              SemanticActionFlags::Realize;
-          const auto selected =
-              presentation.isSelected && presentation.isSelected(index);
-          if (selected) {
-            itemProperties.semantics.states |= SemanticStateFlags::Selected;
-            itemProperties.visual.state |= VisualStateFlags::Selected;
-          }
-          itemProperties.interaction.onActivate =
-              [&controller, index, onError = presentation.onError] {
-                auto activated = controller.Activate(index);
-                if (!activated && onError) {
-                  onError(activated.error());
-                }
-              };
+    auto itemProperties = presentation.item;
+    itemProperties.layout.preferredSize.height = controller.ItemExtent();
+    itemProperties.layout.minimumSize.height = controller.ItemExtent();
+    itemProperties.layout.maximumSize.height = controller.ItemExtent();
+    itemProperties.layout.horizontalAlignment = HorizontalAlignment::Stretch;
+    itemProperties.virtualizedItem = VirtualizedItemProperties{
+        .enabled = true,
+        .sourceIndex = index,
+        .key = sourceKey.value(),
+    };
+    itemProperties.semantics.role = SemanticRole::ListItem;
+    itemProperties.semantics.label =
+        label ? std::move(label).value() : NGIN::Text::String{"Loading item"};
+    itemProperties.semantics.collectionItem = SemanticCollectionItem{
+        .position = index + 1,
+        .count = source.Count(),
+        .level = 1,
+    };
+    itemProperties.semantics.actions =
+        SemanticActionFlags::Activate | SemanticActionFlags::Select |
+        SemanticActionFlags::ScrollIntoView | SemanticActionFlags::Realize;
+    const auto selected =
+        presentation.isSelected && presentation.isSelected(index);
+    if (selected) {
+      itemProperties.semantics.states |= SemanticStateFlags::Selected;
+      itemProperties.visual.state |= VisualStateFlags::Selected;
+    }
+    itemProperties.interaction.onActivate = [&controller, index,
+                                             onError = presentation.onError] {
+      auto activated = controller.Activate(index);
+      if (!activated && onError) {
+        onError(activated.error());
+      }
+    };
 
-          const auto itemKey = sourceKey.value();
-          mappings.push_back(VirtualizedItemMapping{
-              .sourceIndex = index,
-              .key = itemKey,
-          });
-          composer.ListItem(
-              [&] {
-                if (item) {
-                  composeItem(composer, item.value(), index);
-                }
-              },
-              itemProperties, itemKey.View());
-        }
-      },
-      listProperties, key);
+    const auto itemKey = sourceKey.value();
+    mappings.push_back(VirtualizedItemMapping{
+        .sourceIndex = index,
+        .key = itemKey,
+    });
+    row(item, index, itemKey, std::move(itemProperties));
+  }
   controller.RecordRealized(std::move(mappings));
 }
+} // namespace Detail
 
 /// @brief Observable open state and anchor shared by popup-based controls.
 class PopupController final {
@@ -485,73 +478,64 @@ inline void PreparePopupMotion(PopupController &controller,
   }
 }
 
-template <typename ComposeSummary, typename ComposeOptions>
-void ComboBox(Composer &composer, PopupController &controller,
-              std::string_view anchorIdentifier,
-              ComposeSummary &&composeSummary, ComposeOptions &&composeOptions,
-              NodeProperties buttonProperties = {},
-              NodeProperties popupProperties = {}, std::string_view key = {}) {
+namespace Detail {
+inline auto PopupAnchorProperties(PopupController &controller,
+                                  std::string_view anchorIdentifier,
+                                  bool isCombo, NodeProperties buttonProperties)
+    -> NodeProperties {
   buttonProperties.interaction.focusable = true;
   buttonProperties.interaction.onActivate = [&controller] {
     controller.Toggle();
   };
   auto previousKey = buttonProperties.interaction.onKey;
   buttonProperties.interaction.onKey =
-      [previousKey = std::move(previousKey),
+      [previousKey = std::move(previousKey), isCombo,
        &controller](RoutedKeyEvent &event) mutable {
         if (previousKey) {
           previousKey(event);
         }
         if (!event.handled && event.state == KeyState::Pressed &&
             (event.logicalKey == LogicalKey::Down ||
-             event.logicalKey == LogicalKey::Up)) {
+             (isCombo && event.logicalKey == LogicalKey::Up))) {
           controller.Open();
           event.handled = true;
         }
       };
-  buttonProperties.semantics.role = SemanticRole::ComboBox;
+  buttonProperties.semantics.role =
+      isCombo ? SemanticRole::ComboBox : SemanticRole::Button;
   buttonProperties.semantics.identifier = NGIN::Text::String{anchorIdentifier};
-  buttonProperties.semantics.actions =
-      SemanticActionFlags::Activate | SemanticActionFlags::Focus |
-      SemanticActionFlags::Expand | SemanticActionFlags::Collapse;
+  if (isCombo)
+    buttonProperties.semantics.actions =
+        SemanticActionFlags::Activate | SemanticActionFlags::Focus |
+        SemanticActionFlags::Expand | SemanticActionFlags::Collapse;
   if (controller.IsOpen()) {
     buttonProperties.semantics.states |= SemanticStateFlags::Expanded;
   }
 
-  composer.Element(
-      ElementType::Overlay,
-      [&] {
-        composer.Element(ElementType::Button, buttonProperties,
-                         std::forward<ComposeSummary>(composeSummary),
-                         "anchor");
-        if (controller.IsPresented()) {
-          popupProperties.popup.anchorIdentifier =
-              NGIN::Text::String{anchorIdentifier};
-          popupProperties.popup.placement = PopupPlacement::BelowStart;
-          popupProperties.popup.modal = false;
-          popupProperties.popup.dismissOnOutsidePointer = true;
-          popupProperties.popup.dismissOnEscape = true;
-          popupProperties.popup.onDismiss = [&controller] {
-            controller.Close();
-          };
-          popupProperties.semantics.role = SemanticRole::Group;
-          PreparePopupMotion(controller, popupProperties);
-          composer.Popup(
-              [&] {
-                NodeProperties optionList{};
-                optionList.interaction.focusable = true;
-                optionList.scroll.vertical = false;
-                optionList.scroll.horizontal = false;
-                optionList.scroll.showScrollbars = false;
-                optionList.semantics.role = SemanticRole::List;
-                composer.ListView(std::forward<ComposeOptions>(composeOptions),
-                                  optionList, "options");
-              },
-              popupProperties, "popup");
-        }
-      },
-      key);
+  return buttonProperties;
 }
+inline auto PopupProperties(PopupController &controller,
+                            NodeProperties properties, SemanticRole role)
+    -> NodeProperties {
+  properties.popup.placement = PopupPlacement::BelowStart;
+  properties.popup.modal = false;
+  properties.popup.dismissOnOutsidePointer = true;
+  properties.popup.dismissOnEscape = true;
+  properties.popup.onDismiss = [&controller] { controller.Close(); };
+  properties.semantics.role = role;
+  PreparePopupMotion(controller, properties);
+  return properties;
+}
+inline auto ComboListProperties() -> NodeProperties {
+  NodeProperties list{};
+  list.interaction.focusable = true;
+  list.scroll.vertical = false;
+  list.scroll.horizontal = false;
+  list.scroll.showScrollbars = false;
+  list.semantics.role = SemanticRole::List;
+  return list;
+}
+} // namespace Detail
 
 /// @brief Stable value, key, and label describing one tab.
 template <typename T> struct TabDefinition final {
@@ -569,126 +553,46 @@ struct TabsPresentation final {
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
-template <typename T, typename ComposeHeader, typename ComposePage>
-  requires std::equality_comparable<T>
-void Tabs(Composer &composer, Binding<T> selection,
-          std::span<const TabDefinition<T>> tabs, ComposeHeader &&composeHeader,
-          ComposePage &&composePage, const TabsPresentation &presentation = {},
-          std::string_view key = {}) {
-  composer.Element(
-      ElementType::Column, presentation.root,
-      [&] {
-        auto tabList = presentation.tabList;
-        tabList.semantics.role = SemanticRole::TabList;
-        composer.Element(
-            ElementType::Row, tabList,
-            [&] {
-              for (const auto &definition : tabs) {
-                const auto selected = selection.Get() == definition.value;
-                auto properties = presentation.tab;
-                properties.interaction.focusable = true;
-                properties.interaction.onActivate =
-                    [selection, value = definition.value,
-                     onError = presentation.onError]() {
-                      auto result = selection.Set(value);
-                      if (!result && onError) {
-                        onError(result.error());
-                      }
-                    };
-                properties.semantics.role = SemanticRole::Tab;
-                properties.semantics.label = definition.label;
-                properties.semantics.actions =
-                    SemanticActionFlags::Activate | SemanticActionFlags::Focus |
-                    SemanticActionFlags::Select |
-                    SemanticActionFlags::ScrollIntoView;
-                if (selected) {
-                  properties.semantics.states |= SemanticStateFlags::Selected;
-                  properties.visual.state |= VisualStateFlags::Selected;
-                  properties.interaction.tabIndex = 0;
-                } else {
-                  properties.interaction.tabIndex = -1;
-                }
-                composer.Tab(
-                    [&] { composeHeader(composer, definition, selected); },
-                    properties, definition.key.View());
-              }
-            },
-            "tab-list");
-
-        composer.Element(
-            ElementType::Overlay,
-            [&] {
-              for (const auto &definition : tabs) {
-                const auto selected = selection.Get() == definition.value;
-                auto properties = presentation.panel;
-                properties.visibility = selected ? ElementVisibility::Visible
-                                                 : ElementVisibility::Collapsed;
-                properties.semantics.role = SemanticRole::TabPanel;
-                properties.semantics.label = definition.label;
-                composer.Element(
-                    ElementType::Custom, properties,
-                    [&] { composePage(composer, definition, selected); },
-                    definition.key.View());
-              }
-            },
-            "tab-panels");
-      },
-      key);
-}
-
-template <typename ComposeSummary, typename ComposeMenu>
-void MenuButton(Composer &composer, PopupController &controller,
-                std::string_view anchorIdentifier,
-                ComposeSummary &&composeSummary, ComposeMenu &&composeMenu,
-                NodeProperties buttonProperties = {},
-                NodeProperties popupProperties = {},
-                std::string_view key = {}) {
-  buttonProperties.interaction.focusable = true;
-  buttonProperties.interaction.onActivate = [&controller] {
-    controller.Toggle();
+namespace Detail {
+template <typename T>
+auto TabProperties(Binding<T> selection, const TabDefinition<T> &definition,
+                   bool selected, const TabsPresentation &presentation)
+    -> NodeProperties {
+  auto properties = presentation.tab;
+  properties.interaction.focusable = true;
+  properties.interaction.onActivate = [selection, value = definition.value,
+                                       onError = presentation.onError]() {
+    auto result = selection.Set(value);
+    if (!result && onError) {
+      onError(result.error());
+    }
   };
-  auto previousKey = buttonProperties.interaction.onKey;
-  buttonProperties.interaction.onKey =
-      [previousKey = std::move(previousKey),
-       &controller](RoutedKeyEvent &event) mutable {
-        if (previousKey) {
-          previousKey(event);
-        }
-        if (!event.handled && event.state == KeyState::Pressed &&
-            event.logicalKey == LogicalKey::Down) {
-          controller.Open();
-          event.handled = true;
-        }
-      };
-  buttonProperties.semantics.role = SemanticRole::Button;
-  buttonProperties.semantics.identifier = NGIN::Text::String{anchorIdentifier};
-  if (controller.IsOpen()) {
-    buttonProperties.semantics.states |= SemanticStateFlags::Expanded;
+  properties.semantics.role = SemanticRole::Tab;
+  properties.semantics.label = definition.label;
+  properties.semantics.actions =
+      SemanticActionFlags::Activate | SemanticActionFlags::Focus |
+      SemanticActionFlags::Select | SemanticActionFlags::ScrollIntoView;
+  if (selected) {
+    properties.semantics.states |= SemanticStateFlags::Selected;
+    properties.visual.state |= VisualStateFlags::Selected;
+    properties.interaction.tabIndex = 0;
+  } else {
+    properties.interaction.tabIndex = -1;
   }
-  composer.Element(
-      ElementType::Overlay,
-      [&] {
-        composer.Element(ElementType::Button, buttonProperties,
-                         std::forward<ComposeSummary>(composeSummary),
-                         "anchor");
-        if (controller.IsPresented()) {
-          popupProperties.popup.anchorIdentifier =
-              NGIN::Text::String{anchorIdentifier};
-          popupProperties.popup.placement = PopupPlacement::BelowStart;
-          popupProperties.popup.modal = false;
-          popupProperties.popup.dismissOnOutsidePointer = true;
-          popupProperties.popup.dismissOnEscape = true;
-          popupProperties.popup.onDismiss = [&controller] {
-            controller.Close();
-          };
-          popupProperties.semantics.role = SemanticRole::Menu;
-          PreparePopupMotion(controller, popupProperties);
-          composer.Popup(std::forward<ComposeMenu>(composeMenu),
-                         popupProperties, "popup");
-        }
-      },
-      key);
+  return properties;
 }
+template <typename T>
+auto TabPanelProperties(const TabDefinition<T> &definition, bool selected,
+                        const TabsPresentation &presentation)
+    -> NodeProperties {
+  auto properties = presentation.panel;
+  properties.visibility =
+      selected ? ElementVisibility::Visible : ElementVisibility::Collapsed;
+  properties.semantics.role = SemanticRole::TabPanel;
+  properties.semantics.label = definition.label;
+  return properties;
+}
+} // namespace Detail
 
 inline void AttachContextMenu(NodeProperties &target,
                               PopupController &controller) {
@@ -709,34 +613,16 @@ inline void AttachContextMenu(NodeProperties &target,
   };
 }
 
-template <typename ComposeMenu>
-void ContextMenu(Composer &composer, PopupController &controller,
-                 ComposeMenu &&composeMenu, NodeProperties popupProperties = {},
-                 std::string_view key = "context-menu") {
-  if (!controller.IsPresented()) {
-    return;
-  }
-  popupProperties.popup.anchor = controller.Anchor();
-  popupProperties.popup.placement = PopupPlacement::BelowStart;
-  popupProperties.popup.modal = false;
-  popupProperties.popup.dismissOnOutsidePointer = true;
-  popupProperties.popup.dismissOnEscape = true;
-  popupProperties.popup.onDismiss = [&controller] { controller.Close(); };
-  popupProperties.semantics.role = SemanticRole::Menu;
-  PreparePopupMotion(controller, popupProperties);
-  composer.Popup(std::forward<ComposeMenu>(composeMenu), popupProperties, key);
-}
-
-template <typename ComposeChildren>
-void MenuItem(Composer &composer, ComposeChildren &&composeChildren,
-              NGIN::Utilities::Callable<void()> onActivate,
-              NodeProperties properties = {}, std::string_view key = {}) {
+namespace Detail {
+inline auto MenuItemProperties(NGIN::Utilities::Callable<void()> onActivate,
+                               NodeProperties properties) -> NodeProperties {
   properties.interaction.focusable = true;
   properties.interaction.onActivate = std::move(onActivate);
   properties.semantics.role = SemanticRole::MenuItem;
   properties.semantics.actions =
       SemanticActionFlags::Activate | SemanticActionFlags::Focus;
-  composer.MenuItem(std::forward<ComposeChildren>(composeChildren), properties,
-                    key);
+  return properties;
 }
+} // namespace Detail
+
 } // namespace NGIN::UI

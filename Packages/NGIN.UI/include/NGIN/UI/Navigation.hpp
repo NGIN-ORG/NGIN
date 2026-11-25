@@ -1,6 +1,6 @@
 #pragma once
 
-#include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Components.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/State.hpp>
@@ -52,55 +52,37 @@ struct RegisteredPage final {
 class NavigationService;
 
 namespace detail {
-/// @brief Internal type-erased owner for one composed page.
-class IPageInstance {
+/// @brief One component description and the release hook of its navigation
+/// lease.
+class PageInstance final {
 public:
-  virtual ~IPageInstance() = default;
-  virtual void Compose(Composer &composer) = 0;
-  virtual void Close() noexcept = 0;
-};
-
-template <typename TViewModel, typename TParameter>
-/// @brief Internal typed ViewModel, parameter, and composition owner.
-class TypedPageInstance final : public IPageInstance {
-public:
-  using ComposeFunction = NGIN::Utilities::Callable<void(
-      Composer &, TViewModel &, const TParameter &)>;
-
-  TypedPageInstance(PageLease<TViewModel> lease,
-                    std::shared_ptr<const TParameter> parameter,
-                    ComposeFunction compose)
-      : m_lease(std::move(lease)), m_parameter(std::move(parameter)),
-        m_compose(std::move(compose)) {}
-  ~TypedPageInstance() override { Close(); }
-
-  void Compose(Composer &composer) override {
-    m_compose(composer, *m_lease.viewModel, *m_parameter);
+  void SetCloseHandler(Utilities::Callable<void()> close) {
+    m_close = std::move(close);
+  }
+  void SetContent(Views::View content) { m_content = std::move(content); }
+  ~PageInstance() { Close(); }
+  [[nodiscard]] auto Content() const -> const Views::View & {
+    return m_content;
   }
 
-  void Close() noexcept override {
-    if (m_closed) {
-      return;
-    }
-    m_closed = true;
-    if (m_lease.close) {
+  void Close() noexcept {
+    auto close = std::move(m_close);
+    if (close) {
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       try {
 #endif
-        m_lease.close();
+        close();
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       } catch (...) {
       }
 #endif
     }
-    m_lease.viewModel.reset();
+    m_content = {};
   }
 
 private:
-  PageLease<TViewModel> m_lease{};
-  std::shared_ptr<const TParameter> m_parameter{};
-  ComposeFunction m_compose{};
-  bool m_closed{false};
+  Views::View m_content;
+  Utilities::Callable<void()> m_close;
 };
 } // namespace detail
 
@@ -108,8 +90,8 @@ private:
 class PageRegistry final {
 public:
   using ErasedParameter = std::shared_ptr<const void>;
-  using ErasedFactory = NGIN::Utilities::Callable<
-      UIResult<std::shared_ptr<detail::IPageInstance>>(
+  using ErasedFactory =
+      NGIN::Utilities::Callable<UIResult<std::shared_ptr<detail::PageInstance>>(
           PageActivationContext &, const ErasedParameter &, std::string_view)>;
 
   PageRegistry() = default;
@@ -133,10 +115,10 @@ public:
                               std::string_view>,
         "Page factory must return UIResult<PageLease<TViewModel>> and accept "
         "(PageActivationContext&, const TParameter&, string_view entryKey)");
-    static_assert(std::is_invocable_r_v<void, Compose &, Composer &,
-                                        ViewModel &, const Parameter &>,
-                  "Page compose function must accept (Composer&, TViewModel&, "
-                  "const TParameter&) and return void");
+    static_assert(std::is_invocable_r_v<Views::View, Compose &, ViewModel &,
+                                        const Parameter &>,
+                  "Page views must accept (TViewModel&, const TParameter&) and "
+                  "return Views::View");
 
     if constexpr (!(std::is_copy_constructible_v<Factory> &&
                     std::is_copy_constructible_v<Compose>)) {
@@ -158,7 +140,7 @@ public:
                       PageActivationContext &context,
                       const ErasedParameter &parameter,
                       const std::string_view entryKey)
-        -> UIResult<std::shared_ptr<detail::IPageInstance>> {
+        -> UIResult<std::shared_ptr<detail::PageInstance>> {
       const auto typed = std::static_pointer_cast<const Parameter>(parameter);
       if (!typed) {
         return std::unexpected(
@@ -169,19 +151,23 @@ public:
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       try {
 #endif
+        auto instance = std::make_shared<detail::PageInstance>();
         auto lease = factory(context, *typed, entryKey);
         if (!lease) {
           return NGIN::Utilities::Unexpected<UIError>(lease.error());
         }
+        instance->SetCloseHandler(std::move(lease->close));
         if (!lease.value().viewModel) {
           return std::unexpected(
               MakeUIError(UIErrorCode::ResourceFailed,
                           "Page ViewModel factory returned no value", "NGIN.UI",
                           "PageRegistry::Activate"));
         }
-        return std::static_pointer_cast<detail::IPageInstance>(
-            std::make_shared<detail::TypedPageInstance<ViewModel, Parameter>>(
-                std::move(lease).value(), typed, std::move(compose)));
+        instance->SetContent(Views::Component(
+            [model = std::move(lease->viewModel), typed, compose]() mutable {
+              return compose(*model, *typed);
+            }));
+        return instance;
 #if NGIN_ASYNC_HAS_EXCEPTIONS
       } catch (...) {
         return std::unexpected(MakeUIError(UIErrorCode::ResourceFailed,
@@ -326,7 +312,7 @@ public:
   [[nodiscard]] auto Clear() -> UIResult<NavigationChange>;
   [[nodiscard]] auto HandleBackEvent(const PlatformEvent &event)
       -> UIResult<bool>;
-  void Compose(Composer &composer);
+  [[nodiscard]] auto ContentView() const -> Views::View;
   void SetObserver(Observer observer);
   void SetFailureObserver(FailureObserver observer);
   [[nodiscard]] auto Snapshot() const -> NavigationSnapshot;
@@ -354,6 +340,7 @@ private:
   PageRegistry *m_registry{nullptr};
   PageActivationContext *m_context{nullptr};
   NavigationOptions m_options{};
+  State<Views::View> m_content{};
   std::vector<std::shared_ptr<Entry>> m_stack{};
   std::vector<std::shared_ptr<Entry>> m_cache{};
   Observer m_observer{};
@@ -366,7 +353,7 @@ private:
 class NavigationHost final {
 public:
   explicit NavigationHost(NavigationService &navigation) noexcept;
-  void Compose(Composer &composer);
+  [[nodiscard]] auto ContentView() const -> Views::View;
   [[nodiscard]] auto HandleEvent(const PlatformEvent &event) -> UIResult<bool>;
 
 private:

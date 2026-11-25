@@ -57,30 +57,6 @@ struct ProgressValue final {
   bool indeterminate{false};
 };
 
-void CheckBox(Composer &composer, Binding<CheckState> value,
-              const ControlPresentation &presentation = {},
-              const NodeProperties &properties = {}, std::string_view key = {});
-void RadioButton(Composer &composer, RadioSelection selection,
-                 const ControlPresentation &presentation = {},
-                 const NodeProperties &properties = {},
-                 std::string_view key = {});
-void ToggleSwitch(Composer &composer, Binding<bool> value,
-                  const ControlPresentation &presentation = {},
-                  const NodeProperties &properties = {},
-                  std::string_view key = {});
-void Slider(Composer &composer, Binding<F32> value, SliderRange range = {},
-            const ControlPresentation &presentation = {},
-            const NodeProperties &properties = {}, std::string_view key = {});
-void ProgressBar(Composer &composer, ProgressValue value,
-                 const ControlPresentation &presentation = {},
-                 const NodeProperties &properties = {},
-                 std::string_view key = {});
-
-void Label(Composer &composer, NGIN::Text::String value, ITextLayout &layout,
-           IGlyphAtlas &glyphAtlas, std::string_view identifier,
-           std::string_view targetIdentifier,
-           const NodeProperties &properties = {}, std::string_view key = {});
-
 /// @brief Schedules, exposes, and dismisses a tooltip for an attached element.
 class ToolTipController final {
 public:
@@ -97,29 +73,11 @@ public:
   [[nodiscard]] auto IsOpen() const noexcept -> bool;
   void Dismiss() noexcept;
 
-  template <typename ComposeContent>
-  void Compose(Composer &composer, ComposeContent &&composeContent,
-               std::string_view key = "tooltip") const {
-    if (!IsOpen()) {
-      return;
-    }
-    NodeProperties popup{};
-    popup.popup.anchor = Anchor();
-    popup.popup.placement = PopupPlacement::BelowStart;
-    popup.popup.gap = 8.0F;
-    popup.popup.modal = false;
-    popup.popup.dismissOnOutsidePointer = false;
-    popup.popup.dismissOnEscape = false;
-    popup.interaction.hitTestVisible = false;
-    popup.semantics.hidden = true;
-    composer.Popup(std::forward<ComposeContent>(composeContent), popup, key);
-  }
+  /// @brief Last pointer position used for popup placement.
+  [[nodiscard]] auto Anchor() const noexcept -> Rect;
 
 private:
   struct State;
-
-  [[nodiscard]] auto Anchor() const noexcept -> Rect;
-
   std::shared_ptr<State> m_state;
 };
 } // namespace NGIN::UI

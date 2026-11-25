@@ -30,6 +30,7 @@ struct RecordedRenderPacket final {
   PixelSize targetSize{};
   F32 scaleFactor{1.0F};
   Color clearColor{};
+  RenderLoadAction loadAction{RenderLoadAction::Clear};
 };
 
 /// @brief Size, scale, and submitted frames recorded for one test surface.

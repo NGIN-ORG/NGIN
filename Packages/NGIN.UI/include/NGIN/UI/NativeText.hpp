@@ -86,6 +86,10 @@ public:
 
   [[nodiscard]] static auto BundledFontPath() noexcept -> const char *;
 
+  [[nodiscard]] auto MetricsRevision() const noexcept -> UInt64 override {
+    return 1;
+  }
+  [[nodiscard]] auto AtlasRevision() const noexcept -> UInt64 override;
   [[nodiscard]] auto ResolveFont(const FontRequest &request) noexcept
       -> UIResult<FontFaceHandle> override;
   [[nodiscard]] auto Metrics(FontFaceHandle face, F32 fontSize) noexcept

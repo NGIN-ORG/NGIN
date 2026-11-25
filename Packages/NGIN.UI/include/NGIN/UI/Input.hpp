@@ -39,6 +39,8 @@ public:
   auto Route(const PlatformEvent &event) -> InputDispatchResult;
   auto SetFocus(ElementHandle handle) noexcept -> bool;
   auto ClearFocus() noexcept -> bool;
+  /// @brief Ends text input and releases focus, hover, and all pointer captures.
+  auto Deactivate() noexcept -> bool;
   auto MoveFocus(bool reverse = false) -> bool;
   auto PerformSemanticAction(ElementHandle target,
                              const SemanticActionRequest &request)

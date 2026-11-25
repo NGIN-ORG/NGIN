@@ -35,7 +35,7 @@ auto main() -> int {
   auto provider = Accessibility::Windows::CreateAccessibilityBackend();
   ActionSink sink;
   if (!Check(provider != nullptr, "provider factory failed") ||
-      !Check(provider->Initialize(sink).HasValue(), "provider init failed")) {
+      !Check(provider->Initialize(sink).has_value(), "provider init failed")) {
     return 1;
   }
 
@@ -55,7 +55,7 @@ auto main() -> int {
           },
       .title = NGIN::Text::String{"Provider test"},
   });
-  if (!Check(attached.HasValue(), "provider attachment failed")) {
+  if (!Check(attached.has_value(), "provider attachment failed")) {
     DestroyWindow(window);
     return 1;
   }
@@ -82,7 +82,7 @@ auto main() -> int {
                      .root = SemanticNodeId{1},
                      .nodes = {root, button},
                  })
-                 .HasValue(),
+                 .has_value(),
              "snapshot publish failed")) {
     DestroyWindow(window);
     return 1;
@@ -156,7 +156,7 @@ auto main() -> int {
       Check(sink.last.semantic.node == SemanticNodeId{2} &&
                 sink.last.semantic.action == SemanticActionKind::Activate,
             "UI Automation did not post the button action") &&
-      Check(updated.HasValue(), "updated snapshot publish failed") &&
+      Check(updated.has_value(), "updated snapshot publish failed") &&
       Check(diagnostics.available, "provider did not report availability") &&
       Check(diagnostics.attachedWindowCount == 1,
             "provider did not track its window") &&
@@ -164,7 +164,7 @@ auto main() -> int {
             "provider did not track its snapshot") &&
       Check(diagnostics.raisedEventCount > 0,
             "provider did not raise snapshot events") &&
-      Check(detached.HasValue(), "provider detach failed") &&
+      Check(detached.has_value(), "provider detach failed") &&
       Check(provider->Diagnostics().attachedWindowCount == 0,
             "provider retained a detached window") &&
       Check(FAILED(staleRead), "detached element remained available");

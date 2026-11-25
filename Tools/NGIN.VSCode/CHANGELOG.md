@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Build Project and Run Build Task share a focused build terminal with live
+  progress, elapsed time, and Ctrl+C cancellation. CMake preset builds also
+  stream their output.
+
 - Fixed C/C++ IntelliSense configuration for CMake-owned public headers that
   are not listed as direct File API target sources, including invalidation of
   cached misses when a new CMake snapshot becomes available.

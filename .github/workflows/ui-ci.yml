@@ -51,11 +51,20 @@ jobs:
         shell: bash
         run: >
           cmake --build build/ui-ci --config Release
-          --target NGINUITests NGINUIBenchmarks
+          --target NGINUITests NGINUIAsyncTests NGINUIOwnershipTests NGINUIBenchmarks
 
       - name: Run structural, visual, and budget tests
         shell: bash
         run: ctest --test-dir build/ui-ci -C Release --output-on-failure
+
+      - name: Exercise an engine-owned SDL render target
+        shell: bash
+        run: |
+          cmake -S Packages/NGIN.UI.Backend.SDL3 -B build/ui-sdl-tests \
+            -DNGIN_UI_SDL3_BUILD_TESTS=ON -DNGIN_UI_ENABLE_NATIVE_TEXT=OFF \
+            -DNGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS=OFF
+          cmake --build build/ui-sdl-tests --config Release --target NGINUISDL3Tests NGINUISDL3OverlayTests
+          ctest --test-dir build/ui-sdl-tests -C Release --output-on-failure
 
       - name: Check public API documentation
         shell: bash
@@ -152,39 +161,46 @@ jobs:
           cmake --preset dev
           cmake --build build/dev --target ngin_cli
 
-      - name: Build Release Gallery products
+      - name: Stage Release UI examples
         shell: bash
         run: |
           cli=./build/dev/Tools/NGIN.CLI/ngin
           if [ "$RUNNER_OS" = "Windows" ]; then cli="${cli}.exe"; fi
-          "$cli" build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.4.0
-          "$cli" build --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Hosted-0.4.0
-          "$cli" build --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Tests-0.4.0
-          "$cli" build --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Release --output build/release/NGIN.UI.MultiPage-0.4.0
+          "$cli" stage --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --configuration Release --output build/release/NGIN.UI.Gallery-0.4.0
+          "$cli" stage --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj --configuration Release --output build/release/NGIN.UI.Gallery.Hosted-0.4.0
+          "$cli" stage --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --configuration Release --output build/release/NGIN.UI.Gallery.Tests-0.4.0
+          "$cli" stage --project Examples/NGIN.UI.Settings/NGIN.UI.Settings.nginproj --configuration Release --output build/release/NGIN.UI.Settings
+          "$cli" stage --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --configuration Release --output build/release/NGIN.UI.MultiPage-0.4.0
 
       - name: Run headless Gallery checks
         shell: bash
         run: |
-          executable=./build/release/NGIN.UI.Gallery.Tests-0.4.0/bin/NGIN.UI.Gallery.Tests
+          executable=./build/release/NGIN.UI.Gallery.Tests-0.4.0/stage/bin/NGIN.UI.Gallery.Tests
           if [ "$RUNNER_OS" = "Windows" ]; then executable="${executable}.exe"; fi
           "$executable"
 
       - name: Run native Gallery smoke checks
         shell: bash
         run: |
-          gallery=./build/release/NGIN.UI.Gallery-0.4.0/bin/NGIN.UI.Gallery
-          hosted=./build/release/NGIN.UI.Gallery.Hosted-0.4.0/bin/NGIN.UI.Gallery.Hosted
-          multipage=./build/release/NGIN.UI.MultiPage-0.4.0/bin/NGIN.UI.MultiPage
+          gallery=./build/release/NGIN.UI.Gallery-0.4.0/stage/bin/NGIN.UI.Gallery
+          settings=./build/release/NGIN.UI.Settings/stage/bin/NGIN.UI.Settings
+          hosted=./build/release/NGIN.UI.Gallery.Hosted-0.4.0/stage/bin/NGIN.UI.Gallery.Hosted
+          multipage=./build/release/NGIN.UI.MultiPage-0.4.0/stage/bin/NGIN.UI.MultiPage
           if [ "$RUNNER_OS" = "Windows" ]; then
+            settings="${settings}.exe"
             gallery="${gallery}.exe"
             hosted="${hosted}.exe"
             multipage="${multipage}.exe"
           fi
           if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum "$settings" --smoke
+            xvfb-run --auto-servernum "$settings" --game --smoke
             xvfb-run --auto-servernum "$gallery" --smoke
             xvfb-run --auto-servernum "$hosted" --smoke
             xvfb-run --auto-servernum "$multipage" --smoke
           else
+            "$settings" --smoke
+            "$settings" --game --smoke
             "$gallery" --smoke
             "$hosted" --smoke
             "$multipage" --smoke
@@ -194,7 +210,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          ./build/dev/Tools/NGIN.CLI/ngin.exe publish demo --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.4.0
+          ./build/dev/Tools/NGIN.CLI/ngin.exe publish demo --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --configuration Release --output build/release/NGIN.UI.Gallery-0.4.0
 
       - name: Upload versioned demo
         if: runner.os == 'Windows'

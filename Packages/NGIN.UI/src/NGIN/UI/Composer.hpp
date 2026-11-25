@@ -189,6 +189,10 @@ public:
 
   [[nodiscard]] auto Declarations() const noexcept
       -> const std::vector<ElementDeclaration> &;
+  /// @brief Appends a mounted component's immutable declaration without copying its children.
+  void AppendCached(std::shared_ptr<const ElementDeclaration> declaration);
+  /// @brief Transfers this composer's completed roots to a retained component.
+  [[nodiscard]] auto TakeDeclarations() && -> std::vector<ElementDeclaration>;
   [[nodiscard]] auto IsBalanced() const noexcept -> bool;
 
 private:

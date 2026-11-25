@@ -1,12 +1,15 @@
+#include <NGIN/UI/SurfaceComposition.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include <NGIN/UI/Controls.hpp>
+#include "HeadlessTextFixture.hpp"
+#include <NGIN/UI/ControlPrimitives.hpp>
 #include <NGIN/UI/DisplayList.hpp>
 #include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
+#include <NGIN/UI/ViewControls.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -352,6 +355,7 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Testing;
 
+  HeadlessText text;
   auto platform = std::make_unique<TestPlatformBackend>();
   auto *platformObserver = platform.get();
   auto created = CreateApplication(ApplicationCreateInfo{
@@ -370,27 +374,26 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
   ToolTipController tooltip{*window, NGIN::Text::String{"Delayed help"},
                             std::chrono::milliseconds{2}};
 
-  window->SetContent([&](Composer &composer) {
-    NodeProperties target{};
-    target.layout.preferredSize = Size{100.0F, 40.0F};
-    target.layout.horizontalAlignment = HorizontalAlignment::Start;
-    target.layout.verticalAlignment = VerticalAlignment::Start;
-    target.interaction.focusable = true;
-    target.semantics.role = SemanticRole::Button;
-    target.semantics.label = NGIN::Text::String{"Target"};
-    tooltip.Attach(target);
-    composer.Leaf(ElementType::Rectangle, target, "target");
-    tooltip.Compose(
-        composer,
-        [&] {
-          NodeProperties bubble{};
-          bubble.layout.preferredSize = Size{120.0F, 32.0F};
-          bubble.paintsBackground = true;
-          bubble.background = Color{0.1F, 0.1F, 0.12F, 1.0F};
-          composer.Leaf(ElementType::Rectangle, bubble, "bubble");
-        },
-        "tooltip-popup");
-  });
+  NodeProperties targetProperties{};
+  targetProperties.layout.preferredSize = Size{100.0F, 40.0F};
+  targetProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  targetProperties.layout.verticalAlignment = VerticalAlignment::Start;
+  targetProperties.interaction.focusable = true;
+  targetProperties.semantics.role = SemanticRole::Button;
+  targetProperties.semantics.label = NGIN::Text::String{"Target"};
+  tooltip.Attach(targetProperties);
+
+  NodeProperties bubble{};
+  bubble.layout.preferredSize = Size{120.0F, 32.0F};
+  bubble.semantics.identifier = NGIN::Text::String{"tooltip-bubble"};
+  window->SetContent(
+      Views::Box(ElementType::Overlay,
+                 {Views::Box(ElementType::Rectangle, {}, targetProperties)
+                      .Key("target"),
+                  Views::ToolTip(tooltip,
+                                 Views::Box(ElementType::Rectangle, {}, bubble))
+                      .Key("tooltip-popup")}),
+      text.Environment());
   REQUIRE(application->PumpOnce().has_value());
   const auto target = window->HitTest(Point{20.0F, 20.0F});
   REQUIRE(target);
@@ -404,10 +407,18 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
   });
   REQUIRE(application->PumpOnce().has_value());
   REQUIRE_FALSE(tooltip.IsOpen());
+  REQUIRE_FALSE(window->Tree().FindBySemanticIdentifier("tooltip-bubble"));
   platformObserver->AdvanceTime(std::chrono::milliseconds{4});
   REQUIRE(application->PumpOnce().has_value());
   REQUIRE(tooltip.IsOpen());
+  const auto popupContent =
+      window->Tree().FindBySemanticIdentifier("tooltip-bubble");
+  REQUIRE(popupContent);
+  tooltip.Dismiss();
+  REQUIRE(application->PumpOnce().has_value());
+  REQUIRE_FALSE(window->Tree().IsAlive(popupContent));
   REQUIRE(window->FocusedElement() == target);
+  REQUIRE(application->CloseWindow(*window));
 }
 
 TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
@@ -429,7 +440,7 @@ TEST_CASE("scroll views paint draggable scrollbars and accept keyboard input") {
   });
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
-  window->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [](Composer &composer) {
     NodeProperties scroll{};
     scroll.layout.preferredSize = Size{100.0F, 60.0F};
     scroll.layout.maximumSize = Size{100.0F, 60.0F};

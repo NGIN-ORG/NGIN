@@ -1,6 +1,6 @@
+#include <NGIN/UI/SurfaceComposition.hpp>
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Application.hpp>
-#include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
 
@@ -164,7 +164,7 @@ TEST_CASE("application publishes semantics and executes provider actions") {
   REQUIRE(windowResult.has_value());
   auto *window = windowResult.value();
   bool activated = false;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties button{};
     button.interaction.enabled = true;
     button.interaction.focusable = true;

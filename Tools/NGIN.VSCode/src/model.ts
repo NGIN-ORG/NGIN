@@ -331,5 +331,5 @@ export interface ContextSnapshot {
   busyProjectId?: string;
   busyProjectManifest?: string;
   configured?: boolean;
-  lastOperation?: { projectId?: string; projectManifest: string; command: string; state: 'succeeded' | 'failed'; completedAt: number; durationMs: number; message?: string };
+  lastOperation?: { projectId?: string; projectManifest: string; command: string; state: 'succeeded' | 'failed' | 'canceled'; completedAt: number; durationMs: number; message?: string };
 }

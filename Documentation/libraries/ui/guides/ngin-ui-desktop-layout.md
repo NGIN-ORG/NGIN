@@ -12,7 +12,8 @@ window DPI scale.
 
 ## Grid
 
-Define tracks on the Grid and placement on each direct child:
+Set tracks on the grid and placement on each direct child. Here `name` is a
+`Binding<NGIN::Text::String>` supplied by the form.
 
 ```cpp
 NodeProperties form{};
@@ -24,22 +25,15 @@ form.grid.rows = {GridTrack::Auto(), GridTrack::Auto()};
 form.grid.columnGap = 12.0F;
 form.grid.rowGap = 8.0F;
 
-composer.Grid(
-    [&] {
-      NodeProperties label{};
-      label.gridPlacement = GridPlacement{.row = 0, .column = 0};
-      composer.Element(ElementType::Column, label, [&] {
-        // Compose the label.
-      }, "name-label");
+NodeProperties label{};
+label.gridPlacement = {.row = 0, .column = 0};
+NodeProperties field{};
+field.gridPlacement = {.row = 0, .column = 1};
 
-      NodeProperties field{};
-      field.gridPlacement = GridPlacement{
-          .row = 0, .column = 1, .rowSpan = 1, .columnSpan = 1};
-      composer.Border([&] {
-        // Compose the field.
-      }, field, "name-field");
-    },
-    form, "settings-form");
+auto formView = Views::Grid({
+    Views::Label("Name", label).Key("name-label"),
+    Views::TextField("Name", name, field).Key("name-field"),
+}, form).Key("settings-form");
 ```
 
 Use `GridTrack::Fixed(size)` for a known size, `GridTrack::Auto()` for content
@@ -62,12 +56,10 @@ toolbar.wrapPanel.itemGap = 8.0F;
 toolbar.wrapPanel.lineGap = 8.0F;
 toolbar.wrapPanel.lineAlignment = WrapLineAlignment::Start;
 
-composer.WrapPanel([&] {
-  ComposeAction("New");
-  ComposeAction("Open");
-  ComposeAction("Save");
-  ComposeAction("Export");
-}, toolbar, "toolbar");
+auto toolbarView = Views::WrapPanel({
+    Views::Button("New", onNew), Views::Button("Open", onOpen),
+    Views::Button("Save", onSave), Views::Button("Export", onExport),
+}, toolbar).Key("toolbar");
 ```
 
 Orientation can be horizontal or vertical. Each line can align at the start,
@@ -84,14 +76,12 @@ NodeProperties canvas{};
 canvas.layout.preferredSize = Size{640.0F, 240.0F};
 canvas.canvas.clipToBounds = true;
 
-composer.Canvas([&] {
-  NodeProperties node{};
-  node.canvasPlacement.offset = Point{40.0F, 24.0F};
-  node.canvasPlacement.contributesToDesiredSize = false;
-  composer.Border([&] {
-    // Compose one diagram node.
-  }, node, "source-node");
-}, canvas, "diagram");
+NodeProperties node{};
+node.canvasPlacement.offset = Point{40.0F, 24.0F};
+node.canvasPlacement.contributesToDesiredSize = false;
+auto diagram = Views::Canvas({
+    Views::Border({Views::Label("Source")}, node).Key("source-node"),
+}, canvas).Key("diagram");
 ```
 
 Offsets are relative to the Canvas content area. Children can contribute their

@@ -189,18 +189,18 @@ void ReadStringRefs(const std::optional<XmlElement> &element,
   if (const auto version = Attribute(root, "Version"); version.has_value()) {
     auto parsedVersion = ParseSemanticVersion(version.value());
     if (!parsedVersion) {
-      return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.error());
     }
-    out.version = parsedVersion.Value();
+    out.version = parsedVersion.value();
   }
 
   if (const auto range = Attribute(root, "CompatiblePlatformRange");
       range.has_value()) {
     auto parsedRange = ParseVersionRange(range.value());
     if (!parsedRange) {
-      return NGIN::Utilities::Unexpected<KernelError>(parsedRange.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(parsedRange.error());
     }
-    out.compatiblePlatformRange = parsedRange.Value();
+    out.compatiblePlatformRange = parsedRange.value();
   }
 
   if (FindChild(root, "Platforms")) {
@@ -258,9 +258,9 @@ void ReadStringRefs(const std::optional<XmlElement> &element,
         auto parsedDepRange = ParseVersionRange(depRange.value());
         if (!parsedDepRange) {
           return NGIN::Utilities::Unexpected<KernelError>(
-              parsedDepRange.Error());
+              parsedDepRange.error());
         }
-        dep.requiredVersion = parsedDepRange.Value();
+        dep.requiredVersion = parsedDepRange.value();
       }
 
       out.dependencies.push_back(std::move(dep));
@@ -385,7 +385,7 @@ auto DynamicPluginBinaryLoader::LoadModuleFactory(
       PluginModuleRegistry registry{};
       auto registered = registrar(registry);
       if (!registered) {
-        return NGIN::Utilities::Unexpected<KernelError>(registered.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(registered.error());
       }
 
       Impl::LoadedPlugin loaded{};
@@ -448,8 +448,8 @@ auto FilesystemPluginCatalog::CollectDescriptors(
 
       const NGIN::IO::Path searchPath(rawPath);
       auto searchInfo = m_fileSystem->GetInfo(searchPath);
-      if (!searchInfo || !searchInfo.Value().exists ||
-          searchInfo.Value().type != NGIN::IO::EntryType::Directory) {
+      if (!searchInfo || !searchInfo.value().exists ||
+          searchInfo.value().type != NGIN::IO::EntryType::Directory) {
         continue;
       }
 
@@ -499,9 +499,9 @@ auto FilesystemPluginCatalog::CollectDescriptors(
 
         ModuleDescriptor descriptor{};
         auto parse = ParseDescriptorFromXml(ToString(path),
-                                            input.Value().View(), descriptor);
+                                            input.value().View(), descriptor);
         if (!parse) {
-          return NGIN::Utilities::Unexpected<KernelError>(parse.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(parse.error());
         }
 
         if (descriptor.pluginName.empty()) {

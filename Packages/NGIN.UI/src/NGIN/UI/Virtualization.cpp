@@ -88,10 +88,10 @@ auto FixedVirtualizedListController::UpdateViewport(const F32 offset,
       nextOffset != m_viewportOffset || nextExtent != m_viewportExtent;
   m_viewportOffset = nextOffset;
   m_viewportExtent = nextExtent;
-  const auto previousRange = m_range;
+  const auto previousRange = m_range.Get();
   RecalculateRange(true);
   UpdateAnchor();
-  return changed || previousRange != m_range;
+  return changed || previousRange != m_range.Get();
 }
 
 auto FixedVirtualizedListController::TakePendingScrollOffset() noexcept
@@ -185,7 +185,7 @@ auto FixedVirtualizedListController::LogicalItemCount() const noexcept
 
 auto FixedVirtualizedListController::RealizedRange() const noexcept
     -> VirtualizedRange {
-  return m_range;
+  return m_range.Get();
 }
 
 auto FixedVirtualizedListController::ItemExtent() const noexcept -> F32 {
@@ -287,7 +287,7 @@ auto FixedVirtualizedListController::Diagnostics() const
     -> VirtualizedListDiagnostics {
   return VirtualizedListDiagnostics{
       .logicalItemCount = m_source.logicalItemCount,
-      .realized = m_range,
+      .realized = m_range.Get(),
       .realizedNodeCount = m_mappings.size(),
       .overscanItems = m_options.overscanItems,
       .itemExtent = m_options.itemExtent,
@@ -320,12 +320,12 @@ void FixedVirtualizedListController::RecalculateRange(const bool schedule,
                           visibleEnd + m_options.overscanItems) -
                  next.first;
   }
-  if (!forceRequest && next == m_range && m_requestedRange == next) {
+  if (!forceRequest && next == m_range.Get() && m_requestedRange == next) {
     return;
   }
 
-  const auto previous = m_range;
-  m_range = next;
+  const auto previous = m_range.Get();
+  static_cast<void>(m_range.Set(next));
   if (m_requestedRange && (forceRequest || *m_requestedRange != next) &&
       m_source.cancelRange) {
     m_source.cancelRange(*m_requestedRange);

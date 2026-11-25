@@ -202,10 +202,10 @@ namespace NGIN::Core
                 auto parsed = ParseSemanticVersion(view.substr(1));
                 if (!parsed)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsed.error());
                 }
-                range.lower = parsed.Value();
-                range.upper = parsed.Value();
+                range.lower = parsed.value();
+                range.upper = parsed.value();
                 range.includeLower = true;
                 range.includeUpper = true;
                 continue;
@@ -215,10 +215,10 @@ namespace NGIN::Core
                 auto parsed = ParseSemanticVersion(view);
                 if (!parsed)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsed.error());
                 }
-                range.lower = parsed.Value();
-                range.upper = parsed.Value();
+                range.lower = parsed.value();
+                range.upper = parsed.value();
                 range.includeLower = true;
                 range.includeUpper = true;
                 continue;
@@ -227,17 +227,17 @@ namespace NGIN::Core
             auto parsed = ParseSemanticVersion(view);
             if (!parsed)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+                return NGIN::Utilities::Unexpected<KernelError>(parsed.error());
             }
 
             if (isLower)
             {
-                range.lower = parsed.Value();
+                range.lower = parsed.value();
                 range.includeLower = include;
             }
             else
             {
-                range.upper = parsed.Value();
+                range.upper = parsed.value();
                 range.includeUpper = include;
             }
         }

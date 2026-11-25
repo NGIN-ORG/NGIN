@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <exception>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -14,6 +15,7 @@
 
 namespace NGIN::UI {
 template <typename T> class ReadOnlyBinding;
+template <typename T> class Binding;
 
 /// @brief Process-wide counters for observable subscription lifetime checks.
 struct SubscriptionDiagnostics final {
@@ -36,6 +38,24 @@ struct ObservableNode final {
   UInt64 id{0};
   std::vector<std::weak_ptr<ObservableNode>> dependencies{};
 };
+
+[[nodiscard]] auto IsCollectingReads() noexcept -> bool;
+/// @brief Collector for one currently executing component.
+class ReadCollection;
+/// @brief Temporarily isolates the implementation of an explicitly observable
+/// binding.
+class SuspendReadCollection final {
+public:
+  SuspendReadCollection() noexcept;
+  ~SuspendReadCollection();
+  SuspendReadCollection(const SuspendReadCollection &) = delete;
+  auto operator=(const SuspendReadCollection &)
+      -> SuspendReadCollection & = delete;
+
+private:
+  ReadCollection *m_previous;
+};
+template <typename Read> void TrackRead(Read &&read) noexcept;
 
 [[nodiscard]] auto CreateObservableNode() -> std::shared_ptr<ObservableNode>;
 [[nodiscard]] auto DependsOn(const std::shared_ptr<ObservableNode> &start,
@@ -128,22 +148,18 @@ public:
   State(State &&) = delete;
   auto operator=(const State &) -> State & = delete;
   auto operator=(State &&) -> State & = delete;
-  ~State() = default;
+  ~State() {
+    m_storage->writable = false;
+    m_storage->scheduleInvalidation = {};
+  }
 
   [[nodiscard]] auto Get() const noexcept -> const T & {
+    Detail::TrackRead([this] { return AsReadOnly(); });
     return m_storage->value;
   }
 
   [[nodiscard]] auto Set(T value) -> bool {
-    if constexpr (std::equality_comparable<T>) {
-      if (m_storage->value == value) {
-        return false;
-      }
-    }
-
-    m_storage->value = std::move(value);
-    Publish();
-    return true;
+    return SetStorage(m_storage, std::move(value));
   }
 
   template <typename UpdateValue>
@@ -174,6 +190,7 @@ public:
     return m_storage->node;
   }
   [[nodiscard]] auto AsReadOnly() const -> ReadOnlyBinding<T>;
+  [[nodiscard]] auto AsBinding() -> Binding<T>;
 
 private:
   struct Subscriber final {
@@ -202,6 +219,7 @@ private:
       }
     }
 
+    bool writable{true};
     T value;
     InvalidationScheduler scheduleInvalidation{};
     InvalidationKind invalidation{InvalidationKind::None};
@@ -210,9 +228,22 @@ private:
     std::shared_ptr<Detail::ObservableNode> node{};
   };
 
-  void Publish() {
-    std::weak_ptr<Storage> weak = m_storage;
-    Detail::DispatchObservable(m_storage->node->id, [weak] {
+  static auto SetStorage(const std::shared_ptr<Storage> &storage, T value)
+      -> bool {
+    if constexpr (std::equality_comparable<T>) {
+      if (storage->value == value) {
+        return false;
+      }
+    }
+
+    storage->value = std::move(value);
+    Publish(storage);
+    return true;
+  }
+
+  static void Publish(const std::shared_ptr<Storage> &source) {
+    std::weak_ptr<Storage> weak = source;
+    Detail::DispatchObservable(source->node->id, [weak] {
       if (const auto storage = weak.lock()) {
         storage->Notify();
         if (storage->scheduleInvalidation) {
@@ -235,9 +266,17 @@ public:
   ReadOnlyBinding(Getter getter, Subscriber subscriber = {},
                   std::shared_ptr<Detail::ObservableNode> node = {})
       : m_getter(std::move(getter)), m_subscriber(std::move(subscriber)),
-        m_node(std::move(node)) {}
+        m_node(node || !m_subscriber ? std::move(node)
+                                     : Detail::CreateObservableNode()) {}
 
-  [[nodiscard]] auto Get() const -> const T & { return m_getter(); }
+  [[nodiscard]] auto Get() const -> const T & {
+    if (m_subscriber && Detail::IsCollectingReads()) {
+      Detail::TrackRead([this]() -> const auto & { return *this; });
+      Detail::SuspendReadCollection suspend;
+      return m_getter();
+    }
+    return m_getter();
+  }
   [[nodiscard]] auto Subscribe(StateObserver<T> observer) const
       -> Subscription {
     return m_subscriber ? m_subscriber(std::move(observer)) : Subscription{};
@@ -295,9 +334,18 @@ public:
   Binding(Getter getter, Setter setter, Subscriber subscriber = {},
           std::shared_ptr<Detail::ObservableNode> node = {})
       : m_getter(std::move(getter)), m_setter(std::move(setter)),
-        m_subscriber(std::move(subscriber)), m_node(std::move(node)) {}
+        m_subscriber(std::move(subscriber)),
+        m_node(node || !m_subscriber ? std::move(node)
+                                     : Detail::CreateObservableNode()) {}
 
-  [[nodiscard]] auto Get() const -> const T & { return m_getter(); }
+  [[nodiscard]] auto Get() const -> const T & {
+    if (m_subscriber && Detail::IsCollectingReads()) {
+      Detail::TrackRead([this] { return AsReadOnly(); });
+      Detail::SuspendReadCollection suspend;
+      return m_getter();
+    }
+    return m_getter();
+  }
 
   [[nodiscard]] auto Set(T value) const -> UIResult<void> {
     if (!m_setter) {
@@ -356,18 +404,28 @@ private:
   std::shared_ptr<Detail::ObservableNode> m_node{};
 };
 
+template <typename T> auto State<T>::AsBinding() -> Binding<T> {
+  auto storage = m_storage;
+  auto read = AsReadOnly();
+  return Binding<T>{[storage]() -> const T & { return storage->value; },
+                    [storage](T value) -> UIResult<void> {
+                      if (!storage->writable) {
+                        return std::unexpected(
+                            MakeUIError(UIErrorCode::InvalidState,
+                                        "The state owner has been released",
+                                        "NGIN.UI", "Binding::Set"));
+                      }
+                      SetStorage(storage, std::move(value));
+                      return {};
+                    },
+                    [read = std::move(read)](StateObserver<T> observer) {
+                      return read.Subscribe(std::move(observer));
+                    },
+                    storage->node};
+}
+
 template <typename T> [[nodiscard]] auto Bind(State<T> &state) -> Binding<T> {
-  return Binding<T>{
-      [&state]() -> const T & { return state.Get(); },
-      [&state](T value) -> UIResult<void> {
-        static_cast<void>(state.Set(std::move(value)));
-        return {};
-      },
-      [&state](StateObserver<T> observer) {
-        return state.Subscribe(std::move(observer));
-      },
-      state.ObservableNode(),
-  };
+  return state.AsBinding();
 }
 
 template <typename T>
@@ -420,6 +478,54 @@ template <typename T>
 [[nodiscard]] auto DependOn(State<T> &state) -> ObservableDependency {
   return DependOn(Observe(state));
 }
+
+namespace Detail {
+/// @brief An active read subscription owned by one mounted component.
+struct ObservedRead final {
+  UInt64 identity;
+  Subscription subscription;
+};
+
+/// @brief Installs new subscriptions on first read. Existing subscriptions
+/// remain live until Commit has successfully completed the build.
+class ReadCollection final {
+public:
+  ReadCollection(std::vector<ObservedRead> &active,
+                 ObservableDependency::Observer invalidate) noexcept;
+  ReadCollection(const ReadCollection &) = delete;
+  auto operator=(const ReadCollection &) -> ReadCollection & = delete;
+  ~ReadCollection();
+  void Commit();
+  void Add(ObservableDependency dependency);
+  std::exception_ptr failure{};
+
+private:
+  std::vector<ObservedRead> &m_active;
+  ObservableDependency::Observer m_invalidate;
+  std::vector<UInt64> m_seen{};
+  std::vector<ObservedRead> m_new{};
+  ReadCollection *m_previous;
+};
+
+void RecordRead(ObservableDependency dependency);
+
+void RecordReadFailure() noexcept;
+
+template <typename Read> void TrackRead(Read &&read) noexcept {
+  if (IsCollectingReads()) {
+    try {
+      const auto &binding = read();
+      if (binding.ObservableNode()) {
+        RecordRead(DependOn(binding));
+      }
+    } catch (...) {
+      // Reads from existing noexcept model accessors remain safe. Fail the
+      // component build before publishing an incomplete subscription set.
+      RecordReadFailure();
+    }
+  }
+}
+} // namespace Detail
 
 /// @brief Read-only observable value recomputed from explicit dependencies.
 template <typename T> class ComputedState final {

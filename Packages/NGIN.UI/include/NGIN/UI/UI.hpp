@@ -6,10 +6,12 @@
 #include <NGIN/UI/AsyncPresentation.hpp>
 #include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Collections.hpp>
+#include <NGIN/UI/CollectionViews.hpp>
 #include <NGIN/UI/Command.hpp>
-#include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Components.hpp>
 #include <NGIN/UI/Controls.hpp>
 #include <NGIN/UI/CustomElement.hpp>
+#include <NGIN/UI/CustomLayout.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
 #include <NGIN/UI/DisplayList.hpp>
 #include <NGIN/UI/Element.hpp>
@@ -34,6 +36,7 @@
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
+#include <NGIN/UI/Surface.hpp>
 #include <NGIN/UI/Text.hpp>
 #include <NGIN/UI/TextDirection.hpp>
 #include <NGIN/UI/TextEditing.hpp>
@@ -41,5 +44,6 @@
 #include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/UI/Validation.hpp>
 #include <NGIN/UI/Version.hpp>
+#include <NGIN/UI/ViewControls.hpp>
 #include <NGIN/UI/ViewModel.hpp>
 #include <NGIN/UI/Virtualization.hpp>

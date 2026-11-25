@@ -10,7 +10,7 @@ not require a base class, reflection, string property names, or generated code.
 | Model | Application data and business rules. It is ordinary C++. |
 | View | The controls, layout, labels, and visual states for one screen. |
 | ViewModel | Screen state, validation, commands, and owned asynchronous work. |
-| Composer | A short-lived builder used by the View during one synchronous pass. |
+| `Views::Component` | Builds part of the mounted tree and observes the state it reads. |
 | `State<T>` | A writable value owned by the ViewModel. |
 | `ReadOnlyBinding<T>` | A value the View may observe but not change. |
 | `Binding<T>` | Typed two-way access for an editable control. |
@@ -18,9 +18,8 @@ not require a base class, reflection, string property names, or generated code.
 | `AsyncCommand` | An awaited action with progress, cancellation, and errors. |
 | `ViewModelTaskScope` | The lifetime owner for loads and other screen work. |
 
-The View owns the controls and layouts. The ViewModel never stores a
-`Composer`, control node, or native window handle. A task changes observable
-state; the next normal composition pass displays it.
+The View owns the controls and layouts. The ViewModel owns presentation state. When a task publishes a change on the UI
+thread, the mounted component reads the new value.
 
 ## A practical file layout
 
@@ -139,19 +138,19 @@ and application shutdown also cancel contexts created for that window.
 ## Composition
 
 ```cpp
-void ComposeEditor(NGIN::UI::Composer& composer,
-                   NGIN::UI::NativeTextSystem& text,
-                   EditorViewModel& viewModel) {
-  // Declare the screen's controls and layout here.
-  // Read state and command status; never await or retain composer.
+auto CounterView(CounterViewModel &model) -> NGIN::UI::Views::View {
+  using namespace NGIN::UI::Views;
+  return Component([&model] {
+    return Column({Label(std::to_string(model.doubled.Get())),
+                   Button(model.increment.AsBinding(), Label("Increment"))});
+  });
 }
 ```
 
 The standalone, hosted, and headless Gallery products all call the same
-`ComposeMainView` with the same `GalleryViewModel`. See
+`MainView` with the same `GalleryViewModel`. See
 [`Gallery.hpp`](../../Examples/NGIN.UI.Gallery/include/NGIN/UIGallery/Gallery.hpp)
-and [`Gallery.cpp`](../../Examples/NGIN.UI.Gallery/src/Gallery.cpp) for the
-complete implementation.
+and [the form controls and async data pages](../../Examples/NGIN.UI.Gallery/src/GalleryInputs.cpp) for a working example.
 
 NGIN.UI 0.3 ships the manual typed APIs only. Source generation was evaluated
 and deliberately remains optional future work: a generator must emit these

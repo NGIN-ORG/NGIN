@@ -5,9 +5,10 @@ description: Build retained keyed views and arrange them through backend-neutral
 
 # Composition and layout
 
-NGIN.UI uses retained composition with keyed reconciliation. A content callback
-describes the desired view; stable keys let the runtime preserve identity
-across recomposition.
+Build a screen as an ordinary function returning `Views::View`. Use
+`Views::Component` around a part of the screen that reads observable state.
+It rebuilds when a dependency changes. Use `scope.Local` for component-owned
+state and `.Key(itemId)` for children in a reorderable collection.
 
 ## Composition
 
@@ -28,6 +29,20 @@ Layout primitives include stacks, Grid, WrapPanel, Canvas, scrolling, padding,
 gaps, alignment, and constraints. Parent constraints flow down; measured sizes
 flow up; arranged positions flow down again.
 
+A custom container implements `ILayoutPolicy` to measure and place its direct
+children. Pass it to `Views::Layout`. A two-child `Views::SplitPane` demonstrates
+pointer capture, keyboard resizing, and semantic actions. Use
+`Views::Custom` for a leaf with custom painting.
+
+## Windows and engine surfaces
+
+A `Surface` owns the mounted tree and produces immutable render packets. The
+desktop host drives the window's surface. An editor or game can supply its own
+input, viewport, scale, and clock, then draw the packet over its scene. An idle
+update returns the same packet. `SDL3::CreateOverlayBackend` submits it to an
+existing SDL renderer and leaves presentation to its owner. Both paths are
+exercised by the [settings example](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Settings).
+
 ## Practical rules
 
 - Put spacing policy on the container that owns the relationship.
@@ -38,5 +53,6 @@ flow up; arranged positions flow down again.
 
 ## Retained captures
 
-`SetContent()` callbacks are retained, not one-shot. Captured objects must
-outlive every later invocation or be held through an appropriate owning value.
+A window or engine surface retains the view passed to `SetContent(view, environment)`.
+Component factories and input callbacks can run throughout its mounted lifetime.
+Keep borrowed models and services alive until the view unmounts.

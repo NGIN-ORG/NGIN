@@ -144,9 +144,7 @@ auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
           return RouteText(value);
         } else if constexpr (std::is_same_v<Event, WindowFocusChanged>) {
           if (!value.focused) {
-            return InputDispatchResult{
-                .visualStateChanged = ClearFocus(),
-            };
+            return InputDispatchResult{.visualStateChanged = Deactivate()};
           }
         }
         return {};
@@ -154,6 +152,26 @@ auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
       event);
   result.invalidation |= m_customInvalidation;
   return result;
+}
+
+auto InputRouter::Deactivate() noexcept -> bool {
+  const bool hadPointers = !m_captured.empty() || !m_hovered.empty();
+  for (const auto &entry : m_captured) {
+    if (auto *node = m_tree.Get(entry.second)) {
+      node->interaction.pressed = false;
+      node->scroll.draggingHorizontal = false;
+      node->scroll.draggingVertical = false;
+    }
+  }
+  for (const auto &entry : m_hovered) {
+    if (auto *node = m_tree.Get(entry.second))
+      node->interaction.hovered = false;
+  }
+  m_captured.clear();
+  m_hovered.clear();
+  m_typeAheadList = {};
+  m_typeAheadPrefix.clear();
+  return ClearFocus() || hadPointers;
 }
 
 auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
@@ -658,6 +676,21 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
 
   event.phase = phase;
   event.currentTarget = handle;
+  event.captured = CapturedElement(event.pointerId) == handle;
+  if (const auto *parent = m_tree.Get(node->parent)) {
+    const auto local = Detail::InverseTransformPoint(
+        event.position, Detail::ComposedTransformFor(m_tree, parent->handle));
+    const auto bounds = parent->arrangedBounds;
+    const auto padding = parent->properties.layout.padding;
+    event.parentPosition = {local.x - bounds.x - padding.left,
+                            local.y - bounds.y - padding.top};
+    event.parentExtent = {
+        std::max(0.0F, bounds.width - padding.left - padding.right),
+        std::max(0.0F, bounds.height - padding.top - padding.bottom)};
+  } else {
+    event.parentPosition = event.position;
+    event.parentExtent = {node->arrangedBounds.width, node->arrangedBounds.height};
+  }
   event.captureRequested = false;
   event.captureReleaseRequested = false;
   if (node->properties.interaction.onPointer) {

@@ -6,38 +6,34 @@ runtime nodes, how constraints flow, where state lives, and when to invalidate.
 The buildable
 [`NGIN.UI.Gallery`](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/) demonstrates every rule in
 this guide. Its
-[`Model`](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/include/NGIN/UIGallery/Gallery.hpp)
+[`GalleryViewModel`](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/include/NGIN/UIGallery/Gallery.hpp)
 owns state while
-[`ComposeMainView()`](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/src/Gallery.cpp) emits
-declarations.
+[`MainView()`](https://github.com/NGIN-ORG/NGIN/tree/main/Examples/NGIN.UI.Gallery/src/Gallery.cpp) returns a component tree that either host mounts on a surface.
 
 ## Composition is a declaration pass
 
-`Window::SetContent()` retains a callback. When composition is invalidated,
-NGIN.UI invokes it with an empty `Composer`. Calls append an
-`ElementDeclaration` tree; they do not mutate the current runtime tree.
+Mount a view on a window with its text and theme environment. Each mounted
+component tracks the observable values it reads. Its next build emits a new
+declaration for reconciliation with the retained tree.
 
 ```cpp
-window.SetContent([&model](Composer &composer) {
-  composer.Column([&] {
-    composer.Text(..., "title");
-    composer.TextField(model.Name(), ..., "name");
-  }, "content");
-});
+window.SetContent(
+    Views::Column({Views::Label("Profile").Key("title"),
+                   Views::TextField("Name", Bind(model.name)).Key("name")}),
+    Views::ViewEnvironment{text});
 ```
 
-RAII element scopes guarantee balanced trees:
+To build a reusable control, write a function that returns a view. A container
+takes its children as values.
 
 ```cpp
-{
-  auto row = composer.Begin(ElementType::Row, rowProperties, "toolbar");
-  composer.Button(..., "save");
-  composer.Button(..., "close");
-} // row scope closes
+auto Toolbar(CommandBinding save, CommandBinding close) -> Views::View {
+  return Views::Row({
+      Views::Button(save, Views::Label("Save")).Key("save"),
+      Views::Button(close, Views::Label("Close")).Key("close"),
+  }).Key("toolbar");
+}
 ```
-
-Do not retain a `Composer`, `ElementScope`, declaration reference, or a pointer
-into `Composer::Declarations()`. They exist only for one pass.
 
 ## Keys and reconciliation
 
@@ -51,10 +47,11 @@ Reconciliation matches each new declaration to the previous children:
 Keys are local to a parent. Use stable product identity, not display position:
 
 ```cpp
+std::vector<Views::View> rows;
 for (const auto &task : tasks) {
-  const auto key = std::to_string(task.id);
-  composer.ListItem([&] { ComposeTask(task); }, properties, key);
+  rows.push_back(TaskRow(task).Key(std::to_string(task.id)));
 }
+auto list = Views::Column(std::move(rows));
 ```
 
 Stable keys preserve focus, editing sessions, scroll offsets, custom local
@@ -67,32 +64,30 @@ different parent also creates a new identity.
 
 ## Retained state ownership
 
-Application state belongs in a model that outlives the content callback:
+Keep shared application state in a model and component-local state in
+`ComponentScope::Local`.
 
 ```cpp
-class Model {
-public:
-  explicit Model(Window &window)
-      : name(NGIN::Text::String{"Ada"},
-             [&window](InvalidationKind kind) { window.Invalidate(kind); }) {}
-
-  State<NGIN::Text::String> name;
+struct Model {
+  State<NGIN::Text::String> name{NGIN::Text::String{"Ada"}};
+  State<NGIN::UInt16> port{8080};
 };
 ```
 
-`State<T>` owns a value and an invalidation callback. `Bind(state)` supplies
-read/write control access. `Binding<T>` does not own the model, so the model
-must outlive every composition that captures it.
+`Bind(state)` supplies read/write access. Reading the binding in a mounted
+component subscribes that component to later changes. Keep the model alive
+while its controls are mounted. An expired state binding rejects writes.
 
 Use `WithValidation()` for transactional rejection:
 
 ```cpp
 auto binding = Bind(model.port).WithValidation(
     [](const NGIN::UInt16 value) -> UIResult<void> {
-      return value == 0
-                 ? MakeUIError(UIErrorCode::InvalidArgument,
-                               "Port zero is reserved")
-                 : UIResult<void>{};
+      if (value == 0) {
+        return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                                           "Port zero is reserved"));
+      }
+      return {};
     });
 ```
 
@@ -177,7 +172,7 @@ scroll.layout.preferredSize = {520.0F, 240.0F};
 scroll.scroll.vertical = true;
 scroll.scroll.horizontal = false;
 scroll.scroll.wheelStep = 36.0F;
-composer.ScrollView([&] { ComposeLongContent(); }, scroll, "viewport");
+auto viewport = Views::ScrollView({longContent}, scroll).Key("viewport");
 ```
 
 Wheel input chains to a scrollable ancestor when the inner view cannot move.

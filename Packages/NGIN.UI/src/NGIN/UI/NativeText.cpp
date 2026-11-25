@@ -324,6 +324,7 @@ struct NativeTextSystem::Impl final {
   std::unordered_map<GlyphKey, GlyphRecord, GlyphKeyHash> glyphs{};
   std::unordered_set<UInt32> fallbackCodePoints{};
   std::unordered_set<UInt32> missingCodePoints{};
+  UInt64 atlasRevision{1};
   GlyphAtlasDiagnostics diagnostics{};
   NativeTextSystem::ResourcesInvalidatedCallback invalidated{};
 
@@ -469,6 +470,7 @@ struct NativeTextSystem::Impl final {
   }
 
   void DestroyPages(const bool countEvictions) noexcept {
+    ++atlasRevision;
     if (countEvictions) {
       diagnostics.evictionCount += glyphs.size();
     }
@@ -1504,6 +1506,14 @@ auto NativeTextSystem::CoverageDiagnostics() const noexcept
   }
 #else
   return {};
+#endif
+}
+
+auto NativeTextSystem::AtlasRevision() const noexcept -> UInt64 {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  return m_impl->atlasRevision;
+#else
+  return 0;
 #endif
 }
 

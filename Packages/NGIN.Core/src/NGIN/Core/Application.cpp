@@ -121,7 +121,7 @@ namespace NGIN::Core
         auto result = catalog->Register(registration);
         if (!result)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(result.error());
         }
       }
 
@@ -702,7 +702,7 @@ namespace NGIN::Core
           if (!bootstrapResult)
           {
             return NGIN::Utilities::Unexpected<KernelError>(
-                bootstrapResult.Error());
+                bootstrapResult.error());
           }
         }
 
@@ -732,7 +732,7 @@ namespace NGIN::Core
             BuildCatalogFrom(m_moduleRegistrations, disabledModuleSet);
         if (!moduleCatalog)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(moduleCatalog.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(moduleCatalog.error());
         }
 
         StartupReport metadataReport{};
@@ -765,7 +765,7 @@ namespace NGIN::Core
         hostConfig.environmentName = m_environmentName;
         hostConfig.requestedModules = enabledModules;
         hostConfig.fileSystem = m_fileSystem;
-        hostConfig.moduleCatalog = moduleCatalog.Value();
+        hostConfig.moduleCatalog = moduleCatalog.value();
 
         const auto pendingServices = m_pendingServices;
         const bool addDefaults = m_addDefaultServices;
@@ -793,9 +793,9 @@ namespace NGIN::Core
                                                       profileName);
             if (!scope)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(scope.error());
             }
-            hostScope = scope.Value();
+            hostScope = scope.value();
           }
 
           if (addDefaults)
@@ -807,28 +807,28 @@ namespace NGIN::Core
                 "Core.Services", serviceProvider);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
 
             result = context.services->RegisterSingleton<IServiceRegistry>(
                 "Core.ServiceRegistry", context.services);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
 
             result = context.services->RegisterSingleton<IEventBus>(
                 "Core.Events", context.events);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
 
             result = context.services->RegisterSingleton<ITaskRuntime>(
                 "Core.Tasks", context.tasks);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
           }
 
@@ -838,7 +838,7 @@ namespace NGIN::Core
                 "Core.Configuration", context.config);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
           }
 
@@ -848,7 +848,7 @@ namespace NGIN::Core
                 "Core.Logging", context.loggerRegistry);
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
           }
 
@@ -871,7 +871,7 @@ namespace NGIN::Core
 
             if (!result)
             {
-              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+              return NGIN::Utilities::Unexpected<KernelError>(result.error());
             }
           }
 
@@ -881,12 +881,12 @@ namespace NGIN::Core
         auto kernel = CreateKernel(hostConfig);
         if (!kernel)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(kernel.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(kernel.error());
         }
 
         m_built = true;
         std::shared_ptr<IApplicationHost> host =
-            std::make_shared<ApplicationHostImpl>(kernel.Value(),
+            std::make_shared<ApplicationHostImpl>(kernel.value(),
                                                   std::move(metadataReport),
                                                   std::move(m_runLoop));
         return host;

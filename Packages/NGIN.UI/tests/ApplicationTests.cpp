@@ -1,3 +1,4 @@
+#include <NGIN/UI/SurfaceComposition.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/UI/Application.hpp>
@@ -182,7 +183,7 @@ TEST_CASE("invalidation raised during a frame is retained for the next frame") {
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
   NGIN::UIntSize compositionCount = 0;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     ++compositionCount;
     composer.Border([] {}, {}, "content");
     if (compositionCount == 1) {
@@ -217,7 +218,7 @@ TEST_CASE("window content composes on demand and retains runtime identity") {
   auto *window = createdWindow.value();
 
   NGIN::UIntSize compositionCount = 0;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     ++compositionCount;
     composer.Column(
         [&] {
@@ -271,7 +272,7 @@ TEST_CASE("window frames lay out painted nodes into renderer packets") {
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
 
-  window->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{50.0F, 20.0F};
     properties.layout.horizontalAlignment = HorizontalAlignment::Center;
@@ -317,7 +318,7 @@ TEST_CASE("window routes injected pointer input to a semantic button") {
   auto *window = createdWindow.value();
 
   NGIN::UIntSize activations = 0;
-  window->SetContent([&](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [&](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{100.0F, 40.0F};
     properties.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -389,7 +390,7 @@ TEST_CASE("window wheel input arranges and clips retained scroll content") {
   REQUIRE(createdWindow.has_value());
   auto *window = createdWindow.value();
 
-  window->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(window->ContentSurface(), [](Composer &composer) {
     NodeProperties scrollProperties{};
     scrollProperties.scroll.wheelStep = 40.0F;
     NodeProperties contentProperties{};
@@ -445,7 +446,7 @@ TEST_CASE("dialog windows preserve ownership modality and owner lifecycle") {
   });
   REQUIRE(createdOwner.has_value());
   auto *owner = createdOwner.value();
-  owner->SetContent([](Composer &composer) {
+  NGIN::UI::Detail::SurfaceComposition::SetContent(owner->ContentSurface(), [](Composer &composer) {
     NodeProperties properties{};
     properties.layout.preferredSize = Size{100.0F, 40.0F};
     properties.layout.horizontalAlignment = HorizontalAlignment::Start;

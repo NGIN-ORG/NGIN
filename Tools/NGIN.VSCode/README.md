@@ -135,6 +135,16 @@ generated state is missing or stale. Lifecycle work uses cancellable progress,
 Problems, NGIN Output, native tasks, native Testing, and the platform C++ debug
 adapter. Opening a file never triggers Configure merely to populate the tree.
 
+**Build Project**, **Rebuild Project**, **Build Target**, and **Tasks: Run Build
+Task** use a focused, dedicated build terminal. The live row shows elapsed
+time, the current target and action, and Ninja's completed/total count during
+compilation. Press **Ctrl+C** in the terminal to cancel the build and its
+compiler processes. Completed targets and the final result stay visible.
+Enabling VS Code’s reduced motion or screen reader setting gives a static
+progress display. Compiler diagnostics appear in **Problems**. Native NGIN
+projects also save the complete transcript to `diagnostics/build.log` in the
+build directory.
+
 **Run Project** opens the program in the integrated terminal with standard
 input. **Run with Arguments** accepts quoted arguments such as
 `--name "two words"`. F5 uses the same CLI launch plan with the native debugger.

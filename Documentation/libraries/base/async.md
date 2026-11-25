@@ -21,7 +21,7 @@ With NGIN.Async you can:
 - distinguish a normal domain error from cancellation and an infrastructure
   fault;
 - cancel related work through explicit tokens and contexts;
-- wait for several tasks with `WhenAll` or race them with `WhenAny`;
+- wait for several tasks with `WhenAll` or race them with `Race`;
 - expose asynchronous sequences with `AsyncGenerator<T>`;
 - bridge a synchronous program boundary with `SyncWait`.
 
@@ -34,20 +34,13 @@ threads, or start a task merely because you called its function.
 | --- | --- | --- |
 | `Task<T, E>` | A cold recipe for asynchronous work | The caller until it is awaited or started |
 | `TaskContext` | The executor and cancellation state used by that work | Your runtime/application scope |
-| `Operation<T, E>` | A handle to a root task that has been started | The code that started the root operation |
+| `Operation<T, E>` | A handle to a root task that has been started | The handle owns result access, and the spawning scope owns execution |
 | `Completion<T, E>` | The final success, domain error, cancellation, or fault | The code that consumes the result |
 
-The normal flow is:
-
-```text
-call coroutine       start at boundary       drive executor       take result
-      │                       │                     │                   │
-      ▼                       ▼                     ▼                   ▼
- Task<T, E> ── Spawn(ctx, task) ──► Operation<T, E> ──► Completion<T, E>
-```
-
-Inside another task, you normally `co_await` the child instead of creating an
-`Operation`.
+Await a child directly for sequential work. Use `WhenAll` for a fixed group and
+`WithScope(body)` for dynamic children. An ordinary await resumes on the caller's
+executor. A scope closes admission, requests stop, and joins unfinished children
+when the body exits.
 
 ## Your first task
 
@@ -55,8 +48,8 @@ This complete program creates a task, starts it, drives its scheduler, and
 reads the value.
 
 ```cpp
-#include <NGIN/Async/Task.hpp>
-#include <NGIN/Execution/CooperativeScheduler.hpp>
+#include <NGIN/Async/SyncWait.hpp>
+#include <NGIN/Execution/ThreadPoolScheduler.hpp>
 
 #include <iostream>
 
@@ -71,17 +64,10 @@ Compute(NGIN::Async::TaskContext& context) {
 }
 
 int main() {
-    NGIN::Execution::CooperativeScheduler scheduler;
+    NGIN::Execution::ThreadPoolScheduler scheduler(1);
     NGIN::Async::TaskContext context {scheduler};
 
-    NGIN::Async::Operation<int, DemoError> operation =
-        NGIN::Async::Spawn(context, Compute(context));
-
-    scheduler.RunUntilIdle();
-
-    NGIN::Async::Completion<int, DemoError> result =
-        operation.TakeResult();
-
+    auto result = NGIN::Async::SyncWait(context, Compute(context));
     if (!result) {
         std::cerr << "Compute did not succeed\n";
         return 1;
@@ -101,40 +87,15 @@ Expected output:
 ### What happened
 
 1. Calling `Compute(context)` created a cold `Task`. Its body had not run.
-2. `Spawn` transferred the task into a started root `Operation`.
-3. The task ran until `YieldNow`, which queued its continuation.
-4. `RunUntilIdle` executed the queued continuation.
-5. `co_return 7` published a successful completion.
-6. `TakeResult` transferred that completion to `main`.
-
-If you remove `Spawn`, nothing starts. If you remove `RunUntilIdle`, this
-caller-driven scheduler never resumes the task after its yield.
+2. `SyncWait` started the task on the worker and waited for its retirement.
+3. `YieldNow` queued a continuation. The worker resumed it and the task returned 7.
 
 ## Cold tasks and root boundaries
 
-Creating a task is intentionally separate from starting it:
-
-```cpp
-auto task = Compute(context); // cold: no body execution yet
-```
-
-At a synchronous/root boundary choose one operation deliberately:
-
-```cpp
-auto operation = NGIN::Async::Spawn(context, std::move(task));
-NGIN::Async::Detach(context, Compute(context));
-auto completion = NGIN::Async::SyncWait(context, Compute(context));
-```
-
-| Function | Use it when | Result ownership |
-| --- | --- | --- |
-| `Spawn` | The boundary must observe completion or consume a value/error | Returned `Operation` owns result access |
-| `Detach` | No caller needs the result, but fire-and-forget is intentional | No result owner; runtime still preserves frame lifetime |
-| `SyncWait` | Synchronous integration code must block until terminal completion | Returns `Completion` directly |
-
-Prefer `Spawn`. `Detach` is not a way to avoid deciding who handles a failure.
-Use it only where losing the result is an explicit policy. Do not use
-`SyncWait` from normal coroutine control flow; await the child instead.
+A synchronous entry point can use `SyncWait` with an independently driven executor.
+An event loop can own a `TaskSupervisor`, check the result of `Spawn`, and keep
+pumping its executor through join. Use `Transfer` when the supervisor should
+own background work and its diagnostics through shutdown.
 
 ## Await child work
 
@@ -252,10 +213,10 @@ auto results = co_await NGIN::Async::WhenAll(
 
 `WhenAll` consumes its tasks. Pass fresh tasks or move existing ones.
 
-Use `WhenAny` when the first terminal child decides the result:
+Use `Race` when the first terminal child decides the result:
 
 ```cpp
-auto winner = co_await NGIN::Async::WhenAny(
+auto winner = co_await NGIN::Async::Race(
     context,
     [](NGIN::Async::TaskContext& child) {
         return ReadPrimary(child);
@@ -265,7 +226,7 @@ auto winner = co_await NGIN::Async::WhenAny(
     });
 ```
 
-Factories let `WhenAny` give each child a linked context. After one child
+Factories let `Race` give each child a linked context. After one child
 finishes, it requests cancellation for the losers and drains them before
 returning. A losing task that ignores cancellation delays the result.
 
@@ -325,7 +286,7 @@ unowned failures observable.
 | It stops after `YieldNow` | A cooperative scheduler is not being driven | Call `RunOne`/`RunUntilIdle` from the owning loop |
 | `TakeResult` fails/asserts | Work is not complete or the result was already taken | Check `IsCompleted` or use `TryTakeResult`, consume once |
 | Parent code after `co_await` never runs | Child propagated domain error, cancellation, or fault | Handle it at the intended boundary |
-| `WhenAny` takes too long | A losing task does not cooperate with cancellation | Add cancellation-aware waits/checks |
+| `Race` takes too long | A losing task does not cooperate with cancellation | Add cancellation-aware waits/checks |
 | Data is invalid after resumption | The task captured a shorter-lived reference | Move ownership into the task or extend the owner's lifetime |
 | `InvalidTaskUsage` fault | Context executor is missing/invalid or lifecycle use is invalid | Keep a valid scheduler/context alive |
 

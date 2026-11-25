@@ -91,21 +91,22 @@ Then start Narrator with `Windows+Ctrl+Enter` and check:
 
 1. Narrator announces the window and the **Accessibility** heading.
 2. `Tab` moves through the sidebar and every enabled control in a clear order.
-3. The demo button is announced as a button and `Enter` or `Space` activates
-   it.
+3. The **Announce message** control is announced as a button and responds to
+   `Enter` or `Space`.
 4. The checkbox and switch announce their name and current checked state;
    `Space` changes that state.
 5. The slider announces its name and value; arrow keys change the value.
-6. The display-name field is announced as editable and does not expose the
-   value of password fields elsewhere in the Gallery.
-7. Activating **Announce a message** reads the changed polite live region.
+6. On the Inputs page, choose **Validation**. The display-name field is
+   editable and the password field masks its value.
+7. On the Accessibility page, activating **Announce message** reads the
+   changed polite live region.
 8. Lists and tabs on the Collections page announce item selection.
 9. The dialog on the Windows page has its own accessible root and focus returns
    to the main window after it closes.
 10. Closing an auxiliary window does not leave navigable stale elements.
 
-The Gallery's provider card must say **Ready: Windows UI Automation** on
-Windows. If it does not, inspect `Application::AccessibilityDiagnostics()` and
+The Gallery’s live announcement sample should show **Connected provider**
+with **Windows UI Automation** on Windows. If it does not, inspect `Application::AccessibilityDiagnostics()` and
 its `lastError`; do not treat a missing provider as a successful accessibility
 test.
 

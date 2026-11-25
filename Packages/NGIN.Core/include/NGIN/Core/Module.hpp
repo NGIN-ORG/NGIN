@@ -52,6 +52,8 @@ namespace NGIN::Core
         [[nodiscard]] auto ModuleScope() const noexcept -> ServiceScopeId { return m_moduleScopeId; }
         [[nodiscard]] auto Services() noexcept -> IServiceRegistry& { return m_services; }
         [[nodiscard]] auto Events() noexcept -> IEventBus& { return m_events; }
+        /// @brief Submit work owned by this module and wait for its callbacks.
+        /// @details The host closes admission before invoking OnStop.
         [[nodiscard]] auto Tasks() noexcept -> ITaskRuntime& { return m_tasks; }
         [[nodiscard]] auto Config() noexcept -> IConfigStore& { return m_config; }
         [[nodiscard]] auto IsStopRequested() const noexcept -> bool { return m_stopRequestedFn ? m_stopRequestedFn() : false; }

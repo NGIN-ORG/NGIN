@@ -17,6 +17,12 @@ tests.
 Start with the [first-window guide](../../docs/guides/ngin-ui-first-window.md)
 or the runnable [Gallery](../../Examples/NGIN.UI.Gallery).
 
+For a component-based desktop application, include `NGIN/UI/Backend/SDL3/Desktop.hpp`
+and pass a window description and view to `SDL3::Run`. For a game or editor that
+already owns an `SDL_Renderer`, use `SDL3::CreateOverlayBackend` and submit a
+retained surface to the supplied target. See the
+[dual-host example](../../Examples/NGIN.UI.Settings/).
+
 SDL notices and licenses are required package contributions and are staged
 whenever the backend export is active. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

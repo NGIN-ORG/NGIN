@@ -19,11 +19,11 @@
 namespace NGIN::UI::SDL3 {
 namespace {
 [[nodiscard]] auto SDLError(const UIErrorCode code, const char *operation,
-                            const char *fallback) -> UIError {
+                            const char *fallback) -> std::unexpected<UIError> {
   const auto *message = SDL_GetError();
-  return MakeUIError(
+  return std::unexpected(MakeUIError(
       code, message != nullptr && *message != '\0' ? message : fallback, "SDL3",
-      operation);
+      operation));
 }
 
 [[nodiscard]] auto Modifiers(const SDL_Keymod modifiers) noexcept -> UInt32 {
@@ -194,9 +194,9 @@ public:
             static_cast<UInt32>(std::numeric_limits<int>::max()) ||
         info.initialSize.height >
             static_cast<UInt32>(std::numeric_limits<int>::max())) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "SDL3 requires initialization and a valid window size",
-                         Name(), "CreateWindow");
+                         Name(), "CreateWindow"));
     }
     auto flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
     if (info.resizable) {
@@ -232,9 +232,9 @@ public:
       handle = PlatformWindowHandle{id, record.generation};
     } catch (...) {
       SDL_DestroyWindow(window);
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL window tracking allocation failed", Name(),
-                         "CreateWindow");
+                         "CreateWindow"));
     }
     if (info.initiallyVisible && !SDL_ShowWindow(window)) {
       SDL_DestroyWindow(window);
@@ -249,8 +249,8 @@ public:
       -> UIResult<void> override {
     auto *window = FindWindow(handle);
     if (window == nullptr) {
-      return MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
-                         Name(), "DestroyWindow");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
+                         Name(), "DestroyWindow"));
     }
     SDL_DestroyWindow(window);
     m_windows[handle.index].window = nullptr;
@@ -303,9 +303,9 @@ public:
       }
       return {};
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL event translation allocation failed", Name(),
-                         "PollEvents");
+                         "PollEvents"));
     }
   }
 
@@ -329,9 +329,9 @@ public:
       }
       return PollEvents(sink);
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL event translation allocation failed", Name(),
-                         "WaitEvents");
+                         "WaitEvents"));
     }
   }
 
@@ -363,8 +363,8 @@ public:
   auto SetCursor(const PlatformWindowHandle handle,
                  const CursorShape shape) noexcept -> UIResult<void> override {
     if (FindWindow(handle) == nullptr) {
-      return MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
-                         Name(), "SetCursor");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
+                         Name(), "SetCursor"));
     }
     if (shape == CursorShape::Hidden) {
       static_cast<void>(SDL_HideCursor());
@@ -382,9 +382,9 @@ public:
         found = m_cursors.emplace(shape, cursor).first;
       } catch (...) {
         SDL_DestroyCursor(cursor);
-        return MakeUIError(UIErrorCode::OutOfMemory,
+        return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                            "SDL cursor cache allocation failed", Name(),
-                           "SetCursor");
+                           "SetCursor"));
       }
     }
     if (!SDL_SetCursor(found->second)) {
@@ -415,9 +415,9 @@ public:
       return result;
     } catch (...) {
       SDL_free(text);
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL clipboard text allocation failed", Name(),
-                         "GetClipboardText");
+                         "GetClipboardText"));
     }
   }
 
@@ -430,9 +430,9 @@ public:
             static_cast<UInt32>(std::numeric_limits<int>::max()) ||
         candidateRect.height >
             static_cast<UInt32>(std::numeric_limits<int>::max())) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "Invalid SDL text input target", Name(),
-                         "StartTextInput");
+                         "StartTextInput"));
     }
     const SDL_Rect area{candidateRect.x, candidateRect.y,
                         static_cast<int>(candidateRect.width),
@@ -492,9 +492,9 @@ public:
       SDL_free(displays);
       return result;
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL display enumeration allocation failed", Name(),
-                         "QueryDisplays");
+                         "QueryDisplays"));
     }
   }
 
@@ -502,8 +502,8 @@ public:
       -> UIResult<NativeWindowInfo> override {
     auto *window = FindWindow(handle);
     if (window == nullptr) {
-      return MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
-                         Name(), "QueryNativeWindow");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
+                         Name(), "QueryNativeWindow"));
     }
 #if defined(_WIN32)
     const auto properties = SDL_GetWindowProperties(window);
@@ -518,10 +518,10 @@ public:
         .value = reinterpret_cast<UIntPtr>(native),
     };
 #else
-    return MakeUIError(
+    return std::unexpected(MakeUIError(
         UIErrorCode::Unsupported,
         "This SDL3 build has no native accessibility window provider", Name(),
-        "QueryNativeWindow");
+        "QueryNativeWindow"));
 #endif
   }
 

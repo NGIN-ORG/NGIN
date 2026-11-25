@@ -63,7 +63,7 @@ auto main() -> int {
       Byte{0x80},
       Byte{0xFF},
   };
-  if (!renderer->UpdateTexture(texture.Value(),
+  if (!renderer->UpdateTexture(texture.value(),
                                TextureUpdateInfo{
                                    .region = PixelRect{0, 0, 2, 2},
                                    .bytesPerRow = 2,
@@ -71,7 +71,7 @@ auto main() -> int {
                                })) {
     return Fail("SDL3 renderer rejected a valid texture update");
   }
-  if (renderer->UpdateTexture(texture.Value(),
+  if (renderer->UpdateTexture(texture.value(),
                               TextureUpdateInfo{
                                   .region = PixelRect{1, 1, 2, 2},
                                   .bytesPerRow = 2,
@@ -79,10 +79,10 @@ auto main() -> int {
                               })) {
     return Fail("SDL3 renderer accepted an out-of-bounds texture update");
   }
-  if (!renderer->DestroyTexture(texture.Value())) {
+  if (!renderer->DestroyTexture(texture.value())) {
     return Fail("SDL3 renderer failed to destroy a live texture");
   }
-  if (renderer->UpdateTexture(texture.Value(),
+  if (renderer->UpdateTexture(texture.value(),
                               TextureUpdateInfo{
                                   .region = PixelRect{0, 0, 2, 2},
                                   .bytesPerRow = 2,

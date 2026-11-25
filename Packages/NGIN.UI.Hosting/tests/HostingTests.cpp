@@ -156,20 +156,24 @@ auto main() -> int {
       });
   if (!pageBuilder.AddPage<HostedHomePage, NavigationViewModel>(
           {.id = "hosted-home", .displayName = "Hosted home"},
-          [](Composer &composer, NavigationViewModel &,
+          [](NavigationViewModel &,
              const NoNavigationParameter &) {
-            composer.Leaf(ElementType::Border, "hosted-home-content");
+            NodeProperties properties{};
+            properties.semantics.identifier = "hosted-home-content";
+            return Views::Box(ElementType::Border, {}, properties);
           }) ||
       !pageBuilder.UsePage<HostedDetailPage, NavigationViewModel,
                            HostedDetailParameter>(
           {.id = "hosted-detail", .displayName = "Hosted detail"},
-          [](Composer &composer, NavigationViewModel &,
+          [](NavigationViewModel &,
              const HostedDetailParameter &) {
-            composer.Leaf(ElementType::Border, "hosted-detail-content");
+            NodeProperties properties{};
+            properties.semantics.identifier = "hosted-detail-content";
+            return Views::Box(ElementType::Border, {}, properties);
           }) ||
       !pageBuilder.UsePage<HostedMissingPage, UnregisteredViewModel>(
-          {.id = "hosted-missing"}, [](Composer &, UnregisteredViewModel &,
-                                       const NoNavigationParameter &) {})) {
+          {.id = "hosted-missing"}, [](UnregisteredViewModel &,
+                                       const NoNavigationParameter &) { return Views::View{}; })) {
     return Fail("Failed to register hosted pages");
   }
 
@@ -193,21 +197,21 @@ auto main() -> int {
   if (!built) {
     return Fail("Failed to build hosted application");
   }
-  auto started = built.Value()->Start();
+  auto started = built.value()->Start();
   if (!started) {
     return Fail("Failed to start hosted application");
   }
-  if (!hosting.Value().services ||
-      hosting.Value().services->ActiveScopeCount() != 1) {
+  if (!hosting.value().services ||
+      hosting.value().services->ActiveScopeCount() != 1) {
     return Fail("Hosted application scope was not created");
   }
 
-  auto firstWindow = hosting.Value().services->CreateWindow(WindowCreateInfo{
+  auto firstWindow = hosting.value().services->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Hosted.First"},
       .title = NGIN::Text::String{"First hosted window"},
       .initialSize = PixelSize{160, 90},
   });
-  auto secondWindow = hosting.Value().services->CreateWindow(WindowCreateInfo{
+  auto secondWindow = hosting.value().services->CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Hosted.Second"},
       .title = NGIN::Text::String{"Second hosted window"},
       .initialSize = PixelSize{160, 90},
@@ -217,19 +221,19 @@ auto main() -> int {
   }
 
   const auto navigationScopeBaseline =
-      hosting.Value().services->ActiveScopeCount();
+      hosting.value().services->ActiveScopeCount();
   {
     auto activationContext =
-        CreateHostedNavigationContext(hosting.Value(), secondWindow.Value());
+        CreateHostedNavigationContext(hosting.value(), secondWindow.value());
     if (!activationContext) {
       return Fail("Failed to create hosted navigation context");
     }
     NavigationService navigation{
-        pages, activationContext.Value(), {.region = "Hosted.Content"}};
+        pages, activationContext.value(), {.region = "Hosted.Content"}};
     if (!navigation.Start<HostedHomePage>() ||
         !navigation.Navigate<HostedDetailPage>(HostedDetailParameter{42}) ||
         navigation.StackDepth() != 2 ||
-        hosting.Value().services->ActiveScopeCount() !=
+        hosting.value().services->ActiveScopeCount() !=
             navigationScopeBaseline + 2) {
       return Fail("Hosted navigation did not create one scope per entry");
     }
@@ -237,18 +241,20 @@ auto main() -> int {
     if (failed || navigation.StackDepth() != 2) {
       return Fail("Hosted navigation activation failure did not roll back");
     }
-    Composer composed;
-    navigation.Compose(composed);
-    if (composed.Declarations().size() != 2 ||
-        composed.Declarations().front().properties.visibility !=
-            ElementVisibility::Collapsed ||
-        composed.Declarations().back().properties.visibility !=
-            ElementVisibility::Visible) {
+    Surface region;
+    region.SetContent(navigation.ContentView(), Views::ViewEnvironment{hosting.value().runtime->Text()});
+    if (!region.Update({160, 90}, 1)) return Fail("Hosted pages did not render");
+    const auto &tree = region.Tree();
+    const auto home = tree.FindBySemanticIdentifier("hosted-home-content");
+    const auto detail = tree.FindBySemanticIdentifier("hosted-detail-content");
+    if (!home || !detail ||
+        tree.Get(tree.Get(home)->parent)->properties.visibility != ElementVisibility::Collapsed ||
+        tree.Get(tree.Get(detail)->parent)->properties.visibility != ElementVisibility::Visible) {
       return Fail("Hosted navigation host did not retain its page stack");
     }
-    if (!navigation.Back() || !navigation.Clear() ||
-        !PumpUntil(hosting.Value().runtime->UI(), [&] {
-          return hosting.Value().services->ActiveScopeCount() ==
+    if (!navigation.Back() || !navigation.Clear() || !region.Update({160, 90}, 1) ||
+        !PumpUntil(hosting.value().runtime->UI(), [&] {
+          return hosting.value().services->ActiveScopeCount() ==
                  navigationScopeBaseline;
         })) {
       return Fail("Hosted navigation did not release removed page scopes");
@@ -259,29 +265,29 @@ auto main() -> int {
     return Fail("Hosted navigation leaked page-scoped services");
   }
 
-  auto firstPage = firstWindow.Value().CreatePageScope("First.Page");
-  auto secondPage = secondWindow.Value().CreatePageScope("Second.Page");
+  auto firstPage = firstWindow.value().CreatePageScope("First.Page");
+  auto secondPage = secondWindow.value().CreatePageScope("Second.Page");
   if (!firstPage || !secondPage) {
     return Fail("Failed to create hosted page scopes");
   }
-  auto firstDependency = firstPage.Value().ResolveRequired<ScopedPageService>();
+  auto firstDependency = firstPage.value().ResolveRequired<ScopedPageService>();
   auto reusedDependency =
-      firstPage.Value().ResolveRequired<ScopedPageService>();
+      firstPage.value().ResolveRequired<ScopedPageService>();
   auto isolatedDependency =
-      secondPage.Value().ResolveRequired<ScopedPageService>();
+      secondPage.value().ResolveRequired<ScopedPageService>();
   if (!firstDependency || !reusedDependency || !isolatedDependency ||
-      firstDependency.Value().Get() != reusedDependency.Value().Get() ||
-      firstDependency.Value().Get() == isolatedDependency.Value().Get()) {
+      firstDependency.value().Get() != reusedDependency.value().Get() ||
+      firstDependency.value().Get() == isolatedDependency.value().Get()) {
     return Fail("Page-scoped services were not reused and isolated correctly");
   }
 
-  auto activation = hosting.Value().services->CreateActivationScope(
-      secondPage.Value(), "Second.Page.Activation");
+  auto activation = hosting.value().services->CreateActivationScope(
+      secondPage.value(), "Second.Page.Activation");
   if (!activation ||
-      activation.Value().Kind() != NGIN::Core::ServiceScopeKind::Activation) {
+      activation.value().Kind() != NGIN::Core::ServiceScopeKind::Activation) {
     return Fail("Transient activation scope was not created");
   }
-  const auto scopeDiagnostics = built.Value()->GetServices()->Diagnostics();
+  const auto scopeDiagnostics = built.value()->GetServices()->Diagnostics();
   const auto hasScopeKind = [&](const NGIN::Core::ServiceScopeKind kind) {
     return std::any_of(
         scopeDiagnostics.scopes.begin(), scopeDiagnostics.scopes.end(),
@@ -293,66 +299,66 @@ auto main() -> int {
       !hasScopeKind(NGIN::Core::ServiceScopeKind::Activation)) {
     return Fail("Hosted scope kinds were not reported by Core diagnostics");
   }
-  if (!activation.Value().End()) {
+  if (!activation.value().End()) {
     return Fail("Transient activation scope did not close");
   }
 
-  auto missingPage = secondWindow.Value().CreatePageScope("Missing.Page");
+  auto missingPage = secondWindow.value().CreatePageScope("Missing.Page");
   if (!missingPage) {
     return Fail("Failed to create missing-service test scope");
   }
   HostedViewModelHost<UnregisteredViewModel> missingHost{
-      hosting.Value().runtime->UI().CreateTaskContext(
-          *secondWindow.Value().UI()),
-      std::move(missingPage).Value()};
+      hosting.value().runtime->UI().CreateTaskContext(
+          *secondWindow.value().UI()),
+      std::move(missingPage).value()};
   const auto missing = missingHost.Mount();
   if (missing ||
-      missing.Error().code != NGIN::Core::KernelErrorCode::NotFound ||
-      missing.Error().module.empty()) {
+      missing.error().code != NGIN::Core::KernelErrorCode::NotFound ||
+      missing.error().module.empty()) {
     return Fail("ViewModel resolution failure was not structured");
   }
 
-  auto failingPage = secondWindow.Value().CreatePageScope("Failing.Page");
+  auto failingPage = secondWindow.value().CreatePageScope("Failing.Page");
   if (!failingPage) {
     return Fail("Failed to create activation-failure test scope");
   }
   HostedViewModelHost<FailingViewModel> failingHost{
-      hosting.Value().runtime->UI().CreateTaskContext(
-          *secondWindow.Value().UI()),
-      std::move(failingPage).Value()};
+      hosting.value().runtime->UI().CreateTaskContext(
+          *secondWindow.value().UI()),
+      std::move(failingPage).value()};
   const auto failedActivation = failingHost.Mount();
   if (failedActivation ||
-      failedActivation.Error().code !=
+      failedActivation.error().code !=
           NGIN::Core::KernelErrorCode::ServiceRegistrationFailure ||
-      failedActivation.Error().module != "FailingViewModel" ||
-      failedActivation.Error().dependencyPath !=
+      failedActivation.error().module != "FailingViewModel" ||
+      failedActivation.error().dependencyPath !=
           "FailingViewModel -> TestDependency") {
     return Fail("ViewModel activation failure lost its structured error");
   }
 
-  firstDependency.Value().Reset();
-  reusedDependency.Value().Reset();
-  isolatedDependency.Value().Reset();
+  firstDependency.value().Reset();
+  reusedDependency.value().Reset();
+  isolatedDependency.value().Reset();
 
   HostedViewModelHost<HostedPageViewModel> firstHost{
-      hosting.Value().runtime->UI().CreateTaskContext(
-          *firstWindow.Value().UI()),
-      std::move(firstPage).Value()};
+      hosting.value().runtime->UI().CreateTaskContext(
+          *firstWindow.value().UI()),
+      std::move(firstPage).value()};
   HostedViewModelHost<HostedPageViewModel> secondHost{
-      hosting.Value().runtime->UI().CreateTaskContext(
-          *secondWindow.Value().UI()),
-      std::move(secondPage).Value()};
+      hosting.value().runtime->UI().CreateTaskContext(
+          *secondWindow.value().UI()),
+      std::move(secondPage).value()};
   auto firstMounted = firstHost.Mount();
   auto secondMounted = secondHost.Mount();
   if (!firstMounted || !secondMounted) {
     return Fail("DI-created ViewModels did not mount");
   }
-  const auto firstServiceId = firstMounted.Value()->serviceId;
-  firstMounted.Value().Reset();
-  secondMounted.Value().Reset();
+  const auto firstServiceId = firstMounted.value()->serviceId;
+  firstMounted.value().Reset();
+  secondMounted.value().Reset();
 
   firstHost.Unmount();
-  if (!PumpUntil(hosting.Value().runtime->UI(),
+  if (!PumpUntil(hosting.value().runtime->UI(),
                  [&] { return !firstHost.IsClosing(); })) {
     return Fail("Rapid ViewModel replacement did not drain cancellation");
   }
@@ -368,22 +374,22 @@ auto main() -> int {
     return Fail("ViewModel was not released before its page-scoped service");
   }
 
-  auto closePage = firstWindow.Value().CreatePageScope("Window.Close.Page");
+  auto closePage = firstWindow.value().CreatePageScope("Window.Close.Page");
   if (!closePage) {
     return Fail("Failed to create window-close test page scope");
   }
   HostedViewModelHost<HostedPageViewModel> windowCloseHost{
-      hosting.Value().runtime->UI().CreateTaskContext(
-          *firstWindow.Value().UI()),
-      std::move(closePage).Value()};
+      hosting.value().runtime->UI().CreateTaskContext(
+          *firstWindow.value().UI()),
+      std::move(closePage).value()};
   auto closeMounted = windowCloseHost.Mount();
   if (!closeMounted) {
     return Fail("Failed to mount window-close test ViewModel");
   }
-  closeMounted.Value().Reset();
-  if (!hosting.Value().runtime->UI().CloseWindow(*firstWindow.Value().UI()) ||
-      !hosting.Value().services->ReconcileClosedWindows() ||
-      !PumpUntil(hosting.Value().runtime->UI(),
+  closeMounted.value().Reset();
+  if (!hosting.value().runtime->UI().CloseWindow(*firstWindow.value().UI()) ||
+      !hosting.value().services->ReconcileClosedWindows() ||
+      !PumpUntil(hosting.value().runtime->UI(),
                  [&] { return !windowCloseHost.IsClosing(); })) {
     return Fail("Window close did not drain its ViewModel and page scope");
   }
@@ -391,29 +397,44 @@ auto main() -> int {
     return Fail("Closing one window affected another window's ViewModel");
   }
 
-  secondWindow.Value().UI()->SetContent([](Composer &composer) {
-    NodeProperties properties{};
-    properties.layout.preferredSize = Size{80.0F, 40.0F};
-    properties.paintsBackground = true;
-    properties.background = Color{0.2F, 0.5F, 0.8F, 1.0F};
-    composer.Leaf(ElementType::Rectangle, properties, "content");
-  });
-  auto runtimeService = hosting.Value().runtime;
-  auto posted = hosting.Value().dispatcher->Post(
+  NodeProperties content{};
+  content.layout.preferredSize = Size{80.0F, 40.0F};
+  content.paintsBackground = true;
+  content.background = Color{0.2F, 0.5F, 0.8F, 1.0F};
+  secondWindow.value().UI()->SetContent(
+      Views::Box(ElementType::Rectangle, {}, content).Key("content"),
+      Views::ViewEnvironment{hosting.value().runtime->Text()});
+  auto runtimeService = hosting.value().runtime;
+  auto &owner = runtimeService->UI().BackgroundTasks();
+  NGIN::Async::CancellationToken backgroundToken;
+  if (!owner.Transfer([&backgroundToken](NGIN::Async::TaskContext &context)
+                          -> NGIN::Async::Task<void> {
+        backgroundToken = context.GetCancellationToken();
+        co_await context.Delay(NGIN::Units::Seconds(60));
+      }) ||
+      !runtimeService->UI().PumpOnce()) {
+    return Fail("Failed to start hosted background work");
+  }
+  auto posted = hosting.value().dispatcher->Post(
       [runtimeService] { runtimeService->UI().RequestExit(); });
   if (!posted) {
     return Fail("Failed to post hosted shutdown");
   }
 
-  auto ran = built.Value()->Run();
+  auto ran = built.value()->Run();
   if (!ran) {
     return Fail("Hosted UI run loop failed");
   }
-  if (hosting.Value().services->AcceptsWork() ||
-      hosting.Value().services->ActiveScopeCount() != 0 ||
+  if (owner.Pending() != 0 || !backgroundToken.IsCancellationRequested() ||
+      backgroundToken.GetStopReason() != NGIN::Async::StopReason::RuntimeShutdown ||
+      owner.TakeResult().HasError()) {
+    return Fail("Hosted shutdown did not cancel and join application work");
+  }
+  if (hosting.value().services->AcceptsWork() ||
+      hosting.value().services->ActiveScopeCount() != 0 ||
       secondHost.IsMounted() || secondHost.IsClosing()) {
-    std::cerr << "accepts=" << hosting.Value().services->AcceptsWork()
-              << " scopes=" << hosting.Value().services->ActiveScopeCount()
+    std::cerr << "accepts=" << hosting.value().services->AcceptsWork()
+              << " scopes=" << hosting.value().services->ActiveScopeCount()
               << " mounted=" << secondHost.IsMounted()
               << " closing=" << secondHost.IsClosing()
               << " activeTasks=" << secondHost.ActiveTaskStatus().activeCount

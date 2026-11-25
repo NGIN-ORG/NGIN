@@ -12,11 +12,11 @@
 namespace NGIN::UI::SDL3 {
 namespace {
 [[nodiscard]] auto SDLError(const UIErrorCode code, const char *operation,
-                            const char *fallback) -> UIError {
+                            const char *fallback) -> std::unexpected<UIError> {
   const auto *message = SDL_GetError();
-  return MakeUIError(
+  return std::unexpected(MakeUIError(
       code, message != nullptr && *message != '\0' ? message : fallback,
-      "SDL3/SDL_GPU", operation);
+      "SDL3/SDL_GPU", operation));
 }
 
 [[nodiscard]] constexpr auto BytesPerPixel(const TextureFormat format) noexcept
@@ -34,14 +34,36 @@ namespace {
   };
 }
 
+// The engine retains its clipping and blend state across overlay submissions,
+// including early returns from texture uploads or geometry submission.
+struct OverlayState {
+  SDL_Renderer *renderer{};
+  bool clipped{};
+  SDL_Rect clip{};
+  SDL_BlendMode blend{};
+  SDL_FColor color{};
+  ~OverlayState() {
+    if (renderer) {
+      SDL_SetRenderClipRect(renderer, clipped ? &clip : nullptr);
+      SDL_SetRenderDrawBlendMode(renderer, blend);
+      SDL_SetRenderDrawColorFloat(renderer, color.r, color.g, color.b, color.a);
+    }
+  }
+};
+
 class RenderBackend final : public IRenderBackend {
 public:
   ~RenderBackend() override {
     for (auto &[_, surface] : m_surfaces) {
-      if (surface.renderer != nullptr) {
-        SDL_DestroyRenderer(surface.renderer);
-      }
+      ReleaseSurface(surface);
     }
+  }
+
+  auto Attach(SDL_Renderer &host) -> RenderSurfaceHandle {
+    const auto index = m_nextSurface++;
+    m_surfaces.emplace(index, SurfaceRecord{.renderer = &host, .borrowed = true});
+    m_initialized = true;
+    return {index, 1};
   }
 
   [[nodiscard]] auto Name() const noexcept -> const char * override {
@@ -66,9 +88,9 @@ public:
                      const PixelSize initialSize) noexcept
       -> UIResult<RenderSurfaceHandle> override {
     if (!m_initialized || !window || initialSize.IsEmpty()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "A live SDL window and non-zero size are required",
-                         Name(), "CreateSurface");
+                         Name(), "CreateSurface"));
     }
     auto *nativeWindow = SDL_GetWindowFromID(window.index);
     if (nativeWindow == nullptr) {
@@ -88,9 +110,9 @@ public:
                                 });
     } catch (...) {
       SDL_DestroyRenderer(renderer);
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL surface tracking allocation failed", Name(),
-                         "CreateSurface");
+                         "CreateSurface"));
     }
     return RenderSurfaceHandle{index, 1};
   }
@@ -99,12 +121,10 @@ public:
       -> UIResult<void> override {
     auto *surface = FindSurface(handle);
     if (surface == nullptr) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
-                         "Unknown SDL GPU surface", Name(), "DestroySurface");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+                         "Unknown SDL GPU surface", Name(), "DestroySurface"));
     }
-    SDL_DestroyRenderer(surface->renderer);
-    surface->renderer = nullptr;
-    surface->textures.clear();
+    ReleaseSurface(*surface);
     return {};
   }
 
@@ -112,9 +132,9 @@ public:
                      const PixelSize size) noexcept -> UIResult<void> override {
     auto *surface = FindSurface(handle);
     if (surface == nullptr || size.IsEmpty()) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "A live surface and non-zero size are required",
-                         Name(), "ResizeSurface");
+                         Name(), "ResizeSurface"));
     }
     surface->size = size;
     return {};
@@ -127,9 +147,9 @@ public:
             static_cast<UInt32>(std::numeric_limits<int>::max()) ||
         info.size.height >
             static_cast<UInt32>(std::numeric_limits<int>::max())) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "A valid non-zero texture size is required", Name(),
-                         "CreateTexture");
+                         "CreateTexture"));
     }
     try {
       const auto byteCount = static_cast<UIntSize>(info.size.width) *
@@ -142,9 +162,9 @@ public:
                                 });
       return TextureHandle{index, 1};
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL texture storage allocation failed", Name(),
-                         "CreateTexture");
+                         "CreateTexture"));
     }
   }
 
@@ -155,9 +175,9 @@ public:
     if (texture == nullptr || update.region.width == 0 ||
         update.region.height == 0 || update.region.x < 0 ||
         update.region.y < 0) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "Unknown texture or invalid update region", Name(),
-                         "UpdateTexture");
+                         "UpdateTexture"));
     }
     const auto x = static_cast<UInt32>(update.region.x);
     const auto y = static_cast<UInt32>(update.region.y);
@@ -165,9 +185,9 @@ public:
         update.region.width > texture->info.size.width - x ||
         y > texture->info.size.height ||
         update.region.height > texture->info.size.height - y) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "Texture update exceeds its allocation", Name(),
-                         "UpdateTexture");
+                         "UpdateTexture"));
     }
     const auto bytesPerPixel = BytesPerPixel(texture->info.format);
     const auto sourceRowBytes =
@@ -177,15 +197,15 @@ public:
         update.bytesPerRow >
             (std::numeric_limits<UIntSize>::max() - sourceRowBytes) /
                 precedingRows) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "Texture update byte layout overflows", Name(),
-                         "UpdateTexture");
+                         "UpdateTexture"));
     }
     const auto required = update.bytesPerRow * precedingRows + sourceRowBytes;
     if (update.bytesPerRow < sourceRowBytes || update.bytes.size() < required) {
-      return MakeUIError(UIErrorCode::InvalidArgument,
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
                          "Texture update byte span is too small", Name(),
-                         "UpdateTexture");
+                         "UpdateTexture"));
     }
     for (UInt32 row = 0; row < update.region.height; ++row) {
       const auto sourceOffset = static_cast<UIntSize>(row) * update.bytesPerRow;
@@ -208,8 +228,8 @@ public:
       -> UIResult<void> override {
     auto *texture = FindTexture(handle);
     if (texture == nullptr) {
-      return MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL texture",
-                         Name(), "DestroyTexture");
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL texture",
+                         Name(), "DestroyTexture"));
     }
     texture->live = false;
     texture->bytes.clear();
@@ -227,30 +247,47 @@ public:
               const RenderPacket &packet) noexcept -> UIResult<void> override {
     auto *surface = FindSurface(handle);
     if (surface == nullptr) {
-      return MakeUIError(UIErrorCode::RenderFailed, "Unknown SDL GPU surface",
-                         Name(), "Render");
+      return std::unexpected(MakeUIError(UIErrorCode::RenderFailed, "Unknown SDL GPU surface",
+                         Name(), "Render"));
+    }
+    if (surface->borrowed && packet.loadAction != RenderLoadAction::Preserve) {
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidArgument,
+          "A host-owned overlay requires a preserving render packet", Name(), "Render"));
     }
     try {
       for (const auto &update : packet.textureUpdates) {
         auto result = UpdateTexture(update.texture, update.update);
         if (!result) {
-          return result.Error();
+          return std::unexpected(result.error());
         }
       }
       if (packet.vertices.size() >
           static_cast<UIntSize>(std::numeric_limits<int>::max())) {
-        return MakeUIError(UIErrorCode::RenderFailed,
+        return std::unexpected(MakeUIError(UIErrorCode::RenderFailed,
                            "Render packet exceeds SDL geometry limits", Name(),
-                           "Render");
+                           "Render"));
       }
-      if (!SDL_SetRenderDrawColorFloat(
+      OverlayState previous{};
+      if (surface->borrowed) {
+        previous.clipped = SDL_RenderClipEnabled(surface->renderer);
+        if (!SDL_GetRenderClipRect(surface->renderer, &previous.clip) ||
+            !SDL_GetRenderDrawBlendMode(surface->renderer, &previous.blend) ||
+            !SDL_GetRenderDrawColorFloat(surface->renderer, &previous.color.r,
+                &previous.color.g, &previous.color.b, &previous.color.a)) {
+          return SDLError(UIErrorCode::RenderFailed, "Render", "Could not read host render state");
+        }
+        previous.renderer = surface->renderer;
+      }
+      if (packet.loadAction == RenderLoadAction::Clear &&
+          (!SDL_SetRenderDrawColorFloat(
               surface->renderer, packet.clearColor.red, packet.clearColor.green,
               packet.clearColor.blue, packet.clearColor.alpha) ||
-          !SDL_RenderClear(surface->renderer)) {
+          !SDL_RenderClear(surface->renderer))) {
         return SDLError(UIErrorCode::RenderFailed, "Clear",
                         "SDL GPU clear failed");
       }
-      std::vector<SDL_FColor> colors;
+      auto &colors = surface->colors;
+      colors.clear();
       colors.reserve(packet.vertices.size());
       for (const auto &vertex : packet.vertices) {
         colors.push_back(FloatColor(vertex.color));
@@ -266,16 +303,23 @@ public:
                 static_cast<UInt32>(std::numeric_limits<int>::max()) ||
             batch.scissor.height >
                 static_cast<UInt32>(std::numeric_limits<int>::max())) {
-          return MakeUIError(UIErrorCode::RenderFailed,
+          return std::unexpected(MakeUIError(UIErrorCode::RenderFailed,
                              "Render batch index range is invalid", Name(),
-                             "Render");
+                             "Render"));
         }
-        const SDL_Rect clip{
+        SDL_Rect clip{
             batch.scissor.x,
             batch.scissor.y,
             static_cast<int>(batch.scissor.width),
             static_cast<int>(batch.scissor.height),
         };
+        if (previous.clipped) {
+          SDL_Rect intersection{};
+          if (!SDL_GetRectIntersection(&previous.clip, &clip, &intersection)) {
+            continue;
+          }
+          clip = intersection;
+        }
         if (!SDL_SetRenderClipRect(surface->renderer, &clip)) {
           return SDLError(UIErrorCode::RenderFailed, "SetScissor",
                           "SDL GPU scissor update failed");
@@ -284,9 +328,9 @@ public:
         if (batch.texture) {
           auto synchronized = SynchronizeTexture(*surface, batch.texture);
           if (!synchronized) {
-            return synchronized.Error();
+            return std::unexpected(synchronized.error());
           }
-          texture = synchronized.Value();
+          texture = synchronized.value();
           static_cast<void>(SDL_SetTextureBlendMode(
               texture, batch.blendMode == BlendMode::Opaque
                            ? SDL_BLENDMODE_NONE
@@ -315,15 +359,19 @@ public:
       static_cast<void>(SDL_SetRenderClipRect(surface->renderer, nullptr));
       return {};
     } catch (...) {
-      return MakeUIError(UIErrorCode::OutOfMemory,
+      return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
                          "SDL render staging allocation failed", Name(),
-                         "Render");
+                         "Render"));
     }
   }
 
   auto Present(const RenderSurfaceHandle handle) noexcept
       -> UIResult<void> override {
     auto *surface = FindSurface(handle);
+    if (surface && surface->borrowed) {
+      return std::unexpected(MakeUIError(UIErrorCode::InvalidState,
+          "The host presents its overlay target", Name(), "Present"));
+    }
     if (surface == nullptr || !SDL_RenderPresent(surface->renderer)) {
       return SDLError(UIErrorCode::RenderFailed, "Present",
                       "SDL GPU present failed");
@@ -352,8 +400,21 @@ private:
   struct SurfaceRecord final {
     SDL_Renderer *renderer{nullptr};
     PixelSize size{};
+    bool borrowed{false};
+    std::vector<SDL_FColor> colors{};
     std::unordered_map<UInt32, SurfaceTexture> textures{};
   };
+  static void ReleaseSurface(SurfaceRecord &surface) noexcept {
+    if (surface.borrowed) {
+      for (auto &[_, entry] : surface.textures) {
+        SDL_DestroyTexture(entry.texture);
+      }
+    } else if (surface.renderer) {
+      SDL_DestroyRenderer(surface.renderer);
+    }
+    surface.textures.clear();
+    surface.renderer = nullptr;
+  }
   struct TextureRecord final {
     TextureCreateInfo info{};
     std::vector<Byte> bytes{};
@@ -383,8 +444,8 @@ private:
       -> UIResult<SDL_Texture *> {
     auto *record = FindTexture(handle);
     if (record == nullptr) {
-      return MakeUIError(UIErrorCode::RenderFailed, "Unknown SDL texture",
-                         Name(), "SynchronizeTexture");
+      return std::unexpected(MakeUIError(UIErrorCode::RenderFailed, "Unknown SDL texture",
+                         Name(), "SynchronizeTexture"));
     }
     auto &surfaceTexture = surface.textures[handle.index];
     if (surfaceTexture.texture == nullptr) {
@@ -449,6 +510,16 @@ auto CreateRendererBackend() noexcept -> std::unique_ptr<IRenderBackend> {
     return std::make_unique<RenderBackend>();
   } catch (...) {
     return {};
+  }
+}
+auto CreateOverlayBackend(SDL_Renderer &host) noexcept -> UIResult<OverlayBackend> {
+  try {
+    auto renderer = std::make_unique<RenderBackend>();
+    auto target = renderer->Attach(host);
+    return OverlayBackend{std::move(renderer), target};
+  } catch (const std::bad_alloc &) {
+    return std::unexpected(MakeUIError(UIErrorCode::OutOfMemory,
+        "Could not allocate an SDL overlay backend", "SDL3", "CreateOverlayBackend"));
   }
 }
 } // namespace NGIN::UI::SDL3

@@ -49,22 +49,22 @@ private:
 };
 ```
 
-Compose the element through the public `Composer` helper and give it a stable
-key whenever siblings can reorder:
+Wrap the element in a view. Give it a stable key when siblings can reorder.
 
 ```cpp
 NGIN::UI::NodeProperties properties{};
 properties.layout.horizontalAlignment = NGIN::UI::HorizontalAlignment::Start;
 properties.layout.verticalAlignment = NGIN::UI::VerticalAlignment::Start;
-composer.Custom(std::make_shared<Meter>(0.72F), properties, "download-meter");
+auto meter = NGIN::UI::Views::Custom(std::make_shared<Meter>(0.72F), properties)
+                 .Key("download-meter");
 ```
 
-`Composer::Custom()` creates a leaf. Put it inside a row, column, overlay, or
+`Views::Custom` creates a leaf. Put it inside a row, column, overlay, or
 another composite function when the control also needs child text or controls.
 
 ## Lifecycle and ownership
 
-The composer and retained runtime share ownership of the `ICustomElement`
+The view and retained runtime share ownership of the `ICustomElement`
 instance. The implementation object can be replaced during recomposition; the
 local state store remains attached to the reconciled element identity. A stable
 type/key position therefore preserves state even if a fresh implementation

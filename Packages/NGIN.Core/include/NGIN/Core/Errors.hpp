@@ -39,7 +39,8 @@ namespace NGIN::Core
         DynamicPluginUnsupported,
         ThreadPolicyViolation,
         SchemaValidationFailure,
-        InternalError
+        InternalError,
+        TaskDrainTimeout
     };
 
     /// @brief Structured core host error payload.
@@ -113,6 +114,7 @@ namespace NGIN::Core
             case KernelErrorCode::ThreadPolicyViolation: return "ThreadPolicyViolation";
             case KernelErrorCode::SchemaValidationFailure: return "SchemaValidationFailure";
             case KernelErrorCode::InternalError: return "InternalError";
+            case KernelErrorCode::TaskDrainTimeout: return "TaskDrainTimeout";
         }
         return "Unknown";
     }

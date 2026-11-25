@@ -29,6 +29,7 @@ enum class Page : NGIN::UInt8 {
   Resources,
   Accessibility,
   Diagnostics,
+  PropertyEditor,
 };
 
 enum class Density : NGIN::UInt8 {
@@ -43,11 +44,10 @@ enum class CollectionTab : NGIN::UInt8 {
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = 14;
+inline constexpr NGIN::UIntSize PageCount = static_cast<NGIN::UIntSize>(Page::PropertyEditor) + 1;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
-[[nodiscard]] auto PageExample(Page page) noexcept -> std::string_view;
 
 class GalleryViewModel final {
 public:
@@ -59,7 +59,8 @@ public:
 
   [[nodiscard]] auto CurrentPage() const noexcept -> Page;
   void SelectPage(Page page);
-  void ComposeCurrentPage(UI::Composer &composer);
+  [[nodiscard]] auto CurrentPageView() const -> UI::Views::View;
+  [[nodiscard]] auto PageRevision() const -> UInt64;
   [[nodiscard]] auto PageNavigationDiagnostics() const
       -> UI::NavigationSnapshot;
   [[nodiscard]] auto PageActivationCount() const noexcept -> NGIN::UInt64;
@@ -69,7 +70,10 @@ public:
   [[nodiscard]] auto CleanupPageTaskCount() const noexcept -> NGIN::UIntSize;
   [[nodiscard]] auto NavigationSearchBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto NavigationMatches(Page page) const -> bool;
-  void CopyExample(Page page);
+  void UpdateViewport(NGIN::UInt32 pixelWidth, F32 scaleFactor);
+  [[nodiscard]] auto IsCompact() const -> bool { return m_compact.Get(); }
+  [[nodiscard]] auto BrowserOpen() const -> bool { return m_browserOpen.Get(); }
+  void SetBrowserOpen(bool open) { static_cast<void>(m_browserOpen.Set(open)); }
 
   [[nodiscard]] auto CurrentTheme() const -> UI::Theme;
   [[nodiscard]] auto IsLightTheme() const noexcept -> bool;
@@ -111,12 +115,6 @@ public:
   [[nodiscard]] auto SliderBinding() -> UI::Binding<F32>;
   [[nodiscard]] auto SliderValue() const noexcept -> F32;
   [[nodiscard]] auto HelpToolTip() noexcept -> UI::ToolTipController *;
-  [[nodiscard]] auto ActivationCount() const noexcept -> std::uint32_t;
-  void Activate();
-  [[nodiscard]] auto CommandDemoBinding() const -> UI::CommandBinding;
-  [[nodiscard]] auto CommandDemoStatus() const -> Text::String;
-  void StartFailingCommandDemo();
-  void CancelCommandDemo() noexcept;
 
   [[nodiscard]] auto CollectionItems() const -> std::vector<std::uint32_t>;
   [[nodiscard]] auto CollectionSelection(std::uint32_t item)
@@ -196,16 +194,15 @@ public:
 private:
   [[nodiscard]] auto RunFormSave(NGIN::Async::TaskContext &context)
       -> NGIN::Async::Task<void, UI::CommandError>;
-  [[nodiscard]] auto RunCommandDemo(NGIN::Async::TaskContext &context)
-      -> NGIN::Async::Task<void, UI::CommandError>;
   void Invalidate(
-      UI::InvalidationKind kind = UI::InvalidationKind::All) const noexcept;
+      UI::InvalidationKind kind = UI::InvalidationKind::All) const;
   [[nodiscard]] auto InitializePageNavigation() -> UI::UIResult<void>;
 
   UI::Application *m_application{nullptr};
   UI::NativeTextSystem *m_text{nullptr};
   UI::Window *m_window{nullptr};
   UI::State<Page> m_page;
+  mutable UI::State<UInt64> m_pageRevision{0};
   UI::PageRegistry m_pages{};
   std::unique_ptr<GalleryPageActivationContext> m_pageActivation{};
   std::unique_ptr<UI::NavigationService> m_navigation{};
@@ -214,6 +211,8 @@ private:
   NGIN::UInt64 m_navigationFailures{0};
   UI::State<Text::String> m_navigationSearch;
   UI::State<bool> m_lightTheme;
+  UI::State<bool> m_compact{false};
+  UI::State<bool> m_browserOpen{false};
   UI::State<Text::String> m_name;
   UI::State<Text::String> m_password;
   UI::State<Text::String> m_notes;
@@ -224,9 +223,7 @@ private:
   UI::State<bool> m_toggle;
   UI::State<bool> m_disabledToggle;
   UI::State<F32> m_slider;
-  UI::State<std::uint32_t> m_activationCount;
   UI::State<std::uint32_t> m_formSaveCount;
-  UI::State<std::uint32_t> m_commandSuccessCount;
   UI::State<std::vector<std::uint32_t>> m_collectionItems;
   UI::SingleSelectionModel<std::uint32_t> m_collectionSelection;
   UI::State<bool> m_collectionDescending;
@@ -243,7 +240,6 @@ private:
   std::unique_ptr<UI::FixedVirtualizedListController> m_virtualizedController;
   std::unique_ptr<UI::AnimationHandle> m_motionRepeatHandle;
   std::shared_ptr<GalleryMotionDemo> m_asyncMotion;
-  std::unique_ptr<UI::AsyncCommand> m_commandDemo;
   std::unique_ptr<UI::ValidationField<Text::String>> m_nameValidation;
   std::unique_ptr<UI::ValidationField<Text::String>> m_passwordValidation;
   std::unique_ptr<UI::ValidationField<Text::String>> m_notesValidation;
@@ -257,18 +253,17 @@ private:
   UI::State<bool> m_inspectorEnabled;
   UI::State<Text::String> m_status;
   UI::State<Text::String> m_accessibilityAnnouncement;
+  std::uint32_t m_announcementCount{0};
   std::unique_ptr<UI::ToolTipController> m_helpToolTip;
   std::shared_ptr<UI::ImageResource> m_galleryImage;
   std::unique_ptr<UI::ImageTextureCache> m_imageCache;
   std::unique_ptr<UI::KeyedViewModelHost<GalleryAsyncViewModel>> m_asyncHost;
   std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
-  bool m_commandDemoShouldFail{false};
   bool m_formSaveShouldFail{false};
 };
 
-void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
-                     GalleryViewModel &model);
+[[nodiscard]] auto MainView(GalleryViewModel &model) -> UI::Views::View;
 
 [[nodiscard]] auto CreateMainWindow(UI::Application &application,
                                     UI::NativeTextSystem &text,

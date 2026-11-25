@@ -1,6 +1,6 @@
 # NGIN.UI API Reference {#mainpage}
 
-NGIN.UI is a retained, backend-neutral C++23 desktop UI toolkit.
+NGIN.UI is a retained, backend-neutral C++23 UI toolkit for desktop applications and embedded game or editor surfaces.
 
 The current public header and package version is 0.4.0. See the
 [version 0.4 release notes](../guides/ngin-ui-v0.4-release.md) for package
@@ -14,13 +14,14 @@ and use this reference for exact signatures, ownership, and result types.
 ## Primary entry points
 
 - `NGIN::UI::CreateApplication()` and `NGIN::UI::Application`
-- `NGIN::UI::Window`
-- `NGIN::UI::Composer`
+- `NGIN::UI::Window` and `NGIN::UI::Surface`
+- `NGIN::UI::Views::View`, `NGIN::UI::Views::Component()`, and `NGIN::UI::Views::ViewEnvironment`
+- `NGIN::UI::ILayoutPolicy` and `NGIN::UI::Views::Layout()`
 - `NGIN::UI::GridTrack`, `NGIN::UI::WrapPanelProperties`, and
   `NGIN::UI::CanvasPlacement`
 - `NGIN::UI::FixedVirtualizedListController`,
   `NGIN::UI::IVirtualizedDataSource<T>`, and
-  `NGIN::UI::VirtualizedListView()`
+  `NGIN::UI::Views::VirtualizedList()`
 - `NGIN::UI::NodeProperties`
 - `NGIN::UI::Animate()`, `NGIN::UI::MotionController`, and
   `NGIN::UI::Application::CreateTaskContext()`
@@ -46,13 +47,13 @@ and use this reference for exact signatures, ownership, and result types.
 
 ## Control families
 
-- `Controls.hpp`: checkbox, radio, switch, slider, progress, labels, tooltips
-- `Collections.hpp`: selection models, ordinary and virtualized lists,
-  incremental sources, combo boxes, tabs, menus
+- `Components.hpp` provides component lifecycle, primitive views, custom layouts, and painted controls.
+- `Surface.hpp` provides standalone mounting, input routing, and frame updates.
+- `ViewControls.hpp` provides check boxes, radio buttons, switches, sliders, progress bars, and tooltips.
+- `CollectionViews.hpp` provides selectable rows, virtualized lists, combo boxes, tabs, and menus.
+- `Collections.hpp` provides typed selection models and incremental data sources.
 - `Virtualization.hpp`: fixed-row viewport ranges, overscan, stable-key
   anchoring, logical navigation, and realization diagnostics
-- `Composer.hpp`: primitive, Grid, WrapPanel, Canvas, text, text-area, image,
-  popup, and custom elements
 - `LayoutPrimitives.hpp`: grid tracks and spans, wrapping rules, and absolute
   canvas placement
 - `CustomElement.hpp`: custom measurement, painting, input, semantics, state

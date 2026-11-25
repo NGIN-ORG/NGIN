@@ -335,6 +335,28 @@ TEST_CASE("CLI accepts an explicit Run selection for run workflows")
     REQUIRE(parsed.run == "diagnostics");
 }
 
+TEST_CASE("CMake lifecycle output preserves progress and redacts secret assignments")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "CMakeLists.txt", R"cmake(cmake_minimum_required(VERSION 3.20)
+project(Progress NONE)
+message("  BUILD_TOKEN=fixture-secret")
+message(STATUS "Checking build inputs")
+)cmake");
+    WriteFile(temp.path() / "CMakePresets.json", R"json({
+      "version": 3,
+      "configurePresets": [{"name":"dev","generator":"Ninja","binaryDir":"${sourceDir}/out"}]
+    })json");
+    CliArguments args{};
+    args.projectPath = temp.path();
+    args.configurePreset = "dev";
+    ScopedStreamCapture output{std::cout};
+    REQUIRE(ConfigureProject(temp.path(), args) == 0);
+    CHECK_THAT(output.Text(), ContainsSubstring("  BUILD_TOKEN=<redacted>"));
+    CHECK_THAT(output.Text(), !ContainsSubstring("fixture-secret"));
+    CHECK_THAT(output.Text(), ContainsSubstring("-- Checking build inputs"));
+}
+
 TEST_CASE("CLI accepts explicit CMake lifecycle selections")
 {
     std::vector<std::string> storage{"ngin", "test", "--project", "Library", "--configure-preset", "tests",
@@ -433,7 +455,7 @@ TEST_CASE("every checked-in authored manifest uses the direct grammar")
     }
     std::ranges::sort(manifests);
     manifests.erase(std::unique(manifests.begin(), manifests.end()), manifests.end());
-    REQUIRE(manifests.size() == 54);
+    REQUIRE(manifests.size() == 55);
     for (const auto &path : manifests)
     {
         INFO(path.string());

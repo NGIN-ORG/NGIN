@@ -43,10 +43,12 @@ add_executable(NGINUITests
     ApplicationTests.cpp
     CollectionTests.cpp
     CommandTests.cpp
+    ComponentTests.cpp
     CompositionTests.cpp
     ContractTests.cpp
     ControlsTests.cpp
     CustomElementTests.cpp
+    CustomLayoutTests.cpp
     FoundationTests.cpp
     ImageTests.cpp
     InputTests.cpp
@@ -56,13 +58,18 @@ add_executable(NGINUITests
     SoftwareRendererTests.cpp
     StateTests.cpp
     StyleTests.cpp
+    SurfaceTests.cpp
     TextTests.cpp
     ValidationTests.cpp
     ViewModelTests.cpp
 )
 if(NGIN_UI_ENABLE_NATIVE_TEXT)
-    target_sources(NGINUITests PRIVATE NativeTextTests.cpp)
+    set(_ngin_settings_source "${CMAKE_CURRENT_SOURCE_DIR}/../../../Examples/NGIN.UI.Settings/src")
+    target_sources(NGINUITests PRIVATE NativeTextTests.cpp SettingsPanelTests.cpp
+        "${_ngin_settings_source}/SettingsPanel.cpp")
+    target_include_directories(NGINUITests PRIVATE "${_ngin_settings_source}")
 endif()
+target_include_directories(NGINUITests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_compile_features(NGINUITests PRIVATE cxx_std_23)
 target_link_libraries(NGINUITests PRIVATE Catch2::Catch2WithMain NGIN::UI)
 target_compile_definitions(

@@ -121,28 +121,23 @@ complete scoped example.
 `Error`, plus optional retry and cancel command bindings.
 
 ```cpp
-const auto& state = viewModel.screen.Get();
-switch (state.kind) {
-case UI::AsyncPresentationKind::Loading:
-  ComposeLoading(composer, viewModel.screen.CancelCommand());
-  break;
-case UI::AsyncPresentationKind::Content:
-  ComposeMessages(composer, *state.content);
-  break;
-case UI::AsyncPresentationKind::Empty:
-  ComposeEmpty(composer, viewModel.screen.RetryCommand());
-  break;
-case UI::AsyncPresentationKind::Error:
-  ComposeError(composer, *state.error,
-               viewModel.screen.RetryCommand());
-  break;
-case UI::AsyncPresentationKind::Idle:
-  ComposeIdle(composer);
-  break;
-}
+auto screenView = Views::Component([&viewModel]() -> Views::View {
+  const auto &state = viewModel.screen.Get();
+  switch (state.kind) {
+  case UI::AsyncPresentationKind::Loading:
+    return LoadingView(viewModel.screen.CancelCommand());
+  case UI::AsyncPresentationKind::Content:
+    return MessagesView(*state.content);
+  case UI::AsyncPresentationKind::Empty:
+    return EmptyView(viewModel.screen.RetryCommand());
+  case UI::AsyncPresentationKind::Error:
+    return ErrorView(*state.error, viewModel.screen.RetryCommand());
+  case UI::AsyncPresentationKind::Idle:
+    return IdleView();
+  }
+  return {};
+});
 ```
 
-`Compose(Composer&)` remains an ordinary synchronous function. Tasks only
-change observable ViewModel state; invalidation schedules composition of the
-new snapshot. Never retain a `Composer` in a ViewModel, task, or lifecycle
-hook.
+Each branch returns a view. When a task updates the presentation state on the
+UI thread, the mounted component reads the new snapshot on its next build.

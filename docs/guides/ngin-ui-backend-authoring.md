@@ -147,6 +147,12 @@ On device loss:
 
 ### Render packets
 
+Backend contract 1.3 adds `RenderPacket::loadAction`. Implement
+`RenderLoadAction::Clear` using the supplied clear color, and
+`RenderLoadAction::Preserve` by loading the existing target contents before
+drawing. Engine-owned render targets may contain a scene rendered earlier
+in the same frame. Present only when the host explicitly requests it.
+
 `RenderPacket` contains immutable spans for one call:
 
 - vertices in target pixel space;

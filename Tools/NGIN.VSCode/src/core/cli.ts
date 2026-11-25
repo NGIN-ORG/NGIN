@@ -13,9 +13,8 @@ export interface RunOptions {
   token?: vscode.CancellationToken;
   requireTrust?: boolean;
   revealOutput?: boolean;
-  label?: string;
   exclusive?: boolean;
-  presentation?: 'lifecycle';
+  presenter?: LifecycleOutputPresenter;
 }
 
 export class CliFailure extends Error {
@@ -26,6 +25,20 @@ export class CliFailure extends Error {
     this.name = 'CliFailure';
     this.unsupportedOption = unsupportedSelectionOption(result);
   }
+}
+
+// A canceled foreground build can stop waiting for a directory lookup shared
+// with other editor features. Its subscribers still receive the lookup result.
+export async function waitWithCancellation<T>(work: Promise<T>, token?: vscode.CancellationToken): Promise<T> {
+  if (!token) return work;
+  let subscription: vscode.Disposable | undefined;
+  const canceled = new Promise<never>((_, reject) => {
+    const stop = () => reject(new vscode.CancellationError());
+    subscription = token.onCancellationRequested(stop);
+    if (token.isCancellationRequested) stop();
+  });
+  try { return await Promise.race([work, canceled]); }
+  finally { subscription?.dispose(); }
 }
 
 async function exists(candidate: string): Promise<boolean> {
@@ -43,6 +56,10 @@ function quoteForDisplay(value: string): string {
 export class NginCli implements vscode.Disposable {
   private readonly output = vscode.window.createOutputChannel('NGIN');
   private readonly active = new Set<ChildProcessWithoutNullStreams>();
+  private readonly terminating = new WeakSet<ChildProcessWithoutNullStreams>();
+  private readonly processGroups = new Set<ChildProcessWithoutNullStreams>();
+  private readonly canceled = new vscode.EventEmitter<void>();
+  readonly onDidCancel = this.canceled.event;
   private exclusiveActive = false;
   private exclusiveQueued = false;
   private idleWaiters: Array<() => void> = [];
@@ -50,6 +67,7 @@ export class NginCli implements vscode.Disposable {
 
   dispose(): void {
     for (const child of this.active) this.terminate(child);
+    this.canceled.dispose();
     this.output.dispose();
   }
 
@@ -57,14 +75,29 @@ export class NginCli implements vscode.Disposable {
     this.output.show(true);
   }
 
+  beginLifecycle(args: string[], label: string, reveal: boolean): LifecycleOutputPresenter {
+    const presenter = new LifecycleOutputPresenter({
+      command: args[0], args, label, append: value => this.output.append(value)
+    });
+    if (reveal) this.showOutput();
+    return presenter;
+  }
+
   cancel(): void {
     this.cancellationGeneration++;
+    this.canceled.fire();
     for (const child of this.active) this.terminate(child);
   }
 
   private terminate(child: ChildProcessWithoutNullStreams): void {
+    if (this.terminating.has(child)) return;
+    this.terminating.add(child);
     if (process.platform === 'win32' && child.pid) {
       spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, shell: false });
+    } else if (child.pid && this.processGroups.has(child)) {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
     } else {
       child.kill('SIGTERM');
     }
@@ -110,8 +143,8 @@ export class NginCli implements vscode.Disposable {
     if (options.exclusive) {
       const cancellationGeneration = this.cancellationGeneration;
       this.exclusiveQueued = true;
-      await this.waitForIdle();
-      this.exclusiveQueued = false;
+      try { await waitWithCancellation(this.waitForIdle(), options.token); }
+      finally { this.exclusiveQueued = false; }
       if (options.token?.isCancellationRequested || cancellationGeneration !== this.cancellationGeneration) {
         throw new Error('NGIN operation was cancelled.');
       }
@@ -125,31 +158,36 @@ export class NginCli implements vscode.Disposable {
       if (options.exclusive) this.exclusiveActive = false;
       throw error;
     }
+    if (options.token?.isCancellationRequested) {
+      if (options.exclusive) this.exclusiveActive = false;
+      throw new vscode.CancellationError();
+    }
     const cwd = options.cwd ?? workspaceFolder;
     const command = [executable, ...args].map(quoteForDisplay).join(' ');
-    const presenter = options.presentation === 'lifecycle' && options.label
-      ? new LifecycleOutputPresenter({
-          command: args[0] ?? '', args, label: options.label, append: value => this.output.append(value)
-        })
-      : undefined;
+    const presenter = options.presenter;
     const verbosity = vscode.workspace.getConfiguration('ngin').get<OutputVerbosity>('output.verbosity', 'compact');
     const policy = outputPolicy(args, Boolean(presenter), Boolean(options.revealOutput), verbosity);
     if (!presenter && policy.appendCommand) this.output.appendLine(`\n> ${command}`);
-    if (options.revealOutput) this.output.show(true);
+    if (!presenter && options.revealOutput) this.showOutput();
 
     return new Promise<CliResult>((resolve, reject) => {
       let stdout = '';
       let stderr = '';
       let settled = false;
+      const group = args[0] === 'build' && process.platform !== 'win32';
       const child = spawn(executable, args, {
         cwd,
         windowsHide: true,
+        detached: group,
         shell: false,
         env: presenter ? { ...process.env, NGIN_EDITOR_EVENTS: '1' } : process.env
       });
       this.active.add(child);
+      if (group) this.processGroups.add(child);
 
       const cancellation = options.token?.onCancellationRequested(() => this.terminate(child));
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
       child.stdout.on('data', chunk => {
         const value = chunk.toString();
         stdout += value;
@@ -167,10 +205,11 @@ export class NginCli implements vscode.Disposable {
         settled = true;
         cancellation?.dispose();
         this.active.delete(child);
+        this.processGroups.delete(child);
         if (options.exclusive) this.exclusiveActive = false;
         this.signalIdle();
         if (!presenter && !policy.appendCommand) this.output.appendLine(`\n> ${command}`);
-        this.output.appendLine(`Unable to start NGIN CLI: ${error.message}`);
+        if (!presenter) this.output.appendLine(`Unable to start NGIN CLI: ${error.message}`);
         reject(new Error(`Unable to start NGIN CLI '${executable}': ${error.message}`));
       });
       child.on('close', async (code, signal) => {
@@ -178,6 +217,7 @@ export class NginCli implements vscode.Disposable {
         settled = true;
         cancellation?.dispose();
         this.active.delete(child);
+        this.processGroups.delete(child);
         if (options.exclusive) this.exclusiveActive = false;
         this.signalIdle();
         const result: CliResult = {
@@ -190,29 +230,34 @@ export class NginCli implements vscode.Disposable {
           diagnostics: parseCliDiagnostics(stderr)
         };
         if (presenter) {
-          presenter.complete(result.exitCode);
+          if (options.token?.isCancellationRequested) presenter.cancel();
+          else presenter.complete(result.exitCode);
           if (policy.appendLifecycleTrace && presenter.rawOutput.trim()) {
             this.output.append(`\nRAW CLI OUTPUT\n${presenter.rawOutput}${presenter.rawOutput.endsWith('\n') ? '' : '\n'}`);
           }
-          await this.writeLifecycleLog(args, command, presenter.rawOutput);
+          const logPath = await this.writeLifecycleLog(args, command, presenter.rawOutput);
+          if (result.exitCode !== 0 && logPath && !options.token?.isCancellationRequested) presenter.logLocation(logPath);
         } else if (result.exitCode !== 0 && !policy.streamRaw) {
           if (!policy.appendCommand) this.output.appendLine(`\n> ${command}`);
           const relevant = result.stderr.trim() || (!policy.machineReadable ? result.stdout.trim() : '');
           this.output.appendLine(relevant || `Command exited with code ${result.exitCode}.`);
         }
-        if (result.exitCode === 0) resolve(result);
+        if (options.token?.isCancellationRequested) reject(new vscode.CancellationError());
+        else if (result.exitCode === 0) resolve(result);
         else reject(new CliFailure(result));
       });
     });
   }
 
-  private async writeLifecycleLog(args: string[], command: string, output: string): Promise<void> {
+  private async writeLifecycleLog(args: string[], command: string, output: string): Promise<string | undefined> {
     const outputIndex = args.indexOf('--output');
     if (outputIndex < 0 || !args[outputIndex + 1]) return;
     try {
       const directory = path.join(args[outputIndex + 1], 'diagnostics');
       await fs.mkdir(directory, { recursive: true });
-      await fs.writeFile(path.join(directory, `${args[0] ?? 'operation'}.log`), `> ${command}\n${output}`, 'utf8');
+      const logPath = path.join(directory, `${args[0] ?? 'operation'}.log`);
+      await fs.writeFile(logPath, `> ${command}\n${output}`, 'utf8');
+      return logPath;
     } catch {
       // Presentation logging must never change the lifecycle command result.
     }

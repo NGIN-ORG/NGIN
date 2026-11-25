@@ -19,7 +19,7 @@ struct BackendContractVersion final {
   operator<=>(const BackendContractVersion &) const noexcept = default;
 };
 
-inline constexpr BackendContractVersion CurrentBackendContractVersion{1, 2};
+inline constexpr BackendContractVersion CurrentBackendContractVersion{1, 3};
 
 /// @brief Optional facilities advertised by a platform backend.
 enum class PlatformCapabilityFlags : UInt32 {

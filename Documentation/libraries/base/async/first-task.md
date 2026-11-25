@@ -25,7 +25,7 @@ the [Base quick start](../quick-start.md).
 ## Complete program
 
 ```cpp
-#include <NGIN/Async/Task.hpp>
+#include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/Execution/CooperativeScheduler.hpp>
 
 #include <iostream>
@@ -56,9 +56,16 @@ int main() {
     NGIN::Execution::CooperativeScheduler scheduler;
     NGIN::Async::TaskContext context {scheduler};
 
-    auto operation = NGIN::Async::Spawn(context, Calculate(context));
+    NGIN::Async::TaskSupervisor<MathError> owner(context.GetEnvironment(), 1);
+    auto admitted = owner.Spawn(Calculate(context));
+    if (!admitted)
+        return 1;
+    auto operation = std::move(*admitted);
     scheduler.RunUntilIdle();
 
+    auto report = owner.TryJoin();
+    if (!report || !report->Succeeded())
+        return 1;
     auto result = operation.TakeResult();
     if (!result) {
         std::cerr << "calculation failed\n";

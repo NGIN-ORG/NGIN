@@ -6,7 +6,7 @@ description: Await tasks sequentially, run them together, race alternatives, and
 # Combine async tasks
 
 Use direct `co_await` for dependent steps, `WhenAll` for independent work whose
-results are all required, and `WhenAny` for alternatives where the first
+results are all required, and `Race` for alternatives where the first
 terminal child wins.
 
 ## Sequential dependency
@@ -43,12 +43,41 @@ co_await NGIN::Async::WhenAll(
 
 Do not read the moved task afterward.
 
-## Race alternatives
+## Own a dynamic group
 
-`WhenAny` takes factories rather than already-created tasks:
+`WithScope(body)` inherits the running task’s executor, cancellation, deadline, and
+allocator. The body receives a bounded `TaskScope`. A rejected spawn returns a
+scheduling error immediately. An admitted child's error is retained in the scope
+report even when the caller drops its result handle.
 
 ```cpp
-auto index = co_await NGIN::Async::WhenAny(
+auto result = co_await NGIN::Async::WithScope<JobError>(
+    [&](NGIN::Async::TaskScope<JobError>& group) -> NGIN::Async::Task<void, JobError> {
+        for (auto id : ids) {
+            auto admitted = group.Spawn([id](NGIN::Async::TaskContext& child) {
+                return ProcessJob(child, id);
+            });
+            if (!admitted) {
+                co_await NGIN::Async::Faulted(NGIN::Async::MakeAsyncFault(
+                    NGIN::Async::AsyncFaultCode::SchedulerDispatchFailed,
+                    static_cast<int>(admitted.error())));
+                co_return;
+            }
+        }
+        (void)co_await group.Join();
+    }).AsCompletion();
+```
+
+Join inside the body when every child should finish normally. On body exit
+`WithScope` requests stop and joins remaining children before returning. Keep
+borrowed data in the enclosing task or the retained factory through that join.
+
+## Race alternatives
+
+`Race` takes factories rather than already-created tasks:
+
+```cpp
+auto winner = co_await NGIN::Async::Race(
     context,
     [](NGIN::Async::TaskContext& child) {
         return QueryPrimary(child);
@@ -65,7 +94,7 @@ cancel losers without canceling unrelated parent work.
 ## What “first” means
 
 The winner is the first child to reach any terminal state: success, domain
-error, canceled, or fault. `WhenAny` does not wait for the first *success* while
+error, canceled, or fault. `Race` does not wait for the first *success* while
 silently ignoring earlier failures.
 
 After selecting the winner it:
@@ -73,7 +102,7 @@ After selecting the winner it:
 1. records the winner and its terminal outcome;
 2. requests cancellation through every losing child context;
 3. waits for all loser watchers to finish;
-4. returns the winning index on success or propagates the winning non-success.
+4. returns the winning index and value on success. Child errors are retained in the race failure, including errors from losing children.
 
 The drain step makes parent-frame captures safe. It also exposes tasks that do
 not cooperate with cancellation.
@@ -85,7 +114,7 @@ The factory is invoked while the parent frame is alive:
 ```cpp
 std::string request = BuildRequest();
 
-auto winner = co_await NGIN::Async::WhenAny(
+auto winner = co_await NGIN::Async::Race(
     context,
     [&](auto& child) { return Send(child, primary, request); },
     [&](auto& child) { return Send(child, replica, request); });
@@ -101,13 +130,14 @@ buffer-lifetime contract.
 | --- | --- |
 | Step B requires A | Direct sequential `co_await` |
 | A and B are independent and both required | `WhenAll` |
-| First terminal alternative decides | `WhenAny` |
-| Work should outlive this scope intentionally | An explicit owning service/root operation, rarely `Detach` |
+| Dynamic number of children | `WithScope` |
+| First terminal alternative decides | `Race` |
+| Work should outlive this scope intentionally | `TaskSupervisor::Transfer` and its error sink or shutdown report |
 
-Do not use `WhenAny` as a timeout by adding a timer unless loser cancellation
+Do not use `Race` as a timeout by adding a timer unless loser cancellation
 and drain latency match your timeout policy. A source with `CancelAfter` can be
 clearer for one operation.
 
 Next: [contexts and schedulers](./runtime.md), or inspect
-[`WhenAll` and `WhenAny`](/reference/doxygen/base/namespaceNGIN_1_1Async.html).
+[`WhenAll` and `Race`](/reference/doxygen/base/namespaceNGIN_1_1Async.html).
 

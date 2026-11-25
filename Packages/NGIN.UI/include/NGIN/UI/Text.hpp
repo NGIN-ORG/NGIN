@@ -170,6 +170,11 @@ public:
 class ITextLayout {
 public:
   virtual ~ITextLayout() = default;
+  /// @brief Nonzero revision permits reusing paragraph metrics until it
+  /// changes.
+  [[nodiscard]] virtual auto MetricsRevision() const noexcept -> UInt64 {
+    return 0;
+  }
 
   [[nodiscard]] virtual auto
   LayoutParagraph(const ParagraphRequest &request) noexcept
@@ -203,6 +208,11 @@ public:
 class IGlyphAtlas {
 public:
   virtual ~IGlyphAtlas() = default;
+  /// @brief Nonzero revision permits retaining glyph geometry and leases.
+  /// Change the revision on device loss or invalidation of leased entries.
+  [[nodiscard]] virtual auto AtlasRevision() const noexcept -> UInt64 {
+    return 0;
+  }
 
   [[nodiscard]] virtual auto
   ResolveGlyph(const GlyphAtlasRequest &request) noexcept

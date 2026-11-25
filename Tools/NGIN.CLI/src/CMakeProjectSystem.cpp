@@ -4,10 +4,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -175,18 +177,25 @@ namespace NGIN::CLI
 #endif
         }
 
-        [[nodiscard]] auto RunCaptured(const std::string &executable, const std::vector<std::string> &arguments,
-                                       const fs::path &workingDirectory) -> CapturedProcess
+        [[nodiscard]] auto ProcessCommand(const std::string &executable, const std::vector<std::string> &arguments,
+                                          const fs::path &workingDirectory) -> std::string
         {
-            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-            const auto log = fs::temp_directory_path() / ("ngin-cmake-" + std::to_string(stamp) + ".log");
 #if defined(_WIN32)
             std::string command = "cd /d " + Quote(workingDirectory.string()) + " && " + Quote(executable);
 #else
             std::string command = "cd " + Quote(workingDirectory.string()) + " && " + Quote(executable);
 #endif
             for (const auto &argument : arguments) command += ' ' + Quote(argument);
-            command += " > " + Quote(log.string()) + " 2>&1";
+            return command;
+        }
+
+        [[nodiscard]] auto RunCaptured(const std::string &executable, const std::vector<std::string> &arguments,
+                                       const fs::path &workingDirectory) -> CapturedProcess
+        {
+            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            const auto log = fs::temp_directory_path() / ("ngin-cmake-" + std::to_string(stamp) + ".log");
+            const auto command = ProcessCommand(executable, arguments, workingDirectory) +
+                                 " > " + Quote(log.string()) + " 2>&1";
             const auto exitCode = std::system(command.c_str());
             std::string output{};
             try
@@ -201,20 +210,44 @@ namespace NGIN::CLI
             return {.exitCode = exitCode, .output = std::move(output)};
         }
 
-        [[nodiscard]] auto RedactSensitiveOutput(std::string output) -> std::string
+        auto WriteProcessLine(const std::string &line) -> void
         {
-            static const std::regex assignment{
-                R"((^|[\r\n][ \t]*)([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*)[ \t]*=[ \t]*[^\r\n]*)",
-                std::regex::icase};
-            return std::regex_replace(output, assignment, "$1$2=<redacted>");
+            static const std::regex assignment{R"(^([ \t]*[A-Za-z_][A-Za-z0-9_]*)[ \t]*=)"};
+            static const std::regex sensitive{"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY", std::regex::icase};
+            std::smatch match;
+            if (std::regex_search(line, match, assignment) && std::regex_search(match[1].first, match[1].second, sensitive))
+                std::cout << match[1] << "=<redacted>";
+            else
+                std::cout << line;
         }
 
         auto Run(const std::string &executable, const std::vector<std::string> &arguments,
                  const fs::path &workingDirectory) -> int
         {
-            const auto result = RunCaptured(executable, arguments, workingDirectory);
-            if (!result.output.empty()) std::cout << RedactSensitiveOutput(result.output);
-            return result.exitCode == 0 ? 0 : 1;
+            const auto command = ProcessCommand(executable, arguments, workingDirectory) + " 2>&1";
+#if defined(_WIN32)
+            const auto closePipe = &_pclose;
+            auto *handle = _popen(command.c_str(), "r");
+#else
+            const auto closePipe = &pclose;
+            auto *handle = popen(command.c_str(), "r");
+#endif
+            if (!handle) throw std::runtime_error("could not start " + executable);
+            std::unique_ptr<std::FILE, decltype(closePipe)> pipe{handle, closePipe};
+            std::string line;
+            for (int ch; (ch = std::fgetc(pipe.get())) != EOF;)
+            {
+                if (ch == '\n' || ch == '\r')
+                {
+                    WriteProcessLine(line);
+                    std::cout << static_cast<char>(ch) << std::flush;
+                    line.clear();
+                }
+                else line.push_back(static_cast<char>(ch));
+            }
+            if (!line.empty()) WriteProcessLine(line);
+            const bool readFailed = std::ferror(pipe.get()) != 0;
+            return closePipe(pipe.release()) == 0 && !readFailed ? 0 : 1;
         }
 
         auto LoadPresetFile(const fs::path &path, PresetData &result, std::set<std::string, std::less<>> &visited)

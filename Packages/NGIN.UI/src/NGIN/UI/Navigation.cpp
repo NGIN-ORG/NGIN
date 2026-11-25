@@ -99,7 +99,7 @@ struct NavigationService::Entry final {
   UInt64 id{0};
   const PageRegistry::Entry *registration{nullptr};
   std::string cacheKey{};
-  std::shared_ptr<detail::IPageInstance> instance{};
+  std::shared_ptr<detail::PageInstance> instance{};
 };
 
 class NavigationService::MutationGuard final {
@@ -129,7 +129,10 @@ NavigationService::NavigationService(PageRegistry &registry,
   m_registry->Freeze();
 }
 
-NavigationService::~NavigationService() { CloseAll(); }
+NavigationService::~NavigationService() {
+  CloseAll();
+  static_cast<void>(m_content.Set({}));
+}
 
 auto NavigationService::BeginMutation(const char *operation)
     -> UIResult<MutationGuard> {
@@ -301,25 +304,9 @@ auto NavigationService::HandleBackEvent(const PlatformEvent &event)
   return true;
 }
 
-void NavigationService::Compose(Composer &composer) {
-  for (UIntSize index = 0; index < m_stack.size(); ++index) {
-    NodeProperties properties{};
-    properties.visibility = index + 1 == m_stack.size()
-                                ? ElementVisibility::Visible
-                                : ElementVisibility::Collapsed;
-    const auto key = "navigation.entry." + std::to_string(m_stack[index]->id);
-    composer.Element(
-        ElementType::Column, properties,
-        [&] { m_stack[index]->instance->Compose(composer); }, key);
-  }
-  for (const auto &entry : m_cache) {
-    NodeProperties properties{};
-    properties.visibility = ElementVisibility::Collapsed;
-    const auto key = "navigation.cache." + std::to_string(entry->id);
-    composer.Element(
-        ElementType::Column, properties,
-        [&] { entry->instance->Compose(composer); }, key);
-  }
+auto NavigationService::ContentView() const -> Views::View {
+  return Views::Component(
+      [content = m_content.AsReadOnly()] { return content.Get(); });
 }
 
 void NavigationService::Retire(std::shared_ptr<Entry> entry) noexcept {
@@ -351,6 +338,21 @@ void NavigationService::TrimCache() noexcept {
 }
 
 void NavigationService::Changed() {
+  std::vector<Views::View> pages;
+  pages.reserve(m_stack.size() + m_cache.size());
+  const auto append = [&](const std::shared_ptr<Entry> &entry, bool visible) {
+    NodeProperties properties{};
+    properties.visibility =
+        visible ? ElementVisibility::Visible : ElementVisibility::Collapsed;
+    pages.push_back(Views::Column({entry->instance->Content()}, properties)
+                        .Key("navigation.entry." + std::to_string(entry->id)));
+  };
+  for (const auto &entry : m_stack)
+    append(entry, entry == m_stack.back());
+  for (const auto &entry : m_cache)
+    append(entry, false);
+  static_cast<void>(m_content.Set(Views::Column(std::move(pages))));
+
   if (m_options.invalidate) {
     m_options.invalidate(InvalidationKind::Compose);
   }
@@ -416,8 +418,8 @@ auto NavigationService::Region() const noexcept -> std::string_view {
 
 NavigationHost::NavigationHost(NavigationService &navigation) noexcept
     : m_navigation(&navigation) {}
-void NavigationHost::Compose(Composer &composer) {
-  m_navigation->Compose(composer);
+auto NavigationHost::ContentView() const -> Views::View {
+  return m_navigation->ContentView();
 }
 auto NavigationHost::HandleEvent(const PlatformEvent &event) -> UIResult<bool> {
   return m_navigation->HandleBackEvent(event);

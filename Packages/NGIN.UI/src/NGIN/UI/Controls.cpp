@@ -1,4 +1,4 @@
-#include <NGIN/UI/Controls.hpp>
+#include "ControlPrimitives.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -832,21 +832,21 @@ void Label(Composer &composer, NGIN::Text::String value, ITextLayout &layout,
 }
 
 struct ToolTipController::State final {
+  State(Window &owner, NGIN::Text::String description,
+        std::chrono::milliseconds timeout)
+      : window(&owner), content(std::move(description)),
+        delay(std::max(timeout, std::chrono::milliseconds{0})) {}
   Window *window{nullptr};
   NGIN::Text::String content{};
   std::chrono::milliseconds delay{500};
   Window::ScheduledActionId pending{0};
   Rect anchor{};
-  bool open{false};
+  UI::State<bool> open{false};
 };
 
 ToolTipController::ToolTipController(Window &window, NGIN::Text::String content,
                                      const std::chrono::milliseconds delay)
-    : m_state(std::make_shared<State>(State{
-          .window = &window,
-          .content = std::move(content),
-          .delay = std::max(delay, std::chrono::milliseconds{0}),
-      })) {}
+    : m_state(std::make_shared<State>(window, std::move(content), delay)) {}
 
 void ToolTipController::Attach(NodeProperties &target) {
   if (target.semantics.description.Empty()) {
@@ -879,7 +879,7 @@ void ToolTipController::Attach(NodeProperties &target) {
               return;
             }
             scheduledState->pending = 0;
-            scheduledState->open = true;
+            static_cast<void>(scheduledState->open.Set(true));
             scheduledState->window->Invalidate(InvalidationKind::Compose |
                                                InvalidationKind::Paint |
                                                InvalidationKind::Semantics);
@@ -890,8 +890,8 @@ void ToolTipController::Attach(NodeProperties &target) {
             static_cast<void>(state->window->CancelScheduled(state->pending));
             state->pending = 0;
           }
-          if (state->open) {
-            state->open = false;
+          if (state->open.Get()) {
+            static_cast<void>(state->open.Set(false));
             state->window->Invalidate(InvalidationKind::Compose |
                                       InvalidationKind::Paint |
                                       InvalidationKind::Semantics);
@@ -901,7 +901,7 @@ void ToolTipController::Attach(NodeProperties &target) {
 }
 
 auto ToolTipController::IsOpen() const noexcept -> bool {
-  return m_state->open;
+  return m_state->open.Get();
 }
 
 void ToolTipController::Dismiss() noexcept {
@@ -912,8 +912,8 @@ void ToolTipController::Dismiss() noexcept {
     static_cast<void>(m_state->window->CancelScheduled(m_state->pending));
     m_state->pending = 0;
   }
-  if (m_state->open) {
-    m_state->open = false;
+  if (m_state->open.Get()) {
+    static_cast<void>(m_state->open.Set(false));
     m_state->window->Invalidate(InvalidationKind::Compose |
                                 InvalidationKind::Paint |
                                 InvalidationKind::Semantics);

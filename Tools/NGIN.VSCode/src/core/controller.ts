@@ -11,7 +11,8 @@ import type {
   ProjectCandidate
 } from '../model';
 import { parseLaunchPlan } from './debugConfiguration';
-import { CliFailure, NginCli } from './cli';
+import { CliFailure, NginCli, waitWithCancellation } from './cli';
+import type { LifecycleOutputPresenter } from './outputPresentation';
 import { lifecycleArguments, selectionArguments } from './commandArguments';
 import { discoverAll, chooseInitialProject } from './discovery';
 import { projectsForFile } from './projectOwnership';
@@ -46,6 +47,7 @@ function runSelectionKey(configuration: string, target: string, toolchain: strin
 export interface ExecuteOptions {
   progress?: boolean;
   announceFailure?: boolean;
+  presenter?: LifecycleOutputPresenter;
   token?: vscode.CancellationToken;
 }
 
@@ -690,13 +692,22 @@ export class NginController implements vscode.Disposable {
     const preparing = extra[0] === '--launch-plan';
     const operationName = preparing ? 'prepare launch' : command;
     const operation = async (token: vscode.CancellationToken): Promise<CliResult | undefined> => {
+        if (options.presenter && this.busyValue) {
+          options.presenter.failedToStart('Another NGIN operation is running.');
+          return undefined;
+        }
         const startedAt = Date.now();
         this.busyValue = operationName;
         this.busyProjectIdValue = context.projectId;
         this.busyProjectManifestValue = context.projectManifest;
         this.emit();
+        const reveal = !options.presenter && !preparing && vscode.workspace.getConfiguration('ngin', vscode.Uri.file(context.projectManifest))
+          .get<boolean>('revealOutputOnRun', true);
+        const presenter = options.presenter ?? (!preparing && ['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish'].includes(command)
+          ? this.cli.beginLifecycle(this.commandArguments(command, context, extra), context.projectName, reveal)
+          : undefined);
         try {
-          await this.resolveDirectory(context);
+          await waitWithCancellation(this.resolveDirectory(context), token);
           const args = this.commandArguments(command, context, extra);
           const result = await this.cli.run(
             args,
@@ -706,10 +717,8 @@ export class NginController implements vscode.Disposable {
               token,
               requireTrust: true,
               exclusive: true,
-              revealOutput: vscode.workspace.getConfiguration('ngin').get<boolean>('revealOutputOnRun', false),
-              ...(!preparing && ['configure', 'build', 'stage', 'run', 'test', 'benchmark', 'publish'].includes(command)
-                ? { presentation: 'lifecycle' as const, label: context.projectName }
-                : {})
+              revealOutput: reveal,
+              presenter
             }
           );
           this.applyDiagnostics(result.diagnostics, path.dirname(context.projectManifest));
@@ -732,12 +741,15 @@ export class NginController implements vscode.Disposable {
           };
           return result;
         } catch (error) {
+          if (token.isCancellationRequested) presenter?.cancel();
+          else presenter?.failedToStart(error instanceof Error ? error.message : String(error));
           this.lastOperationValue = {
             projectId: context.projectId, projectManifest: context.projectManifest,
-            command: operationName, state: 'failed', completedAt: Date.now(),
+            command: operationName, state: token.isCancellationRequested ? 'canceled' : 'failed', completedAt: Date.now(),
             durationMs: Date.now() - startedAt,
             message: error instanceof Error ? error.message : String(error)
           };
+          if (token.isCancellationRequested) return undefined;
           if (error instanceof CliFailure) {
             this.applyDiagnostics(error.result.diagnostics, path.dirname(context.projectManifest));
             this.applyDiagnosticCollection(this.compilerDiagnostics,

@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
   }
 
   auto viewModel =
-      app.Value()->GetServices()->ResolveRequired<HomeViewModel>();
+      app.value()->GetServices()->ResolveRequired<HomeViewModel>();
   return viewModel ? 0 : 2;
 }
 ```
@@ -73,17 +73,22 @@ auto scope = services->BeginScope(
     NGIN::Core::ServiceScopeKind::Operation, "Import documents");
 
 NGIN::Core::ServiceRegistrationOptions options{};
-options.ownerScope = scope.Value();
+options.ownerScope = scope.value();
 if (!services->RegisterScoped<DocumentSession>(options)) {
   return 1;
 }
 
 auto session =
-    services->ResolveRequired<DocumentSession>(scope.Value());
-services->EndScope(scope.Value());
+    services->ResolveRequired<DocumentSession>(scope.value());
+services->EndScope(scope.value());
 ```
 
 Do not keep a scoped service after its scope ends.
+
+Use `ModuleContext::Tasks()` for callbacks that borrow module-scoped services.
+The kernel keeps those scopes active until all accepted callbacks finish.
+When shutdown begins, task submissions close and `OnStop` can signal
+callbacks to finish. The kernel then runs `OnShutdown` and ends the scopes.
 
 ## How Construction Is Chosen
 
@@ -105,9 +110,9 @@ builder->Services().AddFactory<ReportWriter>(
           "Reports", context.scope);
       if (!output) {
         return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-            output.Error());
+            output.error());
       }
-      return NGIN::Memory::MakeShared<ReportWriter>(output.Value());
+      return NGIN::Memory::MakeShared<ReportWriter>(output.value());
     },
     NGIN::Core::ServiceLifetime::Transient);
 ```

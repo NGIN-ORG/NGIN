@@ -13,7 +13,7 @@
 #include "Application.hpp"
 
 #include <NGIN/Async/Task.hpp>
-#include <NGIN/Async/TaskScope.hpp>
+#include <NGIN/Async/WithScope.hpp>
 #include <NGIN/Async/WhenAll.hpp>
 #include <NGIN/Execution/ThreadPoolScheduler.hpp>
 #include <NGIN/IO/FileSystemUtilities.hpp>
@@ -256,38 +256,45 @@ Async::Task<void, Net::NetError> SendProbeLog(Async::TaskContext &ctx,
 }
 
 Async::Task<void, Net::NetError>
-ExchangeWithMissionControl(Async::TaskContext &ctx, Application &app,
+ExchangeWithMissionControl(Application &app,
                            const std::string &log) {
   auto listener = OpenStation(app.Io());
   Net::TcpSocket probe(app.Io());
   Require(probe.Open(Net::AddressFamily::V4), "open probe socket");
   const Net::Endpoint station{Net::IpAddress::LoopbackV4(),
                               BoundPort(listener.Handle())};
-  Async::TaskScope<Net::NetError> children(ctx.GetExecutor(),
-                                           ctx.GetCancellationToken());
-  const auto server = children.Spawn([&listener](Async::TaskContext &child) {
-    return EchoStation(child, listener);
-  });
-  const auto client = children.Spawn([socket = std::move(probe), station,
-                                      &log](Async::TaskContext &child) mutable {
-    return SendProbeLog(child, std::move(socket), station, log);
-  });
-  if (!server || !client)
-    children.RequestStop();
-  (void)co_await children.Join();
-  // The listener is borrowed by a child, so join before it leaves this frame.
-  // A failed peer requests sibling cancellation rather than waiting for the
-  // deadline.
-  if (!server || !client)
-    co_await Async::Faulted(
-        Async::MakeAsyncFault(Async::AsyncFaultCode::SchedulerDispatchFailed));
-  auto result = children.TakeResult();
-  if ((result.HasError() && result.Error().IsDomainError()))
-    co_await Async::DomainFailure(std::move(result).Error().DomainError());
-  else if (result.IsStopped())
-    co_await Async::Stopped();
-  else if ((result.HasError() && result.Error().IsFault()))
-    co_await Async::Faulted(std::move(result).Error().Fault());
+  auto exchange = [&](Async::TaskScope<Net::NetError> &children)
+      -> Async::Task<void, Net::NetError> {
+    auto server = children.Spawn([&listener](Async::TaskContext &child) {
+      return EchoStation(child, listener);
+    });
+    if (!server) {
+      co_await Async::Faulted(Async::MakeAsyncFault(
+          Async::AsyncFaultCode::SchedulerDispatchFailed, static_cast<int>(server.error())));
+      co_return;
+    }
+    auto client = children.Spawn([socket = std::move(probe), station,
+                                  &log](Async::TaskContext &child) mutable {
+      return SendProbeLog(child, std::move(socket), station, log);
+    });
+    if (!client) {
+      co_await Async::Faulted(Async::MakeAsyncFault(
+          Async::AsyncFaultCode::SchedulerDispatchFailed, static_cast<int>(client.error())));
+      co_return;
+    }
+    // Both peers must finish before normal body exit. On an early failure
+    // WithScope cancels and joins every admitted peer while listener is alive.
+    (void)co_await children.Join();
+  };
+  auto outcome = co_await Async::WithScope<Net::NetError>(2, exchange).AsCompletion();
+  if (outcome.IsStopped())
+    co_await Async::Stopped(outcome.StopReason());
+  if (outcome.HasError()) {
+    if (outcome.Error().IsFault())
+      co_await Async::Faulted(outcome.Error().Fault());
+    else
+      co_await Async::Failure(outcome.Error().DomainError().Primary());
+  }
   co_return;
 }
 
@@ -323,7 +330,7 @@ Async::Task<void> Expedition(Async::TaskContext &ctx, Application &app,
             << '\n';
   std::cout << "[files] Mission log saved, copied, and verified\n";
   Require(
-      co_await ExchangeWithMissionControl(ctx, app, restored).AsCompletion(),
+      co_await ExchangeWithMissionControl(app, restored).AsCompletion(),
       "exchange mission log");
   std::cout << "[tcp] Mission control echoed the complete log\n";
   co_await CancelSilentStation(ctx, app);
@@ -337,19 +344,21 @@ Async::Task<void> ShortShutdownDelay(Async::TaskContext &ctx) {
 Async::Task<void> StopWithPendingAccept(Async::TaskContext &ctx,
                                         Application &app) {
   auto listener = OpenStation(app.Io());
-  Async::TaskScope<Net::NetError> children(ctx.GetEnvironment(), 1);
-  auto pending = children.Spawn([&listener](Async::TaskContext &child) {
-    return listener.AcceptAsync(child);
-  });
-  Expect(pending.has_value(), "could not admit shutdown accept");
-  auto delayed = co_await ShortShutdownDelay(ctx).AsCompletion();
-  app.Io().RequestStop();
-  // This continuation was admitted before stopping. It can join the pending
-  // accept after new tasks and I/O submissions have been rejected.
-  auto result = co_await *pending;
-  (void)co_await children.Join();
-  Expect(result.IsStopped(), "shutdown did not cancel the pending accept");
-  Require(std::move(delayed), "wait before shutdown");
+  auto shutdown = [&](Async::TaskScope<Net::NetError> &children)
+      -> Async::Task<void, Net::NetError> {
+    auto pending = children.Spawn([&listener](Async::TaskContext &child) {
+      return listener.AcceptAsync(child);
+    });
+    Expect(pending.has_value(), "could not admit shutdown accept");
+    auto delayed = co_await ShortShutdownDelay(ctx).AsCompletion();
+    app.Io().RequestStop();
+    auto result = co_await *pending;
+    Expect(result.IsStopped(), "shutdown did not cancel the pending accept");
+    Require(std::move(delayed), "wait before shutdown");
+  };
+  auto result = co_await Async::WithScope<Net::NetError>(1, shutdown).AsCompletion();
+  Expect(result.IsStopped() && result.StopReason() == Async::StopReason::RuntimeShutdown,
+         "shutdown accept did not retire with the runtime shutdown reason");
 }
 
 Async::Task<NGIN::UInt64> AnalyzeOnWorker(Async::TaskContext &ctx,

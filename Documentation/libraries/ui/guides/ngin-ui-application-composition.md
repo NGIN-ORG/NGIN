@@ -11,7 +11,7 @@ The buildable source is
 - `PageRegistry` owns page metadata and the typed connection between a page
   tag, ViewModel, parameter, factory, and synchronous View function.
 - One `NavigationService` owns one window-local or named-region stack.
-- A View owns controls and layout by composing them into `Composer`.
+- A page returns a `Views::View` describing its controls and layout.
 - A ViewModel owns state, commands, validation, and asynchronous page work.
 - `HostedViewModelHost<T>` cancels and observes ViewModel work before ending
   the Core page scope.
@@ -44,8 +44,8 @@ ui.Services().AddScoped<CustomerService>(
     [](Core::ServiceResolutionContext& context) {
       auto clock = context.services.ResolveRequired<IClock>(context.scope);
       if (!clock) return Core::CoreResult<Memory::Shared<CustomerService>>{
-          Utilities::Unexpected<Core::KernelError>(clock.Error())};
-      return Memory::MakeShared<CustomerService>(clock.Value());
+          Utilities::Unexpected<Core::KernelError>(clock.error())};
+      return Memory::MakeShared<CustomerService>(clock.value());
     });
 ```
 
@@ -85,16 +85,14 @@ struct DetailParameter { CustomerId id; };
 
 ui.AddPage<HomePage, HomeViewModel>(
     {.id = "home", .displayName = "Home", .routeName = "home"},
-    [](Composer& composer, HomeViewModel& vm,
-       const NoNavigationParameter&) {
-      ComposeHome(composer, vm);
+    [](HomeViewModel& vm, const NoNavigationParameter&) {
+      return HomeView(vm);
     });
 
 ui.AddPage<DetailPage, DetailViewModel, DetailParameter>(
     {.id = "detail", .displayName = "Detail", .routeName = "customer"},
-    [](Composer& composer, DetailViewModel& vm,
-       const DetailParameter& parameter) {
-      ComposeDetail(composer, vm, parameter);
+    [](DetailViewModel& vm, const DetailParameter& parameter) {
+      return DetailView(vm, parameter);
     });
 ```
 
@@ -111,21 +109,18 @@ In a presentation module's `OnStart`, create a hosted window, activation
 context, and one stack per window or named region:
 
 ```cpp
-auto window = hosting.Value().services->CreateWindow(windowInfo);
-auto activation = CreateHostedNavigationContext(hosting.Value(), window.Value());
+auto window = hosting.value().services->CreateWindow(windowInfo);
+auto activation = CreateHostedNavigationContext(hosting.value(), window.value());
 
-NavigationService navigation{pages, activation.Value(), {
+NavigationService navigation{pages, activation.value(), {
     .region = "Main",
     .cacheCapacity = 2,
     .isOnScheduler = [&] { return dispatcher->IsCurrentThread(); },
-    .invalidate = [&](InvalidationKind kind) {
-      window.Value().UI()->Invalidate(kind);
-    },
 }};
 NavigationHost host{navigation};
-window.Value().UI()->SetContent(
-    [&](Composer& composer) { host.Compose(composer); });
-window.Value().UI()->SetEventHandler(
+window.value().UI()->SetContent(
+    host.ContentView(), Views::ViewEnvironment{hosting.value().runtime->Text()});
+window.value().UI()->SetEventHandler(
     [&](const PlatformEvent& event) {
       static_cast<void>(host.HandleEvent(event));
     });
@@ -192,8 +187,7 @@ pages.Register<HomePage, HomeViewModel>(
       return UIResult<PageLease<HomeViewModel>>{PageLease<HomeViewModel>{
           .viewModel = std::make_shared<HomeViewModel>(fakeCustomers)}};
     },
-    [](Composer& composer, HomeViewModel& vm,
-       const NoNavigationParameter&) { ComposeHome(composer, vm); });
+    [](HomeViewModel& vm, const NoNavigationParameter&) { return HomeView(vm); });
 ```
 
 The registry, stack, parameters, and View are identical in hosted,

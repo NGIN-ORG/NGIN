@@ -10,6 +10,60 @@ emits the same display-list commands as the built-in controls; it never receives
 an SDL object, GPU command buffer, renderer backend, runtime node, or native
 window handle.
 
+## Custom containers
+
+A container can own the sizing and placement of its direct children. Pass
+an `ILayoutPolicy` and the child views to `Views::Layout`. The runtime retains the children and uses their
+resolved rectangles for painting, focus bounds, hit testing, and accessibility.
+
+This single-child container places its content in the bottom right corner:
+
+```cpp
+using namespace NGIN::UI;
+
+class BottomRight final : public ILayoutPolicy {
+public:
+  auto Measure(MeasureChildren &children, SizeConstraints available) -> Size override {
+    return children.Measure(0, {.maximum = available.maximum});
+  }
+
+  void Arrange(ArrangeChildren &children, Size available) override {
+    const auto desired = children.DesiredSize(0);
+    children.Place(0, {available.width - desired.width,
+                       available.height - desired.height,
+                       desired.width, desired.height});
+  }
+};
+
+auto actions = Views::Layout(std::make_shared<BottomRight>(), {
+    Views::Button("Save", onSave).Key("save"),
+}).Key("actions");
+```
+
+Both callbacks receive the content extent inside padding. During measurement the
+maximum on either axis can be infinite, as inside a scroll view. Return a finite
+desired size. During arrangement `Place` takes a rectangle relative to the
+content origin. Call the appropriate operation for each child. Collapsed children
+keep their slots and measure to zero. The layout contexts live only during the
+callback. Invalid indices, constraints, and geometry are reported through
+`properties.custom.onError`, and the failed pass uses ordinary overlay layout.
+
+A surface reuses measurement and placement for unchanged declaration-only
+subtrees. A new set of constraints, scale, or text-service revision invalidates
+the corresponding measurements. Dynamic containers (including a custom
+policy), text editors, and virtualized lists still execute their layout
+callbacks. Their ordinary children can reuse results. A text provider can
+participate by publishing nonzero `MetricsRevision()` and `AtlasRevision()`
+values, updating them whenever metrics or previously leased glyphs become
+invalid. Default providers with revision zero are remeasured every layout pass.
+
+For a resizable pair of panes, include `NGIN/UI/Components.hpp` and call
+`Views::SplitPane(Bind(splitFraction), leftView, rightView)`.
+The binding stores a number from zero to one and can be saved with the editor's
+preferences. Both panes share the width left after the divider. Drag the
+divider or focus it and use Left, Right, Home, or End. Accessibility clients
+can read the range and change the same value.
+
 ## Minimal custom element
 
 ```cpp
@@ -49,22 +103,22 @@ private:
 };
 ```
 
-Compose the element through the public `Composer` helper and give it a stable
-key whenever siblings can reorder:
+Wrap the element in a view. Give it a stable key when siblings can reorder.
 
 ```cpp
 NGIN::UI::NodeProperties properties{};
 properties.layout.horizontalAlignment = NGIN::UI::HorizontalAlignment::Start;
 properties.layout.verticalAlignment = NGIN::UI::VerticalAlignment::Start;
-composer.Custom(std::make_shared<Meter>(0.72F), properties, "download-meter");
+auto meter = NGIN::UI::Views::Custom(std::make_shared<Meter>(0.72F), properties)
+                 .Key("download-meter");
 ```
 
-`Composer::Custom()` creates a leaf. Put it inside a row, column, overlay, or
+`Views::Custom` creates a leaf. Put it inside a row, column, overlay, or
 another composite function when the control also needs child text or controls.
 
 ## Lifecycle and ownership
 
-The composer and retained runtime share ownership of the `ICustomElement`
+The view and retained runtime share ownership of the `ICustomElement`
 instance. The implementation object can be replaced during recomposition; the
 local state store remains attached to the reconciled element identity. A stable
 type/key position therefore preserves state even if a fresh implementation

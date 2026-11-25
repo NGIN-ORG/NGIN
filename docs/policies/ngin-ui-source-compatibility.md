@@ -51,6 +51,22 @@ to adopt Core, Reflection, pages, or navigation.
 from manual `HostedUIScope` ownership to typed pages without changing their
 synchronous View functions.
 
+## Unreleased component migration
+
+The replacement of the application authoring API is a source break. A page
+factory passed to `PageRegistry::Register` or hosted `AddPage` takes its view
+model and parameter and returns a `Views::View`. Mount the result of
+`NavigationService::ContentView()` on the window once. The navigation service
+owns activation, cache entries, and release hooks.
+
+Replace a window's `SetContent(Composer&)` callback with
+`window.SetContent(view, environment)`. A game can use
+`surface.SetContent(view, environment)` and submit the resulting frame on its
+own schedule. Custom controls can implement `ICustomElement` for drawing
+or `ILayoutPolicy` for child layout. Port raw declaration callbacks to functions
+returning views, and supply those views to the same surface entry point.
+[Component and surface guide](../guides/ngin-ui-surfaces.md)
+
 ## Deprecation process
 
 An API selected for removal is annotated with

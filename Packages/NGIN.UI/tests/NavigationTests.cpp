@@ -1,4 +1,6 @@
+#include "HeadlessTextFixture.hpp"
 #include <NGIN/UI/Navigation.hpp>
+#include <NGIN/UI/Surface.hpp>
 #include <NGIN/UI/Testing/NavigationTesting.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -57,12 +59,13 @@ auto RegisterHome(PageRegistry &registry, int *closed = nullptr,
         }
         return Lease(std::make_shared<HomeViewModel>(), closed);
       },
-      [](Composer &composer, HomeViewModel &viewModel,
-         const NoNavigationParameter &) {
+      [](HomeViewModel &viewModel, const NoNavigationParameter &) {
         NodeProperties properties{};
         properties.layout.preferredSize.width =
             static_cast<F32>(viewModel.value);
-        composer.Leaf(ElementType::Border, properties, "home-content");
+        properties.semantics.identifier = "home-content";
+        return Views::Box(ElementType::Border, {}, properties)
+            .Key("home-content");
       });
 }
 
@@ -79,12 +82,13 @@ auto RegisterDetail(PageRegistry &registry, int *closed = nullptr,
         return Lease(std::make_shared<DetailViewModel>(parameter.itemId),
                      closed);
       },
-      [](Composer &composer, DetailViewModel &viewModel,
-         const DetailParameter &parameter) {
+      [](DetailViewModel &viewModel, const DetailParameter &parameter) {
         NodeProperties properties{};
         properties.layout.preferredSize.width =
             static_cast<F32>(viewModel.itemId + parameter.itemId);
-        composer.Leaf(ElementType::Border, properties, "detail-content");
+        properties.semantics.identifier = "detail-content";
+        return Views::Box(ElementType::Border, {}, properties)
+            .Key("detail-content");
       });
 }
 } // namespace
@@ -104,7 +108,9 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
              std::string_view) {
             return Lease(std::make_shared<DetailViewModel>(1));
           },
-          [](Composer &, DetailViewModel &, const DetailParameter &) {});
+          [](DetailViewModel &, const DetailParameter &) {
+            return Views::View{};
+          });
   REQUIRE_FALSE(duplicateId);
   REQUIRE(duplicateId.error().code == UIErrorCode::InvalidArgument);
 
@@ -113,7 +119,9 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
       {.id = "other", .routeName = "home"},
       [](PageActivationContext &, const NoNavigationParameter &,
          std::string_view) { return Lease(std::make_shared<HomeViewModel>()); },
-      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {});
+      [](HomeViewModel &, const NoNavigationParameter &) {
+        return Views::View{};
+      });
   REQUIRE_FALSE(duplicateRoute);
 
   struct MissingFactoryPage final {};
@@ -122,7 +130,9 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
       missingFactory;
   const auto missing = registry.Register<MissingFactoryPage, HomeViewModel>(
       {.id = "missing-factory"}, std::move(missingFactory),
-      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {});
+      [](HomeViewModel &, const NoNavigationParameter &) {
+        return Views::View{};
+      });
   REQUIRE_FALSE(missing);
   REQUIRE(missing.error().code == UIErrorCode::InvalidArgument);
 
@@ -132,7 +142,9 @@ TEST_CASE("PageRegistry rejects duplicate identities routes and late changes",
       {.id = "late"},
       [](PageActivationContext &, const NoNavigationParameter &,
          std::string_view) { return Lease(std::make_shared<HomeViewModel>()); },
-      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {});
+      [](HomeViewModel &, const NoNavigationParameter &) {
+        return Views::View{};
+      });
   REQUIRE_FALSE(late);
   REQUIRE(late.error().code == UIErrorCode::InvalidState);
 }
@@ -151,7 +163,9 @@ TEST_CASE("Navigation is typed rollback safe and retains stack entries",
         return std::unexpected(
             MakeUIError(UIErrorCode::ResourceFailed, "expected failure"));
       },
-      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {}));
+      [](HomeViewModel &, const NoNavigationParameter &) {
+        return Views::View{};
+      }));
 
   TestContext context;
   int invalidations = 0;
@@ -172,14 +186,20 @@ TEST_CASE("Navigation is typed rollback safe and retains stack entries",
   REQUIRE(navigation.StackDepth() == 2);
   REQUIRE(navigation.CanGoBack());
 
-  Composer composer;
-  navigation.Compose(composer);
-  REQUIRE(composer.Declarations().size() == 2);
-  REQUIRE(composer.Declarations()[0].properties.visibility ==
-          ElementVisibility::Collapsed);
-  REQUIRE(composer.Declarations()[1].properties.visibility ==
-          ElementVisibility::Visible);
-  REQUIRE(composer.Declarations()[0].key != composer.Declarations()[1].key);
+  Testing::HeadlessText text;
+  Surface surface;
+  surface.SetContent(navigation.ContentView(), text.Environment());
+  REQUIRE(surface.Update({640, 480}, 1));
+  const auto &tree = surface.Tree();
+  auto home = tree.FindBySemanticIdentifier("home-content");
+  auto detail = tree.FindBySemanticIdentifier("detail-content");
+  REQUIRE(home);
+  REQUIRE(detail);
+  const auto homeEntry = tree.Get(tree.Get(home)->parent);
+  const auto detailEntry = tree.Get(tree.Get(detail)->parent);
+  REQUIRE(homeEntry->properties.visibility == ElementVisibility::Collapsed);
+  REQUIRE(detailEntry->properties.visibility == ElementVisibility::Visible);
+  REQUIRE(homeEntry->key != detailEntry->key);
 
   const auto failure = navigation.Navigate<FailingPage>();
   REQUIRE_FALSE(failure);
@@ -188,6 +208,12 @@ TEST_CASE("Navigation is typed rollback safe and retains stack entries",
 
   REQUIRE(navigation.Back());
   REQUIRE(navigation.StackDepth() == 1);
+  REQUIRE(surface.IsDirty());
+  REQUIRE(surface.Update({640, 480}, 1));
+  REQUIRE(tree.FindBySemanticIdentifier("home-content") == home);
+  REQUIRE_FALSE(tree.FindBySemanticIdentifier("detail-content"));
+  REQUIRE(tree.Get(tree.Get(home)->parent)->properties.visibility ==
+          ElementVisibility::Visible);
   REQUIRE(detailClosed == 1);
   REQUIRE(homeClosed == 0);
   REQUIRE(invalidations == 3);
@@ -201,6 +227,28 @@ TEST_CASE("Navigation is typed rollback safe and retains stack entries",
   REQUIRE(detailClosed == 2);
   REQUIRE(invalidations == 5);
   REQUIRE(depths == std::vector<UIntSize>{1, 2, 1, 1, 0});
+}
+
+TEST_CASE(
+    "A mounted region clears its content when its navigation owner closes",
+    "[navigation][lifetime]") {
+  PageRegistry registry;
+  TestContext context;
+  Testing::HeadlessText text;
+  Surface surface;
+  int closed = 0;
+  REQUIRE(RegisterHome(registry, &closed));
+  {
+    NavigationService navigation{registry, context};
+    surface.SetContent(navigation.ContentView(), text.Environment());
+    REQUIRE(navigation.Start<HomePage>());
+    REQUIRE(surface.Update({640, 480}, 1));
+    REQUIRE(surface.Tree().FindBySemanticIdentifier("home-content"));
+  }
+  REQUIRE(closed == 1);
+  REQUIRE(surface.IsDirty());
+  REQUIRE(surface.Update({640, 480}, 1));
+  REQUIRE_FALSE(surface.Tree().FindBySemanticIdentifier("home-content"));
 }
 
 TEST_CASE("Navigation cache is explicit bounded and reusable",
@@ -304,7 +352,9 @@ TEST_CASE("Headless navigation helpers override services and detect leaks",
         return context.Lease(std::make_shared<HomeViewModel>(
             HomeViewModel{.value = service.value()->value}));
       },
-      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {}));
+      [](HomeViewModel &, const NoNavigationParameter &) {
+        return Views::View{};
+      }));
 
   {
     NavigationService navigation{registry, context};

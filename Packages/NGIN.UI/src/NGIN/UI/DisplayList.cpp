@@ -1,6 +1,7 @@
 #include <NGIN/UI/DisplayList.hpp>
 
 #include "MotionInternal.hpp"
+#include "RetainedDisplayList.hpp"
 
 #include "ScrollBarGeometry.hpp"
 
@@ -120,7 +121,16 @@ auto DisplayListBuilder::Commands() const noexcept -> const DisplayList & {
   return m_commands;
 }
 
+void DisplayListBuilder::Append(std::span<const DisplayCommand> commands) {
+  m_commands.insert(m_commands.end(), commands.begin(), commands.end());
+}
+
 namespace {
+struct PaintCache {
+  Detail::RetainedDisplayList &next;
+  const Detail::RetainedDisplayList *previous{};
+};
+
 [[nodiscard]] auto HasRadius(const CornerRadius radius) noexcept -> bool {
   return radius.topLeft > 0.0F || radius.topRight > 0.0F ||
          radius.bottomRight > 0.0F || radius.bottomLeft > 0.0F;
@@ -322,13 +332,46 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
 }
 
 void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
-               DisplayListBuilder &builder,
+               DisplayListBuilder &builder, PaintCache *cache,
                const ElementHandle popupRoot = {}) {
   const auto *node = tree.Get(handle);
   if (node == nullptr ||
       node->properties.visibility != ElementVisibility::Visible ||
       (node->type == ElementType::Popup && handle != popupRoot)) {
     return;
+  }
+  // Only immutable component declarations can vouch for unchanged descendants.
+  const bool record = cache && !node->lastDeclaration.expired();
+  const auto start = builder.Commands().size();
+  if (record && cache->previous) {
+    const auto found = cache->previous->slices.find(node->id.value);
+    if (found != cache->previous->slices.end()) {
+      const auto &slice = found->second;
+      if (slice.compositionRevision == node->compositionRevision &&
+          slice.layoutRevision == node->layoutRevision) {
+        const auto source = std::span(cache->previous->commands)
+                                .subspan(slice.start, slice.end - slice.start);
+        for (UIntSize index = 0; index < source.size(); ++index) {
+          const auto leases =
+              cache->previous->glyphLeases.find(slice.start + index);
+          if (leases == cache->previous->glyphLeases.end()) {
+            builder.Append(source.subspan(index, 1));
+          } else {
+            const auto &run = std::get<DrawGlyphRun>(source[index]);
+            auto glyphs = run.glyphs;
+            for (UIntSize glyph = 0; glyph < glyphs.size(); ++glyph)
+              glyphs[glyph].lease = leases->second[glyph].lock();
+            builder.Glyphs(run.atlas, std::move(glyphs), run.color);
+          }
+        }
+        cache->next.slices.emplace(
+            node->id.value, Detail::RetainedDisplayList::Slice{
+                                node->compositionRevision, node->layoutRevision,
+                                start, builder.Commands().size()});
+        ++cache->next.reusedSubtrees;
+        return;
+      }
+    }
   }
   const auto motion = Detail::SnapshotFor(*node);
   const auto transform = Detail::TransformFor(*node);
@@ -417,7 +460,7 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
     builder.PushClip(node->arrangedBounds);
   }
   for (const auto child : node->children) {
-    PaintNode(tree, child, builder, popupRoot);
+    PaintNode(tree, child, builder, cache, popupRoot);
   }
   if (clipsChildren) {
     static_cast<void>(builder.PopClip());
@@ -457,6 +500,12 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   if (hasTransform) {
     static_cast<void>(builder.PopTransform());
   }
+  if (record) {
+    cache->next.slices.emplace(
+        node->id.value, Detail::RetainedDisplayList::Slice{
+                            node->compositionRevision, node->layoutRevision,
+                            start, builder.Commands().size()});
+  }
 }
 
 void CollectPopups(const RuntimeTree &tree, const ElementHandle handle,
@@ -473,17 +522,42 @@ void CollectPopups(const RuntimeTree &tree, const ElementHandle handle,
     CollectPopups(tree, child, popups);
   }
 }
-} // namespace
-
-auto BuildDisplayList(const RuntimeTree &tree) -> DisplayList {
+auto RecordTree(const RuntimeTree &tree, PaintCache *cache) -> DisplayList {
   DisplayListBuilder builder;
-  PaintNode(tree, tree.Root(), builder);
+  PaintNode(tree, tree.Root(), builder, cache);
   std::vector<ElementHandle> popups;
   CollectPopups(tree, tree.Root(), popups);
   for (const auto popup : popups) {
-    PaintNode(tree, popup, builder, popup);
+    PaintNode(tree, popup, builder, cache, popup);
   }
   auto finished = std::move(builder).Finish();
   return finished ? std::move(finished).value() : DisplayList{};
+}
+} // namespace
+
+auto BuildDisplayList(const RuntimeTree &tree) -> DisplayList {
+  return RecordTree(tree, nullptr);
+}
+
+void Detail::RetainedDisplayList::ReleaseGlyphLeases() {
+  for (UIntSize index = 0; index < commands.size(); ++index) {
+    if (auto *run = std::get_if<DrawGlyphRun>(&commands[index])) {
+      auto &leases = glyphLeases[index];
+      leases.reserve(run->glyphs.size());
+      for (auto &glyph : run->glyphs) {
+        leases.emplace_back(glyph.lease);
+        glyph.lease.reset();
+      }
+    }
+  }
+}
+
+auto Detail::RecordDisplayList(const RuntimeTree &tree,
+                               const RetainedDisplayList *previous)
+    -> RetainedDisplayList {
+  RetainedDisplayList result;
+  PaintCache cache{result, previous};
+  result.commands = RecordTree(tree, &cache);
+  return result;
 }
 } // namespace NGIN::UI

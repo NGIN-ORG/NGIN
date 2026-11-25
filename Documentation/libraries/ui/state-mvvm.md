@@ -10,16 +10,14 @@ the appropriate part of the retained view.
 
 ## Local state
 
-Use `State<T>` for focused view state and expose controlled mutation through a
-binding:
+Use `ComponentScope::Local` for a value owned by one mounted editor. For
+shared form data, supply a binding from a model-owned `State<T>`.
 
 ```cpp
-State<NGIN::Text::String> name{
-    NGIN::Text::String{"Ada"},
-    [window](InvalidationKind kind) { window->Invalidate(kind); }};
-
-// Inside composition:
-composer.TextField(Bind(name), *text, fieldProperties, "name");
+auto profile = Views::Component([](Views::ComponentScope &scope) {
+  auto name = scope.Local("name", NGIN::Text::String{"Ada"});
+  return Views::TextField("Name", name);
+});
 ```
 
 ## View models

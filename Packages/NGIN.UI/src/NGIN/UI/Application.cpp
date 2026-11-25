@@ -1,6 +1,6 @@
 #include <NGIN/UI/Application.hpp>
+#include <NGIN/UI/Components.hpp>
 
-#include "MotionInternal.hpp"
 #include "UIAsyncScheduler.hpp"
 
 #include <NGIN/Execution/WorkItem.hpp>
@@ -40,47 +40,16 @@ ElapsedMilliseconds(const DiagnosticsClock::time_point start,
       event);
 }
 
-[[nodiscard]] auto ActionFlag(const SemanticActionKind action) noexcept
-    -> SemanticActionFlags {
-  switch (action) {
-  case SemanticActionKind::Activate:
-    return SemanticActionFlags::Activate;
-  case SemanticActionKind::Focus:
-    return SemanticActionFlags::Focus;
-  case SemanticActionKind::SetValue:
-    return SemanticActionFlags::SetValue;
-  case SemanticActionKind::Increment:
-    return SemanticActionFlags::Increment;
-  case SemanticActionKind::Decrement:
-    return SemanticActionFlags::Decrement;
-  case SemanticActionKind::Select:
-    return SemanticActionFlags::Select;
-  case SemanticActionKind::Expand:
-    return SemanticActionFlags::Expand;
-  case SemanticActionKind::Collapse:
-    return SemanticActionFlags::Collapse;
-  case SemanticActionKind::ScrollIntoView:
-    return SemanticActionFlags::ScrollIntoView;
-  case SemanticActionKind::Realize:
-    return SemanticActionFlags::Realize;
-  }
-  return SemanticActionFlags::None;
-}
 } // namespace
 
 struct Window::Implementation final {
-  Implementation(IPlatformBackend &platform,
-                 const PlatformWindowHandle platformHandle)
-      : platform(&platform), reconciler(tree), layoutEngine(tree),
-        inputRouter(tree, &platform, platformHandle),
-        motionHost(Detail::CreateMotionHost([this] {
-          dirty = true;
-          paintDirty = true;
-          semanticsDirty = true;
-          if (this->platform != nullptr) {
-            this->platform->WakeEventLoop();
-          }
-        })) {}
+  Implementation(IPlatformBackend &backend, PlatformWindowHandle handle,
+                 const WindowCreateInfo &windowInfo)
+      : platform(&backend),
+        surface(SurfaceOptions{.platform = &backend,
+                               .window = handle,
+                               .title = windowInfo.title,
+                               .loadAction = RenderLoadAction::Clear}) {}
 
   struct ScheduledEntry final {
     ScheduledActionId id{0};
@@ -95,25 +64,7 @@ struct Window::Implementation final {
   PixelSize pixelExtent{};
   F32 scaleFactor{1.0F};
   EventHandler eventHandler{};
-  Content content{};
-  RuntimeTree tree{};
-  Reconciler reconciler;
-  LayoutEngine layoutEngine;
-  InputRouter inputRouter;
-  UIRenderer uiRenderer{};
-  ReconcileStats lastReconcileStats{};
-  LayoutPassStats lastLayoutStats{};
-  DisplayList displayList{};
-  PreparedRenderPacket preparedPacket{};
-  SemanticTree semanticTree{};
-  UInt64 semanticRevision{0};
-  WindowDiagnostics diagnostics{};
-  InspectorOverlayOptions inspectorOverlay{};
-  bool dirty{true};
-  bool compositionDirty{true};
-  bool layoutDirty{true};
-  bool paintDirty{true};
-  bool semanticsDirty{true};
+  Surface surface;
   bool closeRequested{false};
   bool closed{false};
   Window *owner{nullptr};
@@ -121,18 +72,14 @@ struct Window::Implementation final {
   ElementHandle ownerFocusToRestore{};
   ScheduledActionId nextScheduledActionId{1};
   std::vector<ScheduledEntry> scheduledActions{};
-  std::optional<MonotonicTime> nextMotionDeadline{};
-  std::optional<bool> lastReducedMotion{};
-  bool motionEnabled{true};
-  std::shared_ptr<Detail::MotionHostState> motionHost{};
   NGIN::Async::CancellationSource lifetimeCancellation{};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
                const RenderSurfaceHandle surfaceHandle,
                IPlatformBackend &platformBackend, Window *owner)
-    : m_implementation(
-          std::make_unique<Implementation>(platformBackend, platformHandle)) {
+    : m_implementation(std::make_unique<Implementation>(platformBackend,
+                                                        platformHandle, info)) {
   m_implementation->pixelExtent = info.initialSize;
   m_implementation->info = std::move(info);
   m_implementation->platformHandle = platformHandle;
@@ -170,7 +117,7 @@ auto Window::ScaleFactor() const noexcept -> F32 {
 }
 
 auto Window::IsDirty() const noexcept -> bool {
-  return m_implementation->dirty;
+  return m_implementation->surface.IsDirty();
 }
 
 auto Window::IsClosed() const noexcept -> bool {
@@ -199,53 +146,53 @@ auto Window::ActiveModalDialog() const noexcept -> const DialogWindow * {
 }
 
 auto Window::Tree() const noexcept -> const RuntimeTree & {
-  return m_implementation->tree;
+  return m_implementation->surface.Tree();
 }
 
 auto Window::LastReconcileStats() const noexcept -> const ReconcileStats & {
-  return m_implementation->lastReconcileStats;
+  return m_implementation->surface.Diagnostics().reconciliation;
 }
 
 auto Window::LastLayoutStats() const noexcept -> const LayoutPassStats & {
-  return m_implementation->lastLayoutStats;
+  return m_implementation->surface.Diagnostics().layout;
 }
 
 auto Window::DisplayCommandCount() const noexcept -> UIntSize {
-  return m_implementation->displayList.size();
+  return m_implementation->surface.Diagnostics().displayCommandCount;
 }
 
 auto Window::HasActiveAnimations() const noexcept -> bool {
-  return m_implementation->nextMotionDeadline.has_value();
+  return m_implementation->surface.NextAnimationDeadline().has_value();
 }
 
 auto Window::NextAnimationDeadline() const noexcept
     -> std::optional<MonotonicTime> {
-  return m_implementation->nextMotionDeadline;
+  return m_implementation->surface.NextAnimationDeadline();
 }
 
 auto Window::MotionEnabled() const noexcept -> bool {
-  return m_implementation->motionEnabled;
+  return m_implementation->surface.MotionEnabled();
 }
 
 auto Window::HitTest(const Point position) const noexcept -> ElementHandle {
-  return m_implementation->inputRouter.HitTest(position);
+  return m_implementation->surface.HitTest(position);
 }
 
 auto Window::FocusedElement() const noexcept -> ElementHandle {
-  return m_implementation->inputRouter.FocusedElement();
+  return m_implementation->surface.FocusedElement();
 }
 
 auto Window::CapturedElement(const UInt64 pointerId) const noexcept
     -> ElementHandle {
-  return m_implementation->inputRouter.CapturedElement(pointerId);
+  return m_implementation->surface.CapturedElement(pointerId);
 }
 
 auto Window::Semantics() const noexcept -> const SemanticTree & {
-  return m_implementation->semanticTree;
+  return m_implementation->surface.Semantics();
 }
 
 auto Window::Diagnostics() const noexcept -> const WindowDiagnostics & {
-  return m_implementation->diagnostics;
+  return m_implementation->surface.Diagnostics();
 }
 
 auto Window::Inspect() const -> InspectorSnapshot {
@@ -254,121 +201,44 @@ auto Window::Inspect() const -> InspectorSnapshot {
 
 auto Window::InspectorOverlay() const noexcept
     -> const InspectorOverlayOptions & {
-  return m_implementation->inspectorOverlay;
+  return m_implementation->surface.InspectorOverlay();
 }
 
 auto Window::Focus(const ElementHandle handle) noexcept -> bool {
-  if (!m_implementation->inputRouter.SetFocus(handle)) {
-    return false;
-  }
-  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-  return true;
+  return m_implementation->surface.Focus(handle);
 }
 
 auto Window::FocusNext(const bool reverse) -> bool {
-  if (!m_implementation->inputRouter.MoveFocus(reverse)) {
-    return false;
-  }
-  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-  return true;
+  return m_implementation->surface.FocusNext(reverse);
 }
 
 auto Window::PerformSemanticAction(
     const SemanticActionRequest &request) noexcept -> UIResult<void> {
-  if (m_implementation->closed) {
-    return std::unexpected(
-        MakeUIError(UIErrorCode::InvalidState, "Cannot act on a closed window",
-                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
-  }
-  const auto *semantic = m_implementation->semanticTree.Find(request.node);
-  if (semantic == nullptr) {
-    return std::unexpected(
-        MakeUIError(UIErrorCode::InvalidArgument,
-                    "The semantic element is no longer available", "NGIN.UI",
-                    "Window::PerformSemanticAction", Id().c_str()));
-  }
-  if (!HasSemanticAction(semantic->actions, ActionFlag(request.action))) {
-    return std::unexpected(
-        MakeUIError(UIErrorCode::Unsupported,
-                    "The semantic element does not support this action",
-                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
-  }
-  const auto target = m_implementation->tree.FindById(semantic->owner);
-  if (!target) {
-    return std::unexpected(MakeUIError(
-        UIErrorCode::InvalidState, "The semantic element owner was destroyed",
-        "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
-  }
-  try {
-    auto dispatched =
-        m_implementation->inputRouter.PerformSemanticAction(target, request);
-    if (!dispatched) {
-      return std::unexpected(std::move(dispatched).error());
-    }
-    const auto &result = dispatched.value();
-    if (result.invalidation != InvalidationKind::None) {
-      Invalidate(result.invalidation);
-    } else if (result.callbackInvoked || result.activated) {
-      Invalidate(InvalidationKind::All);
-    } else if (result.layoutStateChanged) {
-      Invalidate(InvalidationKind::Arrange | InvalidationKind::Paint |
-                 InvalidationKind::Semantics);
-    } else if (result.visualStateChanged) {
-      Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-    }
-    return {};
-  } catch (...) {
-    return std::unexpected(
-        MakeUIError(UIErrorCode::InvalidState,
-                    "The semantic action callback threw an exception",
-                    "NGIN.UI", "Window::PerformSemanticAction", Id().c_str()));
-  }
+  return m_implementation->surface.PerformSemanticAction(request);
 }
 
 void Window::SetInspectorOverlay(InspectorOverlayOptions options) {
-  m_implementation->inspectorOverlay = std::move(options);
-  Invalidate(InvalidationKind::Paint);
+  m_implementation->surface.SetInspectorOverlay(std::move(options));
 }
 
 void Window::SetEventHandler(EventHandler handler) {
   m_implementation->eventHandler = std::move(handler);
 }
 
-void Window::SetContent(Content content) {
-  m_implementation->content = std::move(content);
-  Invalidate(InvalidationKind::All);
+auto Window::ContentSurface() noexcept -> Surface & {
+  return m_implementation->surface;
+}
+
+void Window::SetContent(Views::View view, Views::ViewEnvironment environment) {
+  m_implementation->surface.SetContent(std::move(view), std::move(environment));
 }
 
 void Window::Invalidate(const InvalidationKind kind) noexcept {
-  if (!m_implementation->closed && kind != InvalidationKind::None) {
-    m_implementation->dirty = true;
-    m_implementation->diagnostics.lastInvalidation = kind;
-    if (HasInvalidation(kind, InvalidationKind::Compose)) {
-      m_implementation->compositionDirty = true;
-    }
-    if (HasInvalidation(kind, InvalidationKind::Compose) ||
-        HasInvalidation(kind, InvalidationKind::Measure) ||
-        HasInvalidation(kind, InvalidationKind::Arrange)) {
-      m_implementation->layoutDirty = true;
-      m_implementation->paintDirty = true;
-      m_implementation->semanticsDirty = true;
-    }
-    if (HasInvalidation(kind, InvalidationKind::Paint)) {
-      m_implementation->paintDirty = true;
-    }
-    if (HasInvalidation(kind, InvalidationKind::Semantics)) {
-      m_implementation->semanticsDirty = true;
-    }
-  }
+  m_implementation->surface.Invalidate(kind);
 }
 
 void Window::SetMotionEnabled(const bool enabled) noexcept {
-  if (m_implementation->motionEnabled == enabled || m_implementation->closed) {
-    return;
-  }
-  m_implementation->motionEnabled = enabled;
-  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-  m_implementation->platform->WakeEventLoop();
+  m_implementation->surface.SetMotionEnabled(enabled);
 }
 
 auto Window::Schedule(const std::chrono::milliseconds delay,
@@ -488,8 +358,7 @@ Application::~Application() {
   for (auto &window : m_implementation->windows) {
     window->m_implementation->lifetimeCancellation.Cancel(
         NGIN::Async::StopReason::RuntimeShutdown);
-    Detail::UnmountMotionTree(window->m_implementation->tree);
-    Detail::CloseMotionHost(window->m_implementation->motionHost);
+    window->ContentSurface().Close();
   }
   m_implementation->asyncTasks.Close();
   m_implementation->lifetimeCancellation.Cancel(
@@ -647,15 +516,12 @@ auto Application::CreateWindowInternal(WindowCreateInfo info,
       m_implementation->windows.pop_back();
       return std::unexpected(std::move(attached).error());
     }
-    result->m_implementation->semanticTree =
-        BuildSemanticTree(result->m_implementation->tree, info.title);
-    ++result->m_implementation->semanticRevision;
     auto published =
         m_implementation->accessibility->Publish(AccessibilitySnapshot{
             .window = platformWindow.value(),
-            .revision = result->m_implementation->semanticRevision,
-            .root = result->m_implementation->semanticTree.Root(),
-            .nodes = result->m_implementation->semanticTree.Nodes(),
+            .revision = result->ContentSurface().SemanticRevision(),
+            .root = result->Semantics().Root(),
+            .nodes = result->Semantics().Nodes(),
         });
     if (!published) {
       static_cast<void>(m_implementation->accessibility->DetachWindow(
@@ -703,6 +569,8 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
     }
   }
 
+  static_cast<void>(window.ContentSurface().Route(
+      WindowFocusChanged{.window = window.PlatformHandle(), .focused = false}));
   auto destroyedSurface = m_implementation->renderer->DestroySurface(
       window.m_implementation->surfaceHandle);
   if (!destroyedSurface) {
@@ -715,14 +583,11 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
     return std::unexpected(std::move(destroyedWindow).error());
   }
 
-  Detail::UnmountMotionTree(window.m_implementation->tree);
-  Detail::CloseMotionHost(window.m_implementation->motionHost);
+  window.ContentSurface().Close();
   window.m_implementation->lifetimeCancellation.Cancel(
       NGIN::Async::StopReason::OwnerClosed);
   window.m_implementation->closed = true;
-  window.m_implementation->dirty = false;
   window.m_implementation->scheduledActions.clear();
-  window.m_implementation->nextMotionDeadline.reset();
   if (auto *owner = window.m_implementation->owner;
       owner != nullptr && !owner->IsClosed() &&
       owner->m_implementation->activeModalDialog == &window) {
@@ -754,7 +619,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     if (window->IsDirty()) {
       effectiveWait = std::chrono::milliseconds{0};
     }
-    if (const auto deadline = window->m_implementation->nextMotionDeadline) {
+    if (const auto deadline = window->NextAnimationDeadline()) {
       if (*deadline <= beforeWait) {
         effectiveWait = std::chrono::milliseconds{0};
       } else {
@@ -832,18 +697,6 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
             "NGIN.UI", "Window::Schedule", window->Id().c_str()));
       }
     }
-    if (window->m_implementation->nextMotionDeadline &&
-        *window->m_implementation->nextMotionDeadline <= afterWait) {
-      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-    }
-    const auto reducedMotion =
-        !window->m_implementation->motionEnabled ||
-        window->m_implementation->platform->ReducedMotionEnabled();
-    if (window->m_implementation->lastReducedMotion.has_value() &&
-        *window->m_implementation->lastReducedMotion != reducedMotion) {
-      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-    }
-    window->m_implementation->lastReducedMotion = reducedMotion;
   }
 
   for (const auto &event : collector.events) {
@@ -872,17 +725,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->eventHandler(event);
     }
 
-    const auto inputResult = window->m_implementation->inputRouter.Route(event);
-    if (inputResult.invalidation != InvalidationKind::None) {
-      window->Invalidate(inputResult.invalidation);
-    } else if (inputResult.callbackInvoked || inputResult.activated) {
-      window->Invalidate(InvalidationKind::All);
-    } else if (inputResult.layoutStateChanged) {
-      window->Invalidate(InvalidationKind::Arrange | InvalidationKind::Paint |
-                         InvalidationKind::Semantics);
-    } else if (inputResult.visualStateChanged) {
-      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
-    }
+    static_cast<void>(window->ContentSurface().Route(event));
 
     if (const auto *resized = std::get_if<WindowResized>(&event)) {
       if (!resized->size.IsEmpty()) {
@@ -898,8 +741,6 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     } else if (const auto *scale = std::get_if<WindowScaleChanged>(&event)) {
       if (scale->scaleFactor > 0.0F) {
         window->m_implementation->scaleFactor = scale->scaleFactor;
-        window->m_implementation->inputRouter.SetScaleFactor(
-            scale->scaleFactor);
       }
       window->Invalidate(InvalidationKind::Measure | InvalidationKind::Arrange |
                          InvalidationKind::Paint);
@@ -924,150 +765,56 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       }
       continue;
     }
-    if (!window->IsDirty()) {
+    if (!window->ContentSurface().NeedsUpdate(afterWait)) {
       continue;
     }
 
     const auto frameStarted = DiagnosticsClock::now();
-    FrameTimingDiagnostics frameTimings{};
-    window->m_implementation->dirty = false;
-    if (window->m_implementation->compositionDirty) {
-      window->m_implementation->compositionDirty = false;
-      const auto phaseStarted = DiagnosticsClock::now();
-      Composer composer;
-      if (window->m_implementation->content) {
-        window->m_implementation->content(composer);
-      }
-      if (!composer.IsBalanced()) {
-        return std::unexpected(
-            MakeUIError(UIErrorCode::InvalidState,
-                        "Composition ended with an open element scope",
-                        "NGIN.UI", "Compose", window->Id().c_str()));
-      }
-      window->m_implementation->lastReconcileStats =
-          window->m_implementation->reconciler.Reconcile(
-              composer.Declarations());
-      window->m_implementation->inputRouter.Synchronize();
-      ++window->m_implementation->diagnostics.compositionCount;
-      window->m_implementation->layoutDirty = true;
-      window->m_implementation->paintDirty = true;
-      window->m_implementation->semanticsDirty = true;
-      frameTimings.compositionMilliseconds =
-          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
+    auto &surface = window->ContentSurface();
+    const auto previousRevision = surface.SemanticRevision();
+    auto frame =
+        surface.Update(window->PixelExtent(), window->ScaleFactor(), afterWait);
+    if (window->IsClosed())
+      continue;
+    if (!frame) {
+      return std::unexpected(std::move(frame).error());
     }
-
-    const auto scaleFactor = window->ScaleFactor();
-    const Size logicalSize{
-        static_cast<F32>(window->PixelExtent().width) / scaleFactor,
-        static_cast<F32>(window->PixelExtent().height) / scaleFactor,
-    };
-    if (window->m_implementation->layoutDirty) {
-      window->m_implementation->layoutDirty = false;
-      const auto phaseStarted = DiagnosticsClock::now();
-      window->m_implementation->displayList.clear();
-      window->m_implementation->preparedPacket = {};
-      window->m_implementation->lastLayoutStats =
-          window->m_implementation->layoutEngine.Perform(
-              SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
-              Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height},
-              scaleFactor);
-      window->m_implementation->paintDirty = true;
-      window->m_implementation->semanticsDirty = true;
-      frameTimings.layoutMilliseconds =
-          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
-    }
-    Detail::MotionFrameResult motionFrame{};
-    try {
-      const auto reducedMotion =
-          !window->m_implementation->motionEnabled ||
-          window->m_implementation->platform->ReducedMotionEnabled();
-      motionFrame = Detail::AdvanceMotion(window->m_implementation->tree,
-                                          afterWait, reducedMotion,
-                                          window->m_implementation->motionHost);
-      window->m_implementation->nextMotionDeadline = motionFrame.nextDeadline;
-      auto &motionDiagnostics = window->m_implementation->diagnostics;
-      motionDiagnostics.activeAnimationCount = motionFrame.activeElementCount;
-      motionDiagnostics.reducedMotion = reducedMotion;
-      Detail::CollectMotionDiagnostics(window->m_implementation->tree,
-                                       motionDiagnostics.motion);
-      if (motionFrame.changed) {
-        ++motionDiagnostics.motionFrameCount;
-        window->m_implementation->paintDirty = true;
-        window->m_implementation->semanticsDirty = true;
-      }
-    } catch (const std::bad_alloc &) {
-      return std::unexpected(MakeUIError(
-          UIErrorCode::OutOfMemory, "Animation state allocation failed",
-          "NGIN.UI", "AdvanceMotion", window->Id().c_str()));
-    } catch (...) {
-      return std::unexpected(
-          MakeUIError(UIErrorCode::InvalidState, "Animation advancement failed",
-                      "NGIN.UI", "AdvanceMotion", window->Id().c_str()));
-    }
-    if (window->m_implementation->paintDirty) {
-      window->m_implementation->paintDirty = false;
-      const auto phaseStarted = DiagnosticsClock::now();
-      window->m_implementation->displayList =
-          BuildDisplayList(window->m_implementation->tree);
-      auto inspectorCommands =
-          BuildInspectorOverlay(window->m_implementation->tree,
-                                window->m_implementation->inspectorOverlay);
-      window->m_implementation->displayList.insert(
-          window->m_implementation->displayList.end(),
-          std::make_move_iterator(inspectorCommands.begin()),
-          std::make_move_iterator(inspectorCommands.end()));
-      window->m_implementation->preparedPacket =
-          window->m_implementation->uiRenderer.Build(
-              window->m_implementation->displayList, window->PixelExtent(),
-              scaleFactor);
-      frameTimings.paintMilliseconds =
-          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
-    }
-    if (window->m_implementation->semanticsDirty) {
-      window->m_implementation->semanticsDirty = false;
-      const auto phaseStarted = DiagnosticsClock::now();
-      window->m_implementation->semanticTree = BuildSemanticTree(
-          window->m_implementation->tree, window->m_implementation->info.title);
-      ++window->m_implementation->semanticRevision;
-      if (m_implementation->accessibility) {
-        try {
-          SemanticNodeId focused{};
-          if (const auto *focusedRuntime = window->m_implementation->tree.Get(
-                  window->m_implementation->inputRouter.FocusedElement());
-              focusedRuntime != nullptr) {
-            if (const auto *focusedSemantic =
-                    window->m_implementation->semanticTree.FindByOwner(
-                        focusedRuntime->id);
-                focusedSemantic != nullptr) {
-              focused = focusedSemantic->id;
-            }
+    auto frameTimings = surface.Diagnostics().frameTimings;
+    if (surface.SemanticRevision() != previousRevision &&
+        m_implementation->accessibility) {
+      try {
+        SemanticNodeId focused{};
+        if (const auto *focusedRuntime =
+                window->Tree().Get(window->FocusedElement());
+            focusedRuntime != nullptr) {
+          if (const auto *focusedSemantic =
+                  window->Semantics().FindByOwner(focusedRuntime->id);
+              focusedSemantic != nullptr) {
+            focused = focusedSemantic->id;
           }
-          auto published =
-              m_implementation->accessibility->Publish(AccessibilitySnapshot{
-                  .window = window->PlatformHandle(),
-                  .revision = window->m_implementation->semanticRevision,
-                  .root = window->m_implementation->semanticTree.Root(),
-                  .focused = focused,
-                  .nodes = window->m_implementation->semanticTree.Nodes(),
-              });
-          if (!published) {
-            m_implementation->accessibilityError = published.error();
-          }
-        } catch (...) {
-          m_implementation->accessibilityError =
-              MakeUIError(UIErrorCode::OutOfMemory,
-                          "Accessibility snapshot allocation failed", "NGIN.UI",
-                          "PublishAccessibilitySnapshot", window->Id().c_str());
         }
+        auto published =
+            m_implementation->accessibility->Publish(AccessibilitySnapshot{
+                .window = window->PlatformHandle(),
+                .revision = surface.SemanticRevision(),
+                .root = window->Semantics().Root(),
+                .focused = focused,
+                .nodes = window->Semantics().Nodes(),
+            });
+        if (!published) {
+          m_implementation->accessibilityError = published.error();
+        }
+      } catch (...) {
+        m_implementation->accessibilityError =
+            MakeUIError(UIErrorCode::OutOfMemory,
+                        "Accessibility snapshot allocation failed", "NGIN.UI",
+                        "PublishAccessibilitySnapshot", window->Id().c_str());
       }
-      frameTimings.semanticsMilliseconds =
-          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
 
     const auto renderStarted = DiagnosticsClock::now();
-    auto rendered = m_implementation->renderer->Render(
-        window->SurfaceHandle(),
-        window->m_implementation->preparedPacket.View());
+    auto rendered = m_implementation->renderer->Render(window->SurfaceHandle(),
+                                                       frame.value()->View());
     if (!rendered) {
       return std::unexpected(std::move(rendered).error());
     }
@@ -1083,25 +830,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         ElapsedMilliseconds(presentStarted, DiagnosticsClock::now());
     frameTimings.totalMilliseconds =
         ElapsedMilliseconds(frameStarted, DiagnosticsClock::now());
-    auto &diagnostics = window->m_implementation->diagnostics;
-    ++diagnostics.frameCount;
-    diagnostics.reconciliation = window->m_implementation->lastReconcileStats;
-    diagnostics.layout = window->m_implementation->lastLayoutStats;
-    diagnostics.semanticNodeCount =
-        window->m_implementation->semanticTree.Nodes().size();
-    diagnostics.displayCommandCount =
-        window->m_implementation->displayList.size();
-    diagnostics.drawBatchCount =
-        window->m_implementation->preparedPacket.batches.size();
-    diagnostics.vertexCount =
-        window->m_implementation->preparedPacket.vertices.size();
-    diagnostics.indexCount =
-        window->m_implementation->preparedPacket.indices.size();
-    diagnostics.focusedElement =
-        window->m_implementation->inputRouter.FocusedElement();
-    diagnostics.pointerCaptureOwner =
-        window->m_implementation->inputRouter.FirstCapturedElement();
-    diagnostics.frameTimings = frameTimings;
+    surface.RecordPresentation(frameTimings);
   }
 
   return {};

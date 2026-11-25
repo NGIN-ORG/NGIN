@@ -1,5 +1,5 @@
-#include <NGIN/UIGallery/CustomControls.hpp>
-#include <NGIN/UIGallery/Gallery.hpp>
+#include "GalleryPropertyEditor.hpp"
+#include "GalleryViews.hpp"
 
 #include <NGIN/Async/WhenAll.hpp>
 #include <NGIN/Units.hpp>
@@ -23,7 +23,7 @@ public:
     return BaseItemCount + m_insertedIds.size();
   }
   [[nodiscard]] auto Revision() const noexcept -> NGIN::UInt64 override {
-    return m_revision;
+    return m_revision.Get();
   }
   [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
       -> UI::UIResult<NGIN::UIntSize> override {
@@ -78,6 +78,7 @@ public:
   }
   [[nodiscard]] auto IndexOfKey(const Text::String &key) const
       -> std::optional<NGIN::UIntSize> override {
+    static_cast<void>(Revision());
     const auto view = key.View();
     const auto prefix = view.starts_with("item-")  ? std::string_view{"item-"}
                         : view.starts_with("new-") ? std::string_view{"new-"}
@@ -113,7 +114,7 @@ public:
     }
     m_insertedIds.insert(m_insertedIds.begin(), inserted.begin(),
                          inserted.end());
-    ++m_revision;
+    static_cast<void>(m_revision.Update([](NGIN::UInt64 &value) { ++value; }));
   }
 
 private:
@@ -127,31 +128,27 @@ private:
   static constexpr NGIN::UIntSize NewItemBase{1'000'000};
   std::vector<NGIN::UIntSize> m_insertedIds{};
   NGIN::UIntSize m_nextInsertedId{0};
-  NGIN::UInt64 m_revision{1};
+  UI::State<NGIN::UInt64> m_revision{1};
   std::optional<UI::IncrementalRange> m_loadedRange{};
 };
 
 class GalleryMotionDemo final {
 public:
-  GalleryMotionDemo(UI::Application &application, UI::Window &window)
+  explicit GalleryMotionDemo(UI::Application &application)
       : context(std::make_unique<NGIN::Async::TaskContext>(
             application.CreateTaskContext())),
-        application(&application), window(&window) {}
+        application(&application) {}
 
   void SetStatus(const char *message) {
-    status = NGIN::Text::String{message};
-    if (window != nullptr && !window->IsClosed()) {
-      window->Invalidate(UI::InvalidationKind::Paint |
-                         UI::InvalidationKind::Semantics);
-    }
+    static_cast<void>(status.Set(NGIN::Text::String{message}));
   }
 
   std::unique_ptr<NGIN::Async::TaskContext> context{};
   UI::Application *application{nullptr};
-  UI::Window *window{nullptr};
   UI::MotionController primary{};
   UI::MotionController secondary{};
-  NGIN::Text::String status{"Choose a demo. The result appears here."};
+  UI::State<NGIN::Text::String> status{
+      "Ready to play"};
   bool parallelForward{true};
   bool interruptForward{true};
   std::shared_ptr<NGIN::Async::CancellationSource> cancellation{};
@@ -272,6 +269,7 @@ namespace {
 using NGIN::F32;
 using NGIN::Text::String;
 using namespace NGIN::UI;
+using namespace Pages;
 
 struct OverviewPage final {};
 struct LayoutPage final {};
@@ -290,7 +288,6 @@ struct DiagnosticsPage final {};
 
 struct GalleryPageViewModel final {
   GalleryViewModel *gallery{nullptr};
-  NativeTextSystem *text{nullptr};
 };
 
 using GalleryNavigate =
@@ -309,13 +306,14 @@ auto ReplaceGalleryPage(NavigationService &navigation)
 }
 
 constexpr std::array<GalleryNavigate, PageCount> GalleryPageStarters{
-    &StartGalleryPage<OverviewPage>,      &StartGalleryPage<LayoutPage>,
-    &StartGalleryPage<TypographyPage>,    &StartGalleryPage<TextAreaPage>,
-    &StartGalleryPage<ImagesPage>,        &StartGalleryPage<InputsPage>,
-    &StartGalleryPage<AsyncDataPage>,     &StartGalleryPage<CollectionsPage>,
-    &StartGalleryPage<MotionPage>,        &StartGalleryPage<OverlaysPage>,
-    &StartGalleryPage<WindowsPage>,       &StartGalleryPage<ResourcesPage>,
-    &StartGalleryPage<AccessibilityPage>, &StartGalleryPage<DiagnosticsPage>,
+    &StartGalleryPage<OverviewPage>,       &StartGalleryPage<LayoutPage>,
+    &StartGalleryPage<TypographyPage>,     &StartGalleryPage<TextAreaPage>,
+    &StartGalleryPage<ImagesPage>,         &StartGalleryPage<InputsPage>,
+    &StartGalleryPage<AsyncDataPage>,      &StartGalleryPage<CollectionsPage>,
+    &StartGalleryPage<MotionPage>,         &StartGalleryPage<OverlaysPage>,
+    &StartGalleryPage<WindowsPage>,        &StartGalleryPage<ResourcesPage>,
+    &StartGalleryPage<AccessibilityPage>,  &StartGalleryPage<DiagnosticsPage>,
+    &StartGalleryPage<PropertyEditorPage>,
 };
 
 constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
@@ -333,6 +331,7 @@ constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
     &ReplaceGalleryPage<ResourcesPage>,
     &ReplaceGalleryPage<AccessibilityPage>,
     &ReplaceGalleryPage<DiagnosticsPage>,
+    &ReplaceGalleryPage<PropertyEditorPage>,
 };
 
 [[nodiscard]] auto OutcomeName(const MotionOutcome outcome) noexcept -> const
@@ -387,21 +386,22 @@ FirstValidationMessage(const std::unique_ptr<ValidationField<String>> &field,
                         .duration = std::chrono::milliseconds{520},
                         .curve = EasingCurve::EaseInOut(),
                     }};
-  demo->SetStatus("Sequence: moving right");
-  auto outcome = co_await demo->primary.TranslateToAsync(
-      context, Point{430.0F, 0.0F}, spec);
+  demo->SetStatus("Moving the blue marker");
+  auto outcome = co_await demo->primary.AnimateToAsync(
+      context, MotionProperty::Value, 1.0F, spec);
   if (outcome != MotionOutcome::Completed) {
     demo->SetStatus(OutcomeName(outcome));
     co_return;
   }
-  demo->SetStatus("Sequence: fading");
+  demo->SetStatus("Fading the blue track");
   outcome = co_await demo->primary.FadeToAsync(context, 0.25F, spec);
   if (outcome != MotionOutcome::Completed) {
     demo->SetStatus(OutcomeName(outcome));
     co_return;
   }
-  demo->SetStatus("Sequence: returning");
-  outcome = co_await demo->primary.TranslateToAsync(context, Point{}, spec);
+  demo->SetStatus("Returning to the start");
+  outcome = co_await demo->primary.AnimateToAsync(
+      context, MotionProperty::Value, 0.0F, spec);
   if (outcome == MotionOutcome::Completed) {
     outcome = co_await demo->primary.FadeToAsync(context, 1.0F, spec);
   }
@@ -411,21 +411,22 @@ FirstValidationMessage(const std::unique_ptr<ValidationField<String>> &field,
 [[nodiscard]] auto ParallelMotion(NGIN::Async::TaskContext &context,
                                   std::shared_ptr<GalleryMotionDemo> demo)
     -> NGIN::Async::Task<void> {
-  const auto target = demo->parallelForward ? 430.0F : 0.0F;
+  const auto target = demo->parallelForward ? 1.0F : 0.0F;
   demo->parallelForward = !demo->parallelForward;
   const auto spec = AnimationSpec{.timing = SpringTiming{
                                       .stiffness = 150.0F,
                                       .damping = 15.0F,
                                   }};
-  demo->SetStatus("Parallel: both elements are moving together");
+  demo->SetStatus("Both tracks are moving");
   const auto outcomes = co_await NGIN::Async::WhenAll(
       context,
-      demo->primary.TranslateToAsync(context, Point{target, 0.0F}, spec),
-      demo->secondary.TranslateToAsync(context, Point{target, 0.0F}, spec));
+      demo->primary.AnimateToAsync(context, MotionProperty::Value, target,
+                                   spec),
+      demo->secondary.AnimateToAsync(context, MotionProperty::Value, target,
+                                     spec));
   const auto completed = std::get<0>(outcomes) == MotionOutcome::Completed &&
                          std::get<1>(outcomes) == MotionOutcome::Completed;
-  demo->SetStatus(completed ? "Parallel: both completed"
-                            : "Parallel: one operation stopped early");
+  demo->SetStatus(completed ? "Both tracks completed" : "Playback interrupted");
 }
 
 struct GalleryCancelableRun final {
@@ -439,13 +440,16 @@ struct GalleryCancelableRun final {
 [[nodiscard]] auto CancelableMotion(std::shared_ptr<GalleryCancelableRun> run,
                                     std::shared_ptr<GalleryMotionDemo> demo)
     -> NGIN::Async::Task<void> {
-  demo->SetStatus("Cancelable: moving slowly — press Cancel");
-  const auto outcome = co_await demo->primary.TranslateToAsync(
-      run->context, Point{430.0F, 0.0F},
-      AnimationSpec{.timing = TweenTiming{
-                        .duration = std::chrono::milliseconds{2400},
-                        .curve = EasingCurve::Linear(),
-                    }});
+  demo->SetStatus("Moving slowly");
+  const AnimationSpec timing{.timing = TweenTiming{
+                                 .duration = std::chrono::milliseconds{1200},
+                                 .curve = EasingCurve::Linear(),
+                             }};
+  auto outcome = co_await demo->primary.AnimateToAsync(
+      run->context, MotionProperty::Value, 1.0F, timing);
+  if (outcome == MotionOutcome::Completed)
+    outcome = co_await demo->primary.AnimateToAsync(
+        run->context, MotionProperty::Value, 0.0F, timing);
   demo->SetStatus(OutcomeName(outcome));
 }
 
@@ -453,9 +457,9 @@ struct GalleryCancelableRun final {
                                    std::shared_ptr<GalleryMotionDemo> demo,
                                    const F32 target)
     -> NGIN::Async::Task<void> {
-  demo->SetStatus("Interruption: press again before it arrives");
-  const auto outcome = co_await demo->secondary.TranslateToAsync(
-      context, Point{target, 0.0F},
+  demo->SetStatus("Orange target changed");
+  const auto outcome = co_await demo->secondary.AnimateToAsync(
+      context, MotionProperty::Value, target,
       AnimationSpec{.timing = TweenTiming{
                         .duration = std::chrono::milliseconds{1500},
                         .curve = EasingCurve::EaseInOut(),
@@ -463,92 +467,34 @@ struct GalleryCancelableRun final {
   demo->SetStatus(OutcomeName(outcome));
 }
 
-class GalleryOvershootCurve final : public IEasingCurve {
-public:
-  [[nodiscard]] auto Evaluate(const F32 progress) const -> F32 override {
-    constexpr auto overshoot = 2.2F;
-    constexpr auto shiftedOvershoot = overshoot + 1.0F;
-    const auto shifted = progress - 1.0F;
-    return 1.0F + shiftedOvershoot * shifted * shifted * shifted +
-           overshoot * shifted * shifted;
-  }
-
-  [[nodiscard]] auto Name() const noexcept -> std::string_view override {
-    return "GalleryOvershoot";
-  }
-};
-
-[[nodiscard]] auto GalleryOvershoot() -> const EasingCurve & {
-  static const auto curve = EasingCurve::MakeCustom<GalleryOvershootCurve>();
-  return curve;
-}
-
 constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout",     "Typography",    "Text Area",   "Images",
     "Inputs",   "Async Data", "Collections",   "Motion",      "Overlays",
-    "Windows",  "Themes",     "Accessibility", "Diagnostics",
-};
-
-struct NavigationGroup final {
-  std::string_view label;
-  NGIN::UIntSize firstPage;
-  NGIN::UIntSize pageCount;
-};
-
-constexpr std::array<NavigationGroup, 4> NavigationGroups{{
-    {.label = "Explore", .firstPage = 0, .pageCount = 1},
-    {.label = "Foundations", .firstPage = 1, .pageCount = 4},
-    {.label = "Controls and data", .firstPage = 5, .pageCount = 4},
-    {.label = "Application", .firstPage = 9, .pageCount = 5},
-}};
-
-constexpr std::array<std::string_view, PageCount> PageSections{
-    "Explore",           "Foundations",       "Foundations",
-    "Foundations",       "Foundations",       "Controls and data",
-    "Controls and data", "Controls and data", "Controls and data",
-    "Application",       "Application",       "Application",
-    "Application",       "Application",
+    "Windows",  "Themes",     "Accessibility", "Diagnostics", "Property Editor",
 };
 
 constexpr std::array<std::string_view, PageCount> PageIds{
     "overview", "layout",     "typography",    "text-area",   "images",
     "inputs",   "async-data", "collections",   "motion",      "overlays",
-    "windows",  "themes",     "accessibility", "diagnostics",
+    "windows",  "themes",     "accessibility", "diagnostics", "property-editor",
 };
 
 constexpr std::array<std::string_view, PageCount> PageSearchTerms{
-    "start colors buttons custom controls",
-    "grid wrap panel border canvas scroll responsive",
-    "fonts unicode arabic greek cyrillic wrapping alignment",
-    "editor multiline selection copy paste text",
-    "png jpeg picture fit crop clip tint cache",
-    "button checkbox radio switch slider progress tooltip field",
-    "async loading empty error retry cancel viewmodel lifecycle",
-    "list virtualized sorting filtering combo tabs menu collection",
-    "animation easing curve spring fade move scale async",
-    "popup menu tooltip overlay dismiss",
-    "window dialog modal desktop",
-    "theme resources colors light dark",
-    "accessibility narrator screen reader keyboard semantics",
-    "diagnostics performance memory atlas cache realization",
-};
-
-constexpr std::array<std::string_view, PageCount> PageExamples{
-    "composer.Button(save.AsBinding(), button, \"save\");",
-    "composer.Grid([&] { ComposeForm(composer); }, grid, \"form\");",
-    "composer.Text(String{\"Hello\"}, text, text, label, \"title\");",
-    "composer.TextArea(notes, text, editor, \"notes\");",
-    "composer.Image(image, imageCache, String{\"Landscape\"}, {}, \"photo\");",
-    "save.BindEnabled(form.IsValid());",
-    "switch (viewModel.Presentation().Get().kind) { /* compose state */ }",
-    "VirtualizedListView(composer, controller, source, ComposeRow, list, "
-    "\"items\");",
-    "co_await motion.FadeToAsync(context, 0.0F);",
-    "popup.SetAnchor(anchor); popup.Open();",
-    "auto window = application.CreateWindow(windowInfo);",
-    "composer.Scope(resources, [&] { ComposeContent(composer); });",
-    "button.semantics.label = String{\"Save changes\"};",
-    "const auto diagnostics = window.Diagnostics();",
+    "sample library home start custom controls status badge progress chart",
+    "responsive layout grid tracks columns wrap flow canvas coordinates",
+    "fonts type scale unicode arabic greek cyrillic language proofs",
+    "text editor project notes multiline selection copy paste",
+    "image fitting artwork picture contain cover stretch crop",
+    "form controls playlist preferences volume slider checkbox radio switch text entry validation password",
+    "async loading inbox empty offline error retry switch rapidly cancellation",
+    "virtual list selection add item context menu tabs collections",
+    "motion studio animation timing curves easing choreography loops playback keyframes bezier reduced motion",
+    "overlays popup track details dismiss",
+    "independent window modal dialog desktop",
+    "themes resources palette colors swatches light dark",
+    "accessibility narrator screen reader keyboard semantics live announcement",
+    "diagnostics frame counters inspector guides navigation text glyph images cache",
+    "property editor reflection playback settings mute volume output level",
 };
 
 [[nodiscard]] auto ContainsIgnoringCase(const std::string_view text,
@@ -565,3319 +511,127 @@ constexpr std::array<std::string_view, PageCount> PageExamples{
              .begin() != text.end();
 }
 
-[[nodiscard]] auto Number(const std::uint64_t value) -> String {
-  const auto formatted = std::to_string(value);
-  return String{formatted.c_str()};
-}
-
-[[nodiscard]] auto LabeledNumber(const char *label, const std::uint64_t value)
-    -> String {
-  String result{label};
-  result.Append(Number(value));
-  return result;
-}
-
-[[nodiscard]] auto FontFaceLine(const FontFaceDiagnostics &face) -> String {
-  String result{face.fallback ? "Fallback font: " : "Main font: "};
-  result.Append(face.family);
-  result.Append(String{" · used for "});
-  result.Append(Number(face.resolvedCodePointCount));
-  result.Append(String{" characters"});
-  return result;
-}
-
-[[nodiscard]] auto GlyphSizeLine(const GlyphAtlasSizeDiagnostics &diagnostics)
-    -> String {
-  String result{"At "};
-  result.Append(Number(diagnostics.pixelSize));
-  result.Append(String{" px: "});
-  result.Append(Number(diagnostics.entryCount));
-  result.Append(String{" glyphs"});
-  return result;
-}
-
-[[nodiscard]] auto TrackLine(const char *label, const NGIN::UIntSize index,
-                             const std::vector<F32> &tracks) -> String {
-  String result{label};
-  result.Append(Number(index + 1));
-  result.Append(String{" tracks: "});
-  for (NGIN::UIntSize track = 0; track < tracks.size(); ++track) {
-    if (track != 0) {
-      result.Append(String{" / "});
-    }
-    result.Append(Number(static_cast<std::uint64_t>(tracks[track])));
-  }
-  return result;
-}
-
-[[nodiscard]] auto TextProperties(NativeTextSystem &text, const F32 fontSize,
-                                  const Color color) -> NodeProperties {
-  NodeProperties properties{};
-  properties.layout.horizontalAlignment = HorizontalAlignment::Start;
-  properties.layout.verticalAlignment = VerticalAlignment::Start;
-  properties.interaction.hitTestVisible = false;
-  properties.text.fontSize = fontSize;
-  properties.text.color = color;
-  properties.text.geometry = &text;
-  properties.text.wrapping = TextWrapping::Wrap;
-  return properties;
-}
-
-void ComposeText(Composer &composer, NativeTextSystem &text, String value,
-                 const F32 fontSize, const Color color,
-                 const std::string_view key,
-                 const SemanticRole role = SemanticRole::Text) {
-  auto properties = TextProperties(text, fontSize, color);
-  properties.semantics.role = role;
-  composer.Text(std::move(value), text, text, properties, key);
-}
-
-void ComposeButton(Composer &composer, NativeTextSystem &text,
-                   const Theme &theme, const char *label,
-                   NGIN::Utilities::Callable<void()> onActivate,
-                   const std::string_view key, const F32 width = 210.0F,
-                   const bool enabled = true, const bool selected = false,
-                   ToolTipController *toolTip = nullptr) {
-  NodeProperties button{};
-  button.layout.preferredSize = Size{width, theme.controls.regularHeight};
-  button.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
-  button.layout.horizontalAlignment = HorizontalAlignment::Start;
-  button.layout.verticalAlignment = VerticalAlignment::Start;
-  button.interaction.enabled = enabled;
-  button.interaction.focusable = true;
-  button.interaction.onActivate = std::move(onActivate);
-  button.semantics.role = SemanticRole::Button;
-  button.semantics.label = String{label};
-  button.semantics.actions =
-      SemanticActionFlags::Activate | SemanticActionFlags::Focus;
-  button.visual = MakeButtonVisual(theme);
-  if (selected) {
-    button.visual.state |= VisualStateFlags::Selected;
-    button.visual.states.selected.background = theme.colors.raisedSurface;
-    button.visual.states.selected.foreground = theme.colors.foreground;
-    button.visual.states.selected.borderColor = theme.colors.focus;
-  }
-  if (toolTip != nullptr) {
-    toolTip->Attach(button);
-  }
-
-  const auto labelColor = enabled ? (selected ? theme.colors.foreground
-                                              : theme.colors.accentForeground)
-                                  : theme.colors.disabledForeground;
-  composer.Element(
-      ElementType::Button, button,
-      [&] {
-        auto labelProperties =
-            TextProperties(text, theme.typography.body, labelColor);
-        labelProperties.layout.horizontalAlignment =
-            HorizontalAlignment::Center;
-        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-        composer.Text(String{label}, text, text, labelProperties, "label");
-      },
-      key);
-}
-
-void ComposeNavigationButton(Composer &composer, NativeTextSystem &text,
-                             const Theme &theme, const char *label,
-                             NGIN::Utilities::Callable<void()> onActivate,
-                             const std::string_view key, const bool selected) {
-  NodeProperties button{};
-  button.layout.preferredSize = Size{216.0F, theme.controls.regularHeight};
-  button.layout.minimumSize.height = theme.controls.regularHeight;
-  button.layout.padding = Thickness{16.0F, 8.0F, 14.0F, 8.0F};
-  button.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-  button.layout.verticalAlignment = VerticalAlignment::Start;
-  button.interaction.focusable = true;
-  button.interaction.onActivate = std::move(onActivate);
-  button.semantics.role = SemanticRole::Button;
-  button.semantics.label = String{label};
-  button.semantics.actions = SemanticActionFlags::Activate |
-                             SemanticActionFlags::Focus |
-                             SemanticActionFlags::Select;
-  button.visual = MakePanelVisual(theme);
-  button.visual.base.background = Color{0.0F, 0.0F, 0.0F, 0.0F};
-  button.visual.base.borderThickness = Thickness::Uniform(Dp{0.0F});
-  button.visual.states.hovered.background = theme.colors.raisedSurface;
-  button.visual.states.pressed.background = theme.colors.sunkenSurface;
-  button.visual.focus = MakeButtonVisual(theme).focus;
-  if (selected) {
-    button.visual.state |= VisualStateFlags::Selected;
-    button.visual.base.background = theme.colors.raisedSurface;
-    button.visual.base.borderColor = theme.colors.focus;
-    button.visual.base.borderThickness = Thickness{3.0F, 0.0F, 0.0F, 0.0F};
-    button.semantics.states |= SemanticStateFlags::Selected;
-  }
-
-  composer.Element(
-      ElementType::Button, button,
-      [&] {
-        auto labelProperties = TextProperties(text, theme.typography.body,
-                                              theme.colors.foreground);
-        labelProperties.text.wrapping = TextWrapping::NoWrap;
-        labelProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
-        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-        composer.Text(String{label}, text, text, labelProperties, "label");
-      },
-      key);
-}
-
-void ComposeCommandButton(Composer &composer, NativeTextSystem &text,
-                          const Theme &theme, const char *label,
-                          CommandBinding command, const std::string_view key,
-                          const F32 width = 210.0F) {
-  const auto enabled = command.CanExecute();
-  NodeProperties button{};
-  button.layout.preferredSize = Size{width, theme.controls.regularHeight};
-  button.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
-  button.layout.horizontalAlignment = HorizontalAlignment::Start;
-  button.layout.verticalAlignment = VerticalAlignment::Start;
-  button.semantics.label = String{label};
-  button.visual = MakeButtonVisual(theme);
-
-  auto scope = composer.BeginButton(std::move(command), button, key);
-  auto labelProperties =
-      TextProperties(text, theme.typography.body,
-                     enabled ? theme.colors.accentForeground
-                             : theme.colors.disabledForeground);
-  labelProperties.layout.horizontalAlignment = HorizontalAlignment::Center;
-  labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-  composer.Text(String{label}, text, text, labelProperties, "label");
-}
-
-template <typename ComposeContent>
-void ComposeCard(Composer &composer, const Theme &theme,
-                 ComposeContent &&composeContent, const std::string_view key,
-                 const F32 width = 760.0F) {
-  NodeProperties card{};
-  card.layout.preferredSize.width = width;
-  card.layout.maximumSize.width = width;
-  card.layout.padding = Thickness::Uniform(Dp{24.0F});
-  card.layout.horizontalAlignment = HorizontalAlignment::Start;
-  card.layout.verticalAlignment = VerticalAlignment::Start;
-  card.visual = MakePanelVisual(theme);
-  card.semantics.role = SemanticRole::Group;
-  composer.Border(std::forward<ComposeContent>(composeContent), card, key);
-}
-
-void ComposePageHeading(Composer &composer, NativeTextSystem &text,
-                        const Theme &theme, const char *title,
-                        const char *description) {
-  NodeProperties heading{};
-  heading.layout.gap = theme.spacing.regular;
-  heading.layout.preferredSize.width = 760.0F;
-  heading.layout.maximumSize.width = 760.0F;
-  heading.layout.horizontalAlignment = HorizontalAlignment::Start;
-  composer.Column(
-      [&] {
-        ComposeText(composer, text, String{title}, 32.0F,
-                    theme.colors.foreground, "page-title",
-                    SemanticRole::Heading);
-        auto descriptionProperties =
-            TextProperties(text, 16.0F, theme.colors.mutedForeground);
-        descriptionProperties.layout.maximumSize.width = 720.0F;
-        descriptionProperties.text.lineHeight = 24.0F;
-        descriptionProperties.semantics.role = SemanticRole::Text;
-        composer.Text(String{description}, text, text, descriptionProperties,
-                      "page-description");
-      },
-      "page-heading");
-}
-
-void ComposeTextField(Composer &composer, NativeTextSystem &text,
-                      GalleryViewModel &model, const Theme &theme,
-                      Binding<String> value, const char *label,
-                      const std::string_view key, const bool readOnly = false,
-                      const bool enabled = true, const bool invalid = false,
-                      const bool password = false, const F32 width = 430.0F) {
-  NodeProperties field{};
-  field.layout.preferredSize = Size{width, theme.controls.spaciousHeight};
-  field.layout.maximumSize.width = width;
-  field.layout.padding = Thickness{12.0F, 10.0F, 12.0F, 10.0F};
-  field.layout.horizontalAlignment = HorizontalAlignment::Start;
-  field.layout.verticalAlignment = VerticalAlignment::Start;
-  field.interaction.enabled = enabled;
-  field.visual = MakeTextFieldVisual(theme);
-  if (invalid) {
-    field.visual.state |= VisualStateFlags::Invalid;
-  }
-  field.text.fontSize = 17.0F;
-  field.text.color =
-      enabled ? theme.colors.foreground : theme.colors.disabledForeground;
-  field.text.layout = &text;
-  field.text.geometry = &text;
-  field.text.glyphAtlas = &text;
-  field.text.wrapping = TextWrapping::NoWrap;
-  field.textField.selectionColor = theme.colors.selection;
-  field.textField.caretColor = theme.colors.focus;
-  field.textField.compositionColor = theme.colors.focus;
-  field.textField.readOnly = readOnly;
-  field.textField.password = password;
-  field.textField.onError = [&model](const UIError &error) {
-    model.Report(error);
-  };
-  field.semantics.label = String{label};
-  composer.TextField(std::move(value), text, field, key);
-}
-
-void ComposeSwatch(Composer &composer, NativeTextSystem &text,
-                   const Theme &theme, const Color color, const char *label,
-                   const std::string_view key) {
-  NodeProperties swatch{};
-  swatch.layout.preferredSize = Size{130.0F, 74.0F};
-  swatch.layout.padding = Thickness::Uniform(Dp{theme.spacing.regular});
-  swatch.layout.horizontalAlignment = HorizontalAlignment::Start;
-  swatch.layout.verticalAlignment = VerticalAlignment::Start;
-  swatch.visual = MakePanelVisual(theme);
-  swatch.visual.base.background = color;
-  swatch.semantics.role = SemanticRole::Group;
-  swatch.semantics.label = String{label};
-  composer.Border(
-      [&] {
-        auto labelProperties = TextProperties(text, theme.typography.body,
-                                              theme.colors.accentForeground);
-        labelProperties.layout.horizontalAlignment =
-            HorizontalAlignment::Center;
-        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-        labelProperties.text.wrapping = TextWrapping::NoWrap;
-        composer.Text(String{label}, text, text, labelProperties, "label");
-      },
-      swatch, key);
-}
-
-void StyleScrollView(NodeProperties &properties, const Theme &theme) {
-  properties.interaction.focusable = true;
-  properties.scroll.scrollbarTrack = theme.colors.sunkenSurface;
-  properties.scroll.scrollbarThumb = theme.colors.border;
-  properties.scroll.scrollbarThumbHovered = theme.colors.focus;
-}
-
-void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
-                         GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Build with NGIN.UI",
-      "Explore the toolkit by topic, interact with each example, and copy the "
-      "public API pattern when you are ready to build.");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"What you can explore"}, 19.0F,
-                          theme.colors.foreground, "features-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Layout and typography \xC2\xB7 Inputs and data "
-                         "\xC2\xB7 Motion and overlays"},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "features-value");
-              ComposeText(
-                  composer, text,
-                  String{"Windows, themes, accessibility, diagnostics, and "
-                         "custom controls."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "hosting-value");
-            },
-            "features-column");
-      },
-      "features-card");
-
-  NodeProperties metricsRow{};
-  metricsRow.layout.gap = theme.spacing.regular;
-  metricsRow.layout.horizontalAlignment = HorizontalAlignment::Start;
-  metricsRow.layout.verticalAlignment = VerticalAlignment::Start;
-  composer.Element(
-      ElementType::Row, metricsRow,
-      [&] {
-        ComposeSwatch(composer, text, theme, theme.colors.accent, "Accent",
-                      "accent-swatch");
-        ComposeSwatch(composer, text, theme, theme.colors.selection,
-                      "Selection", "selection-swatch");
-        ComposeSwatch(composer, text, theme, theme.colors.focus, "Focus",
-                      "focus-swatch");
-      },
-      "token-swatches");
-
-  NodeProperties quickInteraction{};
-  quickInteraction.layout.gap = theme.spacing.regular;
-  quickInteraction.layout.horizontalAlignment = HorizontalAlignment::Start;
-  composer.Element(
-      ElementType::Column, quickInteraction,
-      [&] {
-        ComposeButton(
-            composer, text, theme, "Try the button",
-            [&model] { model.Activate(); }, "overview-activate", 250.0F);
-        ComposeText(
-            composer, text,
-            LabeledNumber("Button activations: ", model.ActivationCount()),
-            theme.typography.body, theme.colors.mutedForeground,
-            "activation-count");
-      },
-      "quick-interaction");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Try an async command"}, 19.0F,
-                          theme.colors.foreground, "command-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Run a task, cancel it, or preview a helpful "
-                                 "failure state."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "command-description");
-              NodeProperties actions{};
-              actions.layout.gap = theme.spacing.regular;
-              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
-              composer.Element(
-                  ElementType::Row, actions,
-                  [&] {
-                    ComposeCommandButton(composer, text, theme, "Run task",
-                                         model.CommandDemoBinding(),
-                                         "run-command", 150.0F);
-                    ComposeButton(
-                        composer, text, theme, "Fail next run",
-                        [&model] { model.StartFailingCommandDemo(); },
-                        "fail-command", 170.0F,
-                        model.CommandDemoBinding().CanExecute());
-                    ComposeButton(
-                        composer, text, theme, "Cancel task",
-                        [&model] { model.CancelCommandDemo(); },
-                        "cancel-command", 140.0F,
-                        model.CommandDemoBinding().IsRunning());
-                  },
-                  "command-actions");
-              ComposeText(composer, text, model.CommandDemoStatus(),
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "command-status");
-            },
-            "command-column");
-      },
-      "command-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Custom controls"}, 19.0F,
-                          theme.colors.foreground, "custom-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Purpose-built controls with custom paint, retained "
-                         "state, input, and accessibility."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "custom-description");
-              ComposeCustomControlExamples(composer, text, theme);
-            },
-            "custom-column");
-      },
-      "custom-controls-card");
-}
-
-void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
-                       const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Layout",
-      "Arrange content with grids, wrapping, scrolling, and free-positioned "
-      "canvas elements.");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Settings form"}, 18.0F,
-                          theme.colors.foreground, "row-title",
-                          SemanticRole::Heading);
-              NodeProperties form{};
-              form.layout.preferredSize.width = 680.0F;
-              form.grid.columns = {GridTrack::Auto(120.0F, 180.0F),
-                                   GridTrack::Weighted(1.0F)};
-              form.grid.rows = {GridTrack::Auto(), GridTrack::Auto(),
-                                GridTrack::Auto()};
-              form.grid.columnGap = theme.spacing.spacious;
-              form.grid.rowGap = theme.spacing.regular;
-              composer.Grid(
-                  [&] {
-                    const auto composeRow = [&](const NGIN::UIntSize row,
-                                                const char *label,
-                                                const char *value,
-                                                const std::string_view key) {
-                      NodeProperties labelCell{};
-                      labelCell.gridPlacement =
-                          GridPlacement{.row = row, .column = 0};
-                      composer.Element(
-                          ElementType::Column, labelCell,
-                          [&] {
-                            ComposeText(composer, text, String{label},
-                                        theme.typography.body,
-                                        theme.colors.mutedForeground, "text");
-                          },
-                          std::string{key} + "-label");
-
-                      NodeProperties valueCell{};
-                      valueCell.gridPlacement =
-                          GridPlacement{.row = row, .column = 1};
-                      valueCell.layout.padding =
-                          Thickness{12.0F, 9.0F, 12.0F, 9.0F};
-                      valueCell.layout.horizontalAlignment =
-                          HorizontalAlignment::Stretch;
-                      valueCell.visual = MakePanelVisual(theme);
-                      valueCell.visual.base.background =
-                          theme.colors.sunkenSurface;
-                      composer.Border(
-                          [&] {
-                            ComposeText(composer, text, String{value},
-                                        theme.typography.body,
-                                        theme.colors.foreground, "text");
-                          },
-                          valueCell, std::string{key} + "-value");
-                    };
-                    composeRow(0, "Project", "Desktop app", "project");
-                    composeRow(1, "Theme", "System default", "theme");
-                    composeRow(2, "Updates", "Install automatically",
-                               "updates");
-                  },
-                  form, "settings-grid");
-            },
-            "layout-column");
-      },
-      "grid-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Responsive toolbar"}, 18.0F,
-                          theme.colors.foreground, "toolbar-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Resize the window and the actions wrap."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "toolbar-help");
-              NodeProperties toolbar{};
-              toolbar.layout.preferredSize.width = 680.0F;
-              toolbar.wrapPanel.itemGap = theme.spacing.regular;
-              toolbar.wrapPanel.lineGap = theme.spacing.regular;
-              toolbar.wrapPanel.lineAlignment = WrapLineAlignment::Start;
-              composer.WrapPanel(
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "New", [] {}, "new", 112.0F);
-                    ComposeButton(
-                        composer, text, theme, "Open", [] {}, "open", 112.0F);
-                    ComposeButton(
-                        composer, text, theme, "Save", [] {}, "save", 112.0F);
-                    ComposeButton(
-                        composer, text, theme, "Export", [] {}, "export",
-                        112.0F);
-                    ComposeButton(
-                        composer, text, theme, "Share", [] {}, "share", 112.0F);
-                  },
-                  toolbar, "responsive-toolbar");
-            },
-            "toolbar-column");
-      },
-      "wrap-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Dashboard tiles"}, 18.0F,
-                          theme.colors.foreground, "dashboard-title",
-                          SemanticRole::Heading);
-              NodeProperties dashboard{};
-              dashboard.layout.preferredSize.width = 680.0F;
-              dashboard.grid.columns = {GridTrack::Weighted(),
-                                        GridTrack::Weighted(),
-                                        GridTrack::Weighted()};
-              dashboard.grid.rows = {GridTrack::Fixed(82.0F),
-                                     GridTrack::Fixed(82.0F)};
-              dashboard.grid.columnGap = theme.spacing.regular;
-              dashboard.grid.rowGap = theme.spacing.regular;
-              composer.Grid(
-                  [&] {
-                    const auto composeTile =
-                        [&](GridPlacement placement, const char *label,
-                            const Color color, const std::string_view key) {
-                          NodeProperties tile{};
-                          tile.gridPlacement = placement;
-                          tile.layout.padding =
-                              Thickness::Uniform(Dp{theme.spacing.regular});
-                          tile.layout.horizontalAlignment =
-                              HorizontalAlignment::Stretch;
-                          tile.layout.verticalAlignment =
-                              VerticalAlignment::Stretch;
-                          tile.visual = MakePanelVisual(theme);
-                          tile.visual.base.background = color;
-                          composer.Border(
-                              [&] {
-                                ComposeText(composer, text, String{label},
-                                            theme.typography.body,
-                                            theme.colors.foreground, "label");
-                              },
-                              tile, key);
-                        };
-                    composeTile(
-                        GridPlacement{.row = 0, .column = 0, .columnSpan = 2},
-                        "Activity", theme.colors.raisedSurface, "activity");
-                    composeTile(GridPlacement{.row = 0, .column = 2}, "Status",
-                                theme.colors.selection, "status");
-                    composeTile(GridPlacement{.row = 1, .column = 0}, "Files",
-                                theme.colors.sunkenSurface, "files");
-                    composeTile(
-                        GridPlacement{.row = 1, .column = 1, .columnSpan = 2},
-                        "Recent work", theme.colors.raisedSurface, "recent");
-                  },
-                  dashboard, "dashboard-grid");
-            },
-            "dashboard-column");
-      },
-      "dashboard-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Canvas diagram"}, 18.0F,
-                          theme.colors.foreground, "canvas-title",
-                          SemanticRole::Heading);
-              NodeProperties canvas{};
-              canvas.layout.preferredSize = Size{680.0F, 160.0F};
-              canvas.visual = MakePanelVisual(theme);
-              canvas.visual.base.background = theme.colors.sunkenSurface;
-              composer.Canvas(
-                  [&] {
-                    const auto composeNode = [&](Point offset,
-                                                 const char *label,
-                                                 const std::string_view key) {
-                      NodeProperties node{};
-                      node.canvasPlacement.offset = offset;
-                      node.canvasPlacement.contributesToDesiredSize = false;
-                      node.layout.preferredSize = Size{150.0F, 48.0F};
-                      node.layout.padding =
-                          Thickness::Uniform(Dp{theme.spacing.regular});
-                      node.visual = MakePanelVisual(theme);
-                      node.visual.base.background = theme.colors.raisedSurface;
-                      composer.Border(
-                          [&] {
-                            ComposeText(composer, text, String{label},
-                                        theme.typography.body,
-                                        theme.colors.foreground, "label");
-                          },
-                          node, key);
-                    };
-                    composeNode(Point{24.0F, 24.0F}, "Load data", "load");
-                    composeNode(Point{260.0F, 82.0F}, "Process", "process");
-                    composeNode(Point{496.0F, 24.0F}, "Show result", "result");
-                  },
-                  canvas, "diagram-canvas");
-            },
-            "canvas-column");
-      },
-      "canvas-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties scroll{};
-        scroll.layout.preferredSize = Size{680.0F, 190.0F};
-        scroll.layout.maximumSize = Size{680.0F, 190.0F};
-        scroll.layout.horizontalAlignment = HorizontalAlignment::Start;
-        scroll.layout.verticalAlignment = VerticalAlignment::Start;
-        scroll.scroll.vertical = true;
-        StyleScrollView(scroll, theme);
-        composer.ScrollView(
-            [&] {
-              NodeProperties list{};
-              list.layout.gap = theme.spacing.regular;
-              list.layout.padding = Thickness::Uniform(Dp{4.0F});
-              composer.Column(
-                  [&] {
-                    for (std::uint32_t index = 1; index <= 12; ++index) {
-                      ComposeText(composer, text,
-                                  LabeledNumber("Scrollable item ", index),
-                                  theme.typography.body,
-                                  theme.colors.foreground,
-                                  std::to_string(index));
-                    }
-                  },
-                  "scroll-content");
-            },
-            scroll, "nested-scroll");
-      },
-      "scroll-card");
-}
-
-void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
-                           const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Typography",
-      "Compare the type scale, multilingual text, wrapping, and alignment.");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Display 34"}, 34.0F,
-                          theme.colors.foreground, "display");
-              ComposeText(composer, text, String{"Title 20"}, 20.0F,
-                          theme.colors.foreground, "title");
-              ComposeText(composer, text, String{"Latin: naïve café"}, 14.0F,
-                          theme.colors.foreground, "unicode");
-              ComposeText(composer, text, String{"Greek: Ελληνικά"}, 16.0F,
-                          theme.colors.foreground, "greek");
-              ComposeText(composer, text, String{"Cyrillic: Кириллица"}, 16.0F,
-                          theme.colors.foreground, "cyrillic");
-              ComposeText(composer, text,
-                          String{"Arabic: \xD8\xA7\xD9\x84\xD8\xB9\xD8\xB1"
-                                 "\xD8\xA8\xD9\x8A\xD8\xA9"},
-                          18.0F, theme.colors.foreground, "arabic");
-              ComposeText(composer, text,
-                          String{"Mixed direction: English · \xD9\x85\xD8\xB1"
-                                 "\xD8\xAD\xD8\xA8\xD8\xA7"},
-                          16.0F, theme.colors.foreground, "bidi");
-              ComposeText(composer, text,
-                          String{"Combined letters: e\xCC\x81  A\xCC\x88"},
-                          16.0F, theme.colors.foreground, "graphemes");
-              ComposeText(composer, text,
-                          String{"Symbols: \xE2\x9C\x93  \xE2\x98\x85"}, 18.0F,
-                          theme.colors.foreground, "symbols");
-              ComposeText(composer, text,
-                          String{"Color emoji: not included in version 0.2"},
-                          14.0F, theme.colors.mutedForeground, "emoji-policy");
-              NodeProperties paragraph =
-                  TextProperties(text, 16.0F, theme.colors.foreground);
-              paragraph.layout.preferredSize.width = 650.0F;
-              paragraph.layout.maximumSize.width = 650.0F;
-              paragraph.text.wrapping = TextWrapping::Wrap;
-              paragraph.text.lineHeight = 24.0F;
-              paragraph.text.alignment = TextAlignment::Start;
-              composer.Text(
-                  String{
-                      "Long text wraps automatically. It also keeps manual "
-                      "line breaks and works with text from many languages."},
-                  text, text, paragraph, "wrapped-paragraph");
-
-              auto centered = paragraph;
-              centered.text.alignment = TextAlignment::Center;
-              centered.text.color = theme.colors.mutedForeground;
-              composer.Text(String{"Centered text\nworks on every line."}, text,
-                            text, centered, "centered-paragraph");
-            },
-            "typography-column");
-      },
-      "typography-card");
-}
-
-void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
-                         GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Text area",
-      "Edit multiple lines with keyboard selection, clipboard commands, and "
-      "caret navigation.");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Editable project notes"},
-                          20.0F, theme.colors.foreground, "text-area-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Try Enter, Shift+Arrow, Home, End, Up, and Down."},
-                  14.0F, theme.colors.mutedForeground, "text-area-help");
-
-              NodeProperties area{};
-              area.layout.preferredSize = Size{650.0F, 230.0F};
-              area.layout.maximumSize = Size{650.0F, 230.0F};
-              area.layout.padding = Thickness{14.0F, 12.0F, 14.0F, 12.0F};
-              area.layout.horizontalAlignment = HorizontalAlignment::Start;
-              area.layout.verticalAlignment = VerticalAlignment::Start;
-              area.visual = MakeTextFieldVisual(theme);
-              area.text.layout = &text;
-              area.text.geometry = &text;
-              area.text.glyphAtlas = &text;
-              area.text.fontSize = 16.0F;
-              area.text.lineHeight = 23.0F;
-              area.text.wrapping = TextWrapping::Wrap;
-              area.text.color = theme.colors.foreground;
-              area.textField.selectionColor = theme.colors.selection;
-              area.textField.caretColor = theme.colors.focus;
-              area.textField.compositionColor = theme.colors.focus;
-              area.textField.onError = [&model](const UIError &error) {
-                model.Report(error);
-              };
-              area.semantics.label = String{"Project notes"};
-              StyleScrollView(area, theme);
-              composer.TextArea(model.NotesBinding(), text, area,
-                                "project-notes");
-            },
-            "text-area-column");
-      },
-      "text-area-card");
-}
-
-void ComposeImagesPage(Composer &composer, NativeTextSystem &text,
-                       GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Images",
-      "Load common image formats and compare contain, cover, and fill modes.");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.spacious;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"PNG file"}, 20.0F,
-                          theme.colors.foreground, "image-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"This app image is shown in three different ways."},
-                  14.0F, theme.colors.mutedForeground, "image-help");
-
-              NodeProperties row{};
-              row.layout.gap = theme.spacing.regular;
-              row.layout.horizontalAlignment = HorizontalAlignment::Start;
-              row.layout.verticalAlignment = VerticalAlignment::Start;
-              composer.Element(
-                  ElementType::Row, row,
-                  [&] {
-                    const auto composeSample =
-                        [&](const char *label, const ImageFit fit,
-                            const ImageAlignment alignment, const Color tint,
-                            const std::string_view key) {
-                          NodeProperties tile{};
-                          tile.layout.preferredSize = Size{205.0F, 170.0F};
-                          tile.layout.maximumSize = Size{205.0F, 170.0F};
-                          tile.layout.padding =
-                              Thickness::Uniform(Dp{theme.spacing.compact});
-                          tile.layout.gap = theme.spacing.compact;
-                          tile.layout.horizontalAlignment =
-                              HorizontalAlignment::Start;
-                          tile.layout.verticalAlignment =
-                              VerticalAlignment::Start;
-                          tile.visual = MakePanelVisual(theme);
-                          composer.Element(
-                              ElementType::Column, tile,
-                              [&] {
-                                ComposeText(composer, text, String{label},
-                                            14.0F, theme.colors.foreground,
-                                            "label");
-                                NodeProperties image{};
-                                image.layout.preferredSize =
-                                    Size{185.0F, 125.0F};
-                                image.layout.maximumSize = Size{185.0F, 125.0F};
-                                image.layout.horizontalAlignment =
-                                    HorizontalAlignment::Start;
-                                image.layout.verticalAlignment =
-                                    VerticalAlignment::Start;
-                                image.image.fit = fit;
-                                image.image.alignment = alignment;
-                                image.image.tint = tint;
-                                if (model.ImageCache() != nullptr &&
-                                    model.GalleryImage()) {
-                                  composer.Image(
-                                      model.GalleryImage(), *model.ImageCache(),
-                                      String{"Blue and violet abstract scene "
-                                             "with a glowing coral cube"},
-                                      image, "image");
-                                }
-                              },
-                              key);
-                        };
-                    composeSample("Fit inside", ImageFit::Contain,
-                                  ImageAlignment{0.5F, 0.5F},
-                                  Color{1.0F, 1.0F, 1.0F, 1.0F}, "contain");
-                    composeSample("Fill · align right", ImageFit::Cover,
-                                  ImageAlignment{1.0F, 0.5F},
-                                  Color{1.0F, 1.0F, 1.0F, 1.0F}, "cover");
-                    composeSample("Fill · warm tint", ImageFit::Cover,
-                                  ImageAlignment{0.0F, 0.5F},
-                                  Color{1.0F, 0.78F, 0.68F, 0.9F}, "tinted");
-                  },
-                  "image-samples");
-            },
-            "image-column");
-      },
-      "image-card");
-}
-
-template <typename ComposeControl>
-void ComposeControlRow(Composer &composer, NativeTextSystem &text,
-                       const Theme &theme, const char *label,
-                       const std::string_view identifier,
-                       ComposeControl &&composeControl,
-                       const std::string_view key) {
-  NodeProperties row{};
-  row.layout.gap = theme.spacing.spacious;
-  row.layout.horizontalAlignment = HorizontalAlignment::Start;
-  row.layout.verticalAlignment = VerticalAlignment::Center;
-  composer.Element(
-      ElementType::Row, row,
-      [&] {
-        auto labelProperties = TextProperties(text, theme.typography.body,
-                                              theme.colors.foreground);
-        labelProperties.layout.preferredSize.width = 220.0F;
-        labelProperties.layout.maximumSize.width = 220.0F;
-        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-        const auto labelIdentifier = std::string{identifier} + "-label";
-        Label(composer, String{label}, text, text, labelIdentifier, identifier,
-              labelProperties, "label");
-
-        NodeProperties control{};
-        control.layout.horizontalAlignment = HorizontalAlignment::Start;
-        control.layout.verticalAlignment = VerticalAlignment::Center;
-        control.semantics.identifier = String{identifier};
-        control.semantics.labelledBy = String{labelIdentifier.c_str()};
-        control.semantics.label = String{label};
-        std::forward<ComposeControl>(composeControl)(control);
-      },
-      key);
-}
-
-void ComposeInputsPage(Composer &composer, NativeTextSystem &text,
-                       GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Inputs",
-      "Try input states, selection controls, validation, progress, tooltips, "
-      "and text fields.");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Button states"}, 18.0F,
-                          theme.colors.foreground, "button-states-title",
-                          SemanticRole::Heading);
-              NodeProperties row{};
-              row.layout.gap = theme.spacing.regular;
-              composer.Row(
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "Normal", [] {}, "normal",
-                        150.0F);
-                    ComposeButton(
-                        composer, text, theme, "Selected", [] {}, "selected",
-                        150.0F, true, true);
-                    ComposeButton(
-                        composer, text, theme, "Disabled", [] {}, "disabled",
-                        150.0F, false);
-                  },
-                  "button-states");
-            },
-            "buttons-column");
-      },
-      "buttons-card");
-
-  const ControlPresentation normalControl{.theme = theme};
-  const ControlPresentation invalidControl{
-      .theme = theme,
-      .invalid = true,
-      .onError = [&model](const UIError &error) { model.Report(error); },
-  };
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Choices and switches"}, 18.0F,
-                          theme.colors.foreground, "selection-title",
-                          SemanticRole::Heading);
-              ComposeControlRow(
-                  composer, text, theme, "Checkbox — checked", "settings-check",
-                  [&](const NodeProperties &control) {
-                    CheckBox(composer, model.CheckBinding(), normalControl,
-                             control, "control");
-                  },
-                  "checked-row");
-              ComposeControlRow(
-                  composer, text, theme, "Checkbox — mixed", "settings-mixed",
-                  [&](const NodeProperties &control) {
-                    CheckBox(composer, model.MixedCheckBinding(), normalControl,
-                             control, "control");
-                  },
-                  "mixed-row");
-              ComposeControlRow(
-                  composer, text, theme, "Checkbox — disabled",
-                  "settings-disabled-check",
-                  [&](NodeProperties control) {
-                    control.interaction.enabled = false;
-                    CheckBox(composer, model.UncheckedBinding(), normalControl,
-                             control, "control");
-                  },
-                  "disabled-check-row");
-              ComposeControlRow(
-                  composer, text, theme, "Checkbox — error",
-                  "settings-invalid-check",
-                  [&](const NodeProperties &control) {
-                    CheckBox(composer, model.UncheckedBinding(), invalidControl,
-                             control, "control");
-                  },
-                  "invalid-check-row");
-              ComposeControlRow(
-                  composer, text, theme, "Radio button — compact",
-                  "density-compact",
-                  [&](const NodeProperties &control) {
-                    RadioButton(
-                        composer,
-                        BindRadio(model.DensityBinding(), Density::Compact),
-                        normalControl, control, "control");
-                  },
-                  "radio-compact-row");
-              ComposeControlRow(
-                  composer, text, theme, "Radio button — comfortable",
-                  "density-comfortable",
-                  [&](const NodeProperties &control) {
-                    RadioButton(
-                        composer,
-                        BindRadio(model.DensityBinding(), Density::Comfortable),
-                        normalControl, control, "control");
-                  },
-                  "radio-comfortable-row");
-              ComposeControlRow(
-                  composer, text, theme, "Radio button — disabled",
-                  "density-disabled",
-                  [&](NodeProperties control) {
-                    control.interaction.enabled = false;
-                    RadioButton(
-                        composer,
-                        BindRadio(model.DensityBinding(), Density::Spacious),
-                        normalControl, control, "control");
-                  },
-                  "radio-disabled-row");
-              ComposeControlRow(
-                  composer, text, theme, "Radio button — error",
-                  "density-invalid",
-                  [&](const NodeProperties &control) {
-                    RadioButton(
-                        composer,
-                        BindRadio(model.DensityBinding(), Density::Spacious),
-                        invalidControl, control, "control");
-                  },
-                  "radio-invalid-row");
-              ComposeControlRow(
-                  composer, text, theme, "Switch — on", "updates-toggle",
-                  [&](const NodeProperties &control) {
-                    ToggleSwitch(composer, model.ToggleBinding(), normalControl,
-                                 control, "control");
-                  },
-                  "toggle-row");
-              ComposeControlRow(
-                  composer, text, theme, "Switch — disabled",
-                  "updates-disabled-toggle",
-                  [&](NodeProperties control) {
-                    control.interaction.enabled = false;
-                    ToggleSwitch(composer, model.DisabledToggleBinding(),
-                                 normalControl, control, "control");
-                  },
-                  "toggle-disabled-row");
-              ComposeControlRow(
-                  composer, text, theme, "Switch — error",
-                  "updates-invalid-toggle",
-                  [&](const NodeProperties &control) {
-                    ToggleSwitch(composer, model.DisabledToggleBinding(),
-                                 invalidControl, control, "control");
-                  },
-                  "toggle-invalid-row");
-            },
-            "selection-controls");
-      },
-      "selection-controls-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Sliders and progress"}, 18.0F,
-                          theme.colors.foreground, "range-title",
-                          SemanticRole::Heading);
-              ComposeControlRow(
-                  composer, text, theme, "Slider", "volume-slider",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.SliderBinding(),
-                           SliderRange{
-                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
-                           normalControl, control, "control");
-                  },
-                  "slider-row");
-              ComposeControlRow(
-                  composer, text, theme, "Slider — error", "invalid-slider",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.SliderBinding(), {}, invalidControl,
-                           control, "control");
-                  },
-                  "invalid-slider-row");
-              ComposeControlRow(
-                  composer, text, theme, "Slider — disabled", "disabled-slider",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    control.interaction.enabled = false;
-                    Slider(composer, model.SliderBinding(), {}, normalControl,
-                           control, "control");
-                  },
-                  "disabled-slider-row");
-              ComposeControlRow(
-                  composer, text, theme, "Progress bar", "progress-determinate",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    ProgressBar(composer,
-                                ProgressValue{.value = model.SliderValue(),
-                                              .minimum = 0.0F,
-                                              .maximum = 1.0F},
-                                normalControl, control, "control");
-                  },
-                  "progress-row");
-              ComposeControlRow(
-                  composer, text, theme, "Progress bar — busy",
-                  "progress-indeterminate",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    ProgressBar(composer,
-                                ProgressValue{.value = 0.0F,
-                                              .minimum = 0.0F,
-                                              .maximum = 1.0F,
-                                              .indeterminate = true},
-                                normalControl, control, "control");
-                  },
-                  "progress-indeterminate-row");
-              ComposeControlRow(
-                  composer, text, theme, "Progress bar — error",
-                  "progress-invalid",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    ProgressBar(composer,
-                                ProgressValue{.value = 0.35F,
-                                              .minimum = 0.0F,
-                                              .maximum = 1.0F},
-                                invalidControl, control, "control");
-                  },
-                  "progress-invalid-row");
-              ComposeControlRow(
-                  composer, text, theme, "Progress bar — disabled",
-                  "progress-disabled",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    control.interaction.enabled = false;
-                    ProgressBar(composer,
-                                ProgressValue{.value = 0.48F,
-                                              .minimum = 0.0F,
-                                              .maximum = 1.0F},
-                                normalControl, control, "control");
-                  },
-                  "progress-disabled-row");
-              ComposeText(composer, text,
-                          String{"Try Tab, Space, Enter, and the arrow keys."},
-                          theme.typography.caption,
-                          theme.colors.mutedForeground, "keyboard-help");
-            },
-            "range-controls");
-      },
-      "range-controls-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        ComposeText(composer, text, String{"Tooltip"}, 18.0F,
-                    theme.colors.foreground, "tooltip-title",
-                    SemanticRole::Heading);
-        ComposeButton(
-            composer, text, theme, "Hover for help", [] {}, "tooltip-target",
-            250.0F, true, false, model.HelpToolTip());
-        if (auto *toolTip = model.HelpToolTip(); toolTip != nullptr) {
-          toolTip->Compose(
-              composer,
-              [&] {
-                ComposeCard(
-                    composer, theme,
-                    [&] {
-                      ComposeText(composer, text,
-                                  String{"Helpful text after a short delay"},
-                                  theme.typography.caption,
-                                  theme.colors.foreground, "tooltip-text");
-                    },
-                    "tooltip-card", 280.0F);
-              },
-              "delayed-tooltip");
-        }
-      },
-      "tooltip-demo-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Editable"}, 14.0F,
-                          theme.colors.mutedForeground, "editable-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Name", "editable");
-              ComposeText(composer, text, String{"Read-only"}, 14.0F,
-                          theme.colors.mutedForeground, "readonly-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Read-only name",
-                               "readonly", true);
-              ComposeText(composer, text, String{"Error"}, 14.0F,
-                          theme.colors.mutedForeground, "invalid-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Invalid example",
-                               "invalid", false, true, true);
-              ComposeText(composer, text, String{"Password"}, 14.0F,
-                          theme.colors.mutedForeground, "password-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.PasswordBinding(), "Password", "password",
-                               false, true, false, true);
-              ComposeText(composer, text, String{"Disabled"}, 14.0F,
-                          theme.colors.mutedForeground, "disabled-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Disabled field",
-                               "disabled-field", false, false);
-            },
-            "fields-column");
-      },
-      "fields-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Form validation"}, 20.0F,
-                          theme.colors.foreground, "validation-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Each field shows when it is checked. Try admin as "
-                         "the display name."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "validation-help");
-
-              ComposeText(
-                  composer, text, String{"Display name — checked as you type"},
-                  14.0F, theme.colors.mutedForeground, "validation-name-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Display name",
-                               "validation-name");
-              ComposeText(composer, text, model.NameValidationMessage(),
-                          theme.typography.caption,
-                          theme.colors.mutedForeground,
-                          "validation-name-message");
-
-              ComposeText(composer, text,
-                          String{"Password — checked when requested"}, 14.0F,
-                          theme.colors.mutedForeground,
-                          "validation-password-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.PasswordBinding(), "Password",
-                               "validation-password", false, true, false, true);
-              ComposeText(composer, text, model.PasswordValidationMessage(),
-                          theme.typography.caption,
-                          theme.colors.mutedForeground,
-                          "validation-password-message");
-
-              ComposeText(composer, text,
-                          String{"Notes — checked on first form check"}, 14.0F,
-                          theme.colors.mutedForeground,
-                          "validation-notes-label");
-              ComposeTextField(composer, text, model, theme,
-                               model.NotesBinding(), "Notes",
-                               "validation-notes");
-              ComposeText(composer, text, model.NotesValidationMessage(),
-                          theme.typography.caption,
-                          theme.colors.mutedForeground,
-                          "validation-notes-message");
-
-              NodeProperties actions{};
-              actions.layout.gap = theme.spacing.regular;
-              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
-              composer.Row(
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "Check form",
-                        [&model] { model.ValidateForm(); }, "validation-check",
-                        145.0F,
-                        !model.IsFormValidating() && !model.IsFormSaving());
-                    ComposeCommandButton(composer, text, theme, "Save",
-                                         model.FormSaveBinding(),
-                                         "validation-save", 135.0F);
-                    ComposeButton(
-                        composer, text, theme, "Test save error",
-                        [&model] { model.StartFailingFormSave(); },
-                        "validation-fail", 175.0F,
-                        model.FormSaveBinding().CanExecute());
-                    ComposeButton(
-                        composer, text, theme, "Cancel",
-                        [&model] { model.CancelFormSave(); },
-                        "validation-cancel", 125.0F, model.IsFormSaving());
-                  },
-                  "validation-actions");
-              ComposeText(composer, text, model.ValidationSummary(),
-                          theme.typography.body, theme.colors.foreground,
-                          "validation-summary");
-              if (model.IsFormSaving()) {
-                NodeProperties progress{};
-                progress.layout.preferredSize.width = 420.0F;
-                ProgressBar(composer, ProgressValue{.indeterminate = true},
-                            ControlPresentation{.theme = theme}, progress,
-                            "validation-save-progress");
-              }
-              ComposeText(composer, text, model.FormSaveStatus(),
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "validation-save-status");
-            },
-            "validation-column");
-      },
-      "validation-card");
-}
-
-void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
-                          GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Async data",
-                     "Preview clear loading, content, empty, error, retry, and "
-                     "cancel states.");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Choose a result"}, 18.0F,
-                          theme.colors.foreground, "async-choices-title",
-                          SemanticRole::Heading);
-              NodeProperties choices{};
-              choices.layout.gap = theme.spacing.regular;
-              choices.layout.horizontalAlignment = HorizontalAlignment::Start;
-              composer.Row(
-                  [&] {
-                    const auto key = model.AsyncDemoKey();
-                    ComposeButton(
-                        composer, text, theme, "Items",
-                        [&model] { model.SelectAsyncDemo("inbox"); },
-                        "async-items", 145.0F, true, key == String{"inbox"});
-                    ComposeButton(
-                        composer, text, theme, "Empty",
-                        [&model] { model.SelectAsyncDemo("empty"); },
-                        "async-empty", 145.0F, true, key == String{"empty"});
-                    ComposeButton(
-                        composer, text, theme, "Error",
-                        [&model] { model.SelectAsyncDemo("broken"); },
-                        "async-error", 145.0F, true, key == String{"broken"});
-                    ComposeButton(
-                        composer, text, theme, "Switch quickly",
-                        [&model] { model.RunRapidAsyncDemo(); }, "async-rapid",
-                        170.0F);
-                  },
-                  "async-choices");
-              ComposeText(
-                  composer, text,
-                  String{"Switching cancels the old screen. Its result cannot "
-                         "replace the new one."},
-                  theme.typography.caption, theme.colors.mutedForeground,
-                  "async-lifetime-help");
-            },
-            "async-choice-column");
-      },
-      "async-choice-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              const auto state = model.AsyncDemoState();
-              const auto title =
-                  state == AsyncPresentationKind::Loading   ? "Loading"
-                  : state == AsyncPresentationKind::Content ? "Content"
-                  : state == AsyncPresentationKind::Empty   ? "Empty"
-                  : state == AsyncPresentationKind::Error   ? "Error"
-                                                            : "Idle";
-              ComposeText(composer, text, String{title}, 22.0F,
-                          theme.colors.foreground, "async-state-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text, model.AsyncDemoMessage(),
-                          theme.typography.body, theme.colors.foreground,
-                          "async-state-message");
-
-              if (state == AsyncPresentationKind::Loading) {
-                NodeProperties progress{};
-                progress.layout.preferredSize.width = 420.0F;
-                ProgressBar(composer, ProgressValue{.indeterminate = true},
-                            ControlPresentation{.theme = theme}, progress,
-                            "async-loading-progress");
-                ComposeCommandButton(composer, text, theme, "Cancel",
-                                     model.AsyncCancelBinding(), "async-cancel",
-                                     180.0F);
-              } else {
-                if (state == AsyncPresentationKind::Content) {
-                  const auto items = model.AsyncDemoItems();
-                  for (NGIN::UIntSize index = 0; index < items.size();
-                       ++index) {
-                    const auto itemKey =
-                        std::string{"async-item-"} + std::to_string(index);
-                    ComposeText(composer, text, items[index],
-                                theme.typography.body,
-                                theme.colors.mutedForeground, itemKey);
-                  }
-                }
-                ComposeCommandButton(
-                    composer, text, theme,
-                    state == AsyncPresentationKind::Content ? "Reload"
-                                                            : "Try again",
-                    model.AsyncRetryBinding(), "async-retry", 180.0F);
-              }
-            },
-            "async-state-column");
-      },
-      "async-state-card");
-}
-
-void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
-                            GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Collections",
-      "Work with selection, large virtualized lists, tabs, menus, and combo "
-      "boxes.");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties content{};
-        content.layout.gap = theme.spacing.regular;
-        composer.Element(
-            ElementType::Column, content,
-            [&] {
-              ComposeText(composer, text, String{"100,000-item list"}, 20.0F,
-                          theme.colors.foreground, "virtual-list-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Scroll or press End. Only the rows near the screen "
-                         "are created."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "virtual-list-help");
-
-              NodeProperties actions{};
-              actions.layout.gap = theme.spacing.regular;
-              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
-              composer.Element(
-                  ElementType::Row, actions,
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "Add 250 rows above",
-                        [&model] { model.PrependVirtualizedItems(); },
-                        "prepend-virtual-items", 220.0F);
-                    const auto selected = model.SelectedVirtualizedIndex();
-                    ComposeText(composer, text,
-                                selected ? LabeledNumber("Selected row: ",
-                                                         *selected + 1)
-                                         : String{"No row selected"},
-                                theme.typography.body,
-                                theme.colors.mutedForeground,
-                                "virtual-selected-row");
-                  },
-                  "virtual-list-actions");
-
-              auto &source = model.VirtualizedCollectionSource();
-              auto &controller = model.VirtualizedCollectionController();
-              VirtualizedListPresentation presentation{};
-              presentation.list.layout.preferredSize = Size{680.0F, 280.0F};
-              presentation.list.layout.maximumSize = Size{680.0F, 280.0F};
-              presentation.list.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              presentation.list.layout.verticalAlignment =
-                  VerticalAlignment::Start;
-              presentation.list.layout.padding = Thickness::Uniform(Dp{6.0F});
-              presentation.list.visual = MakePanelVisual(theme);
-              presentation.list.visual.base.background =
-                  theme.colors.sunkenSurface;
-              presentation.list.semantics.label =
-                  String{"100,000-item virtual list"};
-              StyleScrollView(presentation.list, theme);
-              presentation.item.layout.padding =
-                  Thickness{12.0F, 8.0F, 12.0F, 8.0F};
-              presentation.item.visual = MakePanelVisual(theme);
-              presentation.item.visual.base.background =
-                  theme.colors.raisedSurface;
-              presentation.item.visual.states.hovered.borderColor =
-                  theme.colors.focus;
-              presentation.item.visual.states.pressed.background =
-                  theme.colors.accentPressed;
-              presentation.item.visual.states.selected.background =
-                  theme.colors.accent;
-              presentation.item.visual.states.selected.borderColor =
-                  theme.colors.focus;
-              presentation.selectedIndex = [&model] {
-                return model.SelectedVirtualizedIndex();
-              };
-              presentation.isSelected = [&model](const auto index) {
-                return model.SelectedVirtualizedIndex() == index;
-              };
-              presentation.activate = [&model](const auto index) {
-                return model.SelectVirtualizedItem(index);
-              };
-              presentation.onError = [&model](const UIError &error) {
-                model.Report(error);
-              };
-              VirtualizedListView<NGIN::UIntSize>(
-                  composer, controller, source,
-                  [&](Composer &, const NGIN::UIntSize &,
-                      const NGIN::UIntSize index) {
-                    auto label = source.LabelAt(index);
-                    ComposeText(composer, text,
-                                label ? std::move(label).value()
-                                      : String{"Loading row"},
-                                theme.typography.body,
-                                model.SelectedVirtualizedIndex() == index
-                                    ? theme.colors.accentForeground
-                                    : theme.colors.foreground,
-                                "virtual-row-label");
-                  },
-                  presentation, "virtual-list-100000");
-
-              const auto diagnostics = controller.Diagnostics();
-              String rangeLine{"Rows on screen: "};
-              if (diagnostics.realized.count == 0) {
-                rangeLine.Append(String{"none"});
-              } else {
-                rangeLine.Append(Number(diagnostics.realized.first + 1));
-                rangeLine.Append(String{" to "});
-                rangeLine.Append(Number(diagnostics.realized.End()));
-              }
-              rangeLine.Append(String{" · created: "});
-              rangeLine.Append(Number(diagnostics.realizedNodeCount));
-              rangeLine.Append(String{" · range loads: "});
-              rangeLine.Append(Number(diagnostics.rangeRequestCount));
-              ComposeText(composer, text, std::move(rangeLine),
-                          theme.typography.caption,
-                          theme.colors.mutedForeground,
-                          "virtual-list-diagnostics");
-            },
-            "virtual-list-content");
-      },
-      "virtual-list-card");
-
-  NodeProperties actions{};
-  actions.layout.gap = theme.spacing.regular;
-  actions.layout.horizontalAlignment = HorizontalAlignment::Start;
-  composer.Element(
-      ElementType::Row, actions,
-      [&] {
-        ComposeButton(
-            composer, text, theme, "Add item",
-            [&model] { model.AddCollectionItem(); }, "add-item", 150.0F);
-        ComposeButton(
-            composer, text, theme, "Remove selected",
-            [&model] { model.RemoveSelectedCollectionItem(); }, "remove-item",
-            170.0F);
-        ComposeButton(
-            composer, text, theme,
-            model.IsCollectionDescending() ? "Sort ascending"
-                                           : "Sort descending",
-            [&model] { model.ToggleCollectionSort(); }, "sort-items", 170.0F);
-        ComposeButton(
-            composer, text, theme,
-            model.IsCollectionFiltered() ? "Show all" : "Filter even items",
-            [&model] { model.ToggleCollectionFilter(); }, "filter-items",
-            160.0F);
-      },
-      "collection-actions");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties collectionColumn{};
-        collectionColumn.layout.gap = theme.spacing.regular;
-        composer.Element(
-            ElementType::Column, collectionColumn,
-            [&] {
-              ComposeText(composer, text, String{"Selectable list"}, 20.0F,
-                          theme.colors.foreground, "list-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Use the arrow keys, Home, End, or type a letter."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "list-help");
-              NodeProperties list{};
-              list.layout.preferredSize = Size{680.0F, 250.0F};
-              list.layout.maximumSize = Size{680.0F, 250.0F};
-              list.layout.horizontalAlignment = HorizontalAlignment::Start;
-              list.layout.verticalAlignment = VerticalAlignment::Start;
-              list.layout.padding = Thickness::Uniform(Dp{6.0F});
-              list.visual = MakePanelVisual(theme);
-              list.visual.base.background = theme.colors.sunkenSurface;
-              list.semantics.label = String{"Gallery items"};
-              StyleScrollView(list, theme);
-              const auto items = model.CollectionItems();
-              const auto selected = model.SelectedCollectionItem();
-              composer.ListView(
-                  [&] {
-                    NodeProperties itemColumn{};
-                    itemColumn.layout.gap = theme.spacing.compact;
-                    composer.Element(
-                        ElementType::Column, itemColumn,
-                        [&] {
-                          for (const auto item : items) {
-                            auto itemProperties = NodeProperties{};
-                            itemProperties.layout.preferredSize =
-                                Size{650.0F, 42.0F};
-                            itemProperties.layout.padding =
-                                Thickness{12.0F, 8.0F, 12.0F, 8.0F};
-                            itemProperties.layout.horizontalAlignment =
-                                HorizontalAlignment::Start;
-                            itemProperties.layout.verticalAlignment =
-                                VerticalAlignment::Start;
-                            itemProperties.visual = MakePanelVisual(theme);
-                            itemProperties.visual.base.background =
-                                theme.colors.raisedSurface;
-                            itemProperties.visual.states.hovered.borderColor =
-                                theme.colors.focus;
-                            itemProperties.visual.states.pressed.background =
-                                theme.colors.accentPressed;
-                            itemProperties.visual.states.selected.background =
-                                theme.colors.accent;
-                            itemProperties.visual.states.selected.borderColor =
-                                theme.colors.focus;
-                            itemProperties.semantics.label =
-                                LabeledNumber("Item ", item);
-                            const auto key = std::to_string(item);
-                            SelectableListItem(
-                                composer, model.CollectionSelection(item),
-                                [&] {
-                                  ComposeText(
-                                      composer, text,
-                                      LabeledNumber(selected &&
-                                                            *selected == item
-                                                        ? "> Item "
-                                                        : "  Item ",
-                                                    item),
-                                      15.0F,
-                                      selected && *selected == item
-                                          ? theme.colors.accentForeground
-                                          : theme.colors.foreground,
-                                      "item-label");
-                                },
-                                itemProperties,
-                                CollectionPresentation{
-                                    .onError =
-                                        [&model](const UIError &error) {
-                                          model.Report(error);
-                                        },
-                                },
-                                key);
-                          }
-                        },
-                        "keyed-items");
-                  },
-                  list, "collection-list");
-            },
-            "collection-content");
-      },
-      "collection-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties navigationColumn{};
-        navigationColumn.layout.gap = theme.spacing.regular;
-        composer.Element(
-            ElementType::Column, navigationColumn,
-            [&] {
-              ComposeText(composer, text, String{"Combo box, tabs, and menus"},
-                          20.0F, theme.colors.foreground, "navigation-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Open each control and try its options."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "navigation-help");
-
-              NodeProperties navigationRow{};
-              navigationRow.layout.gap = theme.spacing.spacious;
-              navigationRow.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              composer.Element(
-                  ElementType::Row, navigationRow,
-                  [&] {
-                    NodeProperties comboButton{};
-                    comboButton.layout.preferredSize =
-                        Size{230.0F, theme.controls.regularHeight};
-                    comboButton.layout.padding =
-                        Thickness{14.0F, 8.0F, 14.0F, 8.0F};
-                    comboButton.layout.horizontalAlignment =
-                        HorizontalAlignment::Start;
-                    comboButton.layout.verticalAlignment =
-                        VerticalAlignment::Start;
-                    comboButton.visual = MakeButtonVisual(theme);
-                    comboButton.semantics.label = String{"Density"};
-
-                    NodeProperties comboPopup{};
-                    ComboBox(
-                        composer, model.ComboPopup(), "gallery-density-combo",
-                        [&] {
-                          const auto label =
-                              model.DensityBinding().Get() == Density::Compact
-                                  ? "Density: Compact"
-                              : model.DensityBinding().Get() ==
-                                      Density::Spacious
-                                  ? "Density: Spacious"
-                                  : "Density: Comfortable";
-                          ComposeText(composer, text, String{label}, 14.0F,
-                                      theme.colors.accentForeground,
-                                      "combo-summary");
-                        },
-                        [&] {
-                          NodeProperties popupCard{};
-                          popupCard.layout.preferredSize.width = 230.0F;
-                          popupCard.layout.padding =
-                              Thickness::Uniform(Dp{theme.spacing.compact});
-                          popupCard.visual = MakePanelVisual(theme);
-                          composer.Border(
-                              [&] {
-                                NodeProperties optionColumn{};
-                                optionColumn.layout.gap = theme.spacing.compact;
-                                composer.Element(
-                                    ElementType::Column, optionColumn,
-                                    [&] {
-                                      constexpr std::array options{
-                                          Density::Compact,
-                                          Density::Comfortable,
-                                          Density::Spacious};
-                                      constexpr std::array labels{
-                                          "Compact", "Comfortable", "Spacious"};
-                                      for (NGIN::UIntSize index = 0;
-                                           index < options.size(); ++index) {
-                                        auto option = NodeProperties{};
-                                        option.layout.preferredSize =
-                                            Size{210.0F, 36.0F};
-                                        option.layout.padding =
-                                            Thickness{10.0F, 7.0F, 10.0F, 7.0F};
-                                        option.visual = MakePanelVisual(theme);
-                                        option.visual.states.selected
-                                            .background = theme.colors.accent;
-                                        option.semantics.label =
-                                            String{labels[index]};
-                                        auto selection =
-                                            BindListItem(model.DensityBinding(),
-                                                         options[index]);
-                                        auto select = selection.select;
-                                        selection.select =
-                                            [select = std::move(select),
-                                             &model]() mutable
-                                            -> UIResult<void> {
-                                          auto result = select();
-                                          if (result) {
-                                            model.ComboPopup().Close();
-                                          }
-                                          return result;
-                                        };
-                                        SelectableListItem(
-                                            composer, std::move(selection),
-                                            [&] {
-                                              ComposeText(
-                                                  composer, text,
-                                                  String{labels[index]}, 14.0F,
-                                                  theme.colors.foreground,
-                                                  "option-label");
-                                            },
-                                            option, {}, labels[index]);
-                                      }
-                                    },
-                                    "density-options");
-                              },
-                              popupCard, "density-popup-card");
-                        },
-                        comboButton, comboPopup, "density-combo");
-
-                    NodeProperties menuButton{};
-                    menuButton.layout.preferredSize =
-                        Size{190.0F, theme.controls.regularHeight};
-                    menuButton.layout.padding =
-                        Thickness{14.0F, 8.0F, 14.0F, 8.0F};
-                    menuButton.layout.horizontalAlignment =
-                        HorizontalAlignment::Start;
-                    menuButton.layout.verticalAlignment =
-                        VerticalAlignment::Start;
-                    menuButton.visual = MakeButtonVisual(theme);
-                    menuButton.semantics.label = String{"Collection actions"};
-                    MenuButton(
-                        composer, model.MenuPopup(), "gallery-menu-button",
-                        [&] {
-                          ComposeText(composer, text, String{"Actions menu"},
-                                      14.0F, theme.colors.accentForeground,
-                                      "menu-summary");
-                        },
-                        [&] {
-                          NodeProperties menuCard{};
-                          menuCard.layout.preferredSize.width = 220.0F;
-                          menuCard.layout.padding =
-                              Thickness::Uniform(Dp{theme.spacing.compact});
-                          menuCard.layout.gap = theme.spacing.compact;
-                          menuCard.visual = MakePanelVisual(theme);
-                          composer.Element(
-                              ElementType::Column, menuCard,
-                              [&] {
-                                const auto composeMenuItem =
-                                    [&](const char *label, const char *message,
-                                        const std::string_view key) {
-                                      NodeProperties item{};
-                                      item.layout.preferredSize =
-                                          Size{200.0F, 36.0F};
-                                      item.layout.padding =
-                                          Thickness{10.0F, 7.0F, 10.0F, 7.0F};
-                                      item.visual = MakePanelVisual(theme);
-                                      item.visual.states.hovered.background =
-                                          theme.colors.raisedSurface;
-                                      item.semantics.label = String{label};
-                                      MenuItem(
-                                          composer,
-                                          [&] {
-                                            ComposeText(composer, text,
-                                                        String{label}, 14.0F,
-                                                        theme.colors.foreground,
-                                                        "menu-item-label");
-                                          },
-                                          [&model, message] {
-                                            model.Notify(message);
-                                            model.MenuPopup().Close();
-                                          },
-                                          item, key);
-                                    };
-                                composeMenuItem("Duplicate selection",
-                                                "Menu: duplicate requested",
-                                                "duplicate");
-                                composeMenuItem("Export selection",
-                                                "Menu: export requested",
-                                                "export");
-                              },
-                              "actions-menu");
-                        },
-                        menuButton, {}, "actions-menu-button");
-                  },
-                  "navigation-controls");
-
-              const std::array<TabDefinition<CollectionTab>, 3> tabs{
-                  TabDefinition<CollectionTab>{
-                      .value = CollectionTab::Selection,
-                      .key = String{"selection"},
-                      .label = String{"Selection"},
-                  },
-                  TabDefinition<CollectionTab>{
-                      .value = CollectionTab::Identity,
-                      .key = String{"identity"},
-                      .label = String{"Changing items"},
-                  },
-                  TabDefinition<CollectionTab>{
-                      .value = CollectionTab::DataSource,
-                      .key = String{"data-source"},
-                      .label = String{"Loading more"},
-                  },
-              };
-              TabsPresentation tabsPresentation{};
-              tabsPresentation.root.layout.gap = theme.spacing.regular;
-              tabsPresentation.root.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              tabsPresentation.tabList.layout.gap = theme.spacing.compact;
-              tabsPresentation.tab.layout.preferredSize =
-                  Size{170.0F, theme.controls.regularHeight};
-              tabsPresentation.tab.layout.padding =
-                  Thickness{12.0F, 8.0F, 12.0F, 8.0F};
-              tabsPresentation.tab.visual = MakePanelVisual(theme);
-              tabsPresentation.tab.visual.states.hovered.background =
-                  theme.colors.raisedSurface;
-              tabsPresentation.tab.visual.states.selected.background =
-                  theme.colors.accent;
-              tabsPresentation.tab.visual.states.selected.foreground =
-                  theme.colors.accentForeground;
-              tabsPresentation.tab.visual.focus = MakeButtonVisual(theme).focus;
-              tabsPresentation.panel.layout.preferredSize = Size{650.0F, 92.0F};
-              tabsPresentation.panel.layout.padding =
-                  Thickness::Uniform(Dp{theme.spacing.spacious});
-              tabsPresentation.panel.visual = MakePanelVisual(theme);
-              tabsPresentation.panel.visual.base.background =
-                  theme.colors.sunkenSurface;
-              tabsPresentation.onError = [&model](const UIError &error) {
-                model.Report(error);
-              };
-              Tabs<CollectionTab>(
-                  composer, model.CollectionTabBinding(), tabs,
-                  [&](Composer &, const auto &definition,
-                      const bool selectedTab) {
-                    ComposeText(composer, text, definition.label, 14.0F,
-                                selectedTab ? theme.colors.accentForeground
-                                            : theme.colors.foreground,
-                                "tab-label");
-                  },
-                  [&](Composer &, const auto &definition, const bool) {
-                    const auto description =
-                        definition.value == CollectionTab::Selection
-                            ? "Choose one item or several items."
-                        : definition.value == CollectionTab::Identity
-                            ? "Items keep their state when you add, remove, "
-                              "sort, or filter."
-                            : "Large lists can load more items when needed.";
-                    ComposeText(composer, text, String{description}, 14.0F,
-                                theme.colors.foreground, "tab-description");
-                  },
-                  tabsPresentation, "collection-tabs");
-
-              NodeProperties contextTarget{};
-              contextTarget.layout.preferredSize = Size{650.0F, 58.0F};
-              contextTarget.layout.padding =
-                  Thickness::Uniform(Dp{theme.spacing.spacious});
-              contextTarget.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              contextTarget.visual = MakePanelVisual(theme);
-              contextTarget.visual.base.background = theme.colors.raisedSurface;
-              contextTarget.semantics.role = SemanticRole::Group;
-              contextTarget.semantics.label = String{"Context-menu target"};
-              AttachContextMenu(contextTarget, model.ContextPopup());
-              composer.Border(
-                  [&] {
-                    ComposeText(composer, text,
-                                String{"Right-click here for a context menu"},
-                                14.0F, theme.colors.foreground,
-                                "context-target-label");
-                  },
-                  contextTarget, "context-target");
-              ContextMenu(composer, model.ContextPopup(), [&] {
-                NodeProperties menuCard{};
-                menuCard.layout.preferredSize.width = 220.0F;
-                menuCard.layout.padding =
-                    Thickness::Uniform(Dp{theme.spacing.compact});
-                menuCard.visual = MakePanelVisual(theme);
-                composer.Element(
-                    ElementType::Column, menuCard,
-                    [&] {
-                      NodeProperties item{};
-                      item.layout.preferredSize = Size{200.0F, 36.0F};
-                      item.layout.padding = Thickness{10.0F, 7.0F, 10.0F, 7.0F};
-                      item.visual = MakePanelVisual(theme);
-                      item.semantics.label = String{"Inspect item"};
-                      MenuItem(
-                          composer,
-                          [&] {
-                            ComposeText(composer, text, String{"Inspect item"},
-                                        14.0F, theme.colors.foreground,
-                                        "context-item-label");
-                          },
-                          [&model] {
-                            model.Notify("Context menu: inspect requested");
-                            model.ContextPopup().Close();
-                          },
-                          item, "inspect");
-                    },
-                    "context-menu-items");
-              });
-            },
-            "navigation-content");
-      },
-      "navigation-card");
-}
-
-void ComposeMotionPage(Composer &composer, NativeTextSystem &text,
-                       GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Motion",
-      "Use purposeful transitions to explain change, guide attention, and "
-      "respect reduced-motion preferences.");
-
-  const auto regular = AnimationSpec{
-      .timing =
-          TweenTiming{
-              .duration = std::chrono::milliseconds{360},
-              .curve = EasingCurve::Standard(),
-          },
-  };
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(
-                  composer, text, String{"Fade, move, scale, and color"}, 18.0F,
-                  theme.colors.foreground, "title", SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Press the button again before it finishes to "
-                                 "change direction."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "help");
-              ComposeButton(
-                  composer, text, theme,
-                  model.MotionForward() ? "Send it back" : "Move it",
-                  [&model] { model.ToggleMotionTarget(); }, "toggle-motion",
-                  180.0F);
-
-              NodeProperties track{};
-              track.layout.preferredSize = Size{680.0F, 92.0F};
-              track.layout.maximumSize = Size{680.0F, 92.0F};
-              track.visual.base.background = theme.colors.sunkenSurface;
-              track.visual.base.cornerRadius =
-                  CornerRadius::Uniform(Dp{theme.radii.regular});
-              track.canvas.clipToBounds = true;
-              composer.Canvas(
-                  [&] {
-                    NodeProperties sample{};
-                    sample.layout.preferredSize = Size{150.0F, 58.0F};
-                    sample.layout.padding = Thickness::Uniform(Dp{12.0F});
-                    sample.canvasPlacement =
-                        CanvasPlacement{.offset = Point{14.0F, 17.0F}};
-                    sample.visual = MakePanelVisual(theme);
-                    sample.visual.base.background = theme.colors.accent;
-                    sample.motion.opacity =
-                        Animate(model.MotionForward() ? 1.0F : 0.42F, regular);
-                    sample.motion.translation = Animate(
-                        model.MotionForward() ? Point{485.0F, 0.0F} : Point{},
-                        regular);
-                    sample.motion.scale =
-                        Animate(model.MotionForward() ? Point{1.0F, 1.0F}
-                                                      : Point{0.88F, 0.88F},
-                                regular);
-                    sample.motion.background = Animate(
-                        model.MotionForward() ? theme.colors.accentHovered
-                                              : theme.colors.accentPressed,
-                        regular);
-                    sample.semantics.role = SemanticRole::Group;
-                    sample.semantics.label = String{"Animated sample"};
-                    composer.Border(
-                        [&] {
-                          ComposeText(composer, text, String{"Hello"}, 18.0F,
-                                      theme.colors.accentForeground, "label");
-                        },
-                        sample, "moving-sample");
-                  },
-                  track, "motion-track");
-            },
-            "motion-basics");
-      },
-      "motion-basics-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Wait for animations"}, 18.0F,
-                          theme.colors.foreground, "title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Run steps in order, move two items together, cancel "
-                         "a slow move, or replace a move while it is running."},
-                  theme.typography.body, theme.colors.mutedForeground, "help");
-
-              NodeProperties actions{};
-              actions.layout.preferredSize.width = 680.0F;
-              actions.wrapPanel.itemGap = theme.spacing.compact;
-              actions.wrapPanel.lineGap = theme.spacing.compact;
-              composer.WrapPanel(
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "Run steps",
-                        [&model] { model.StartAsyncMotionSequence(); },
-                        "sequence", 128.0F);
-                    ComposeButton(
-                        composer, text, theme, "Move together",
-                        [&model] { model.StartParallelMotion(); }, "parallel",
-                        138.0F);
-                    ComposeButton(
-                        composer, text, theme, "Start slow move",
-                        [&model] { model.StartCancelableMotion(); }, "slow",
-                        150.0F);
-                    ComposeButton(
-                        composer, text, theme, "Cancel",
-                        [&model] { model.CancelAsyncMotion(); }, "cancel",
-                        104.0F);
-                    ComposeButton(
-                        composer, text, theme, "Replace move",
-                        [&model] { model.InterruptAsyncMotion(); }, "interrupt",
-                        138.0F);
-                  },
-                  actions, "async-actions");
-
-              ComposeText(composer, text, model.AsyncMotionStatus(),
-                          theme.typography.body, theme.colors.foreground,
-                          "async-status", SemanticRole::Text);
-
-              const auto composeLane = [&](MotionController &controller,
-                                           const Color color,
-                                           const std::string_view key) {
-                NodeProperties lane{};
-                lane.layout.preferredSize = Size{680.0F, 46.0F};
-                lane.layout.maximumSize = Size{680.0F, 46.0F};
-                lane.visual.base.background = theme.colors.sunkenSurface;
-                lane.canvas.clipToBounds = true;
-                composer.Canvas(
-                    [&] {
-                      NodeProperties sample{};
-                      sample.layout.preferredSize = Size{220.0F, 34.0F};
-                      sample.layout.padding =
-                          Thickness{12.0F, 7.0F, 12.0F, 7.0F};
-                      sample.canvasPlacement =
-                          CanvasPlacement{.offset = Point{4.0F, 6.0F}};
-                      sample.visual = MakePanelVisual(theme);
-                      sample.visual.base.background = color;
-                      controller.Attach(sample.motion);
-                      composer.Border(
-                          [&] {
-                            ComposeText(composer, text, String{"Awaited"},
-                                        12.0F, theme.colors.accentForeground,
-                                        "label");
-                          },
-                          sample, "sample");
-                    },
-                    lane, key);
-              };
-              composeLane(model.AsyncPrimaryMotion(), theme.colors.accent,
-                          "async-primary");
-              composeLane(model.AsyncSecondaryMotion(),
-                          theme.colors.accentHovered, "async-secondary");
-              ComposeText(
-                  composer, text,
-                  String{"Turn animations off below, then start a demo. It "
-                         "will finish immediately."},
-                  theme.typography.caption, theme.colors.mutedForeground,
-                  "reduced-help");
-            },
-            "async-motion-column");
-      },
-      "async-motion-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Easing"}, 18.0F,
-                          theme.colors.foreground, "title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Each curve reaches the same place in a "
-                                 "different way."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "help");
-              const std::array curves{
-                  std::pair{EasingCurve::Linear(), "Linear"},
-                  std::pair{EasingCurve::Standard(), "Standard"},
-                  std::pair{EasingCurve::EaseIn(), "Ease in"},
-                  std::pair{EasingCurve::EaseOut(), "Ease out"},
-                  std::pair{GalleryOvershoot(), "Custom overshoot"},
-              };
-              for (NGIN::UIntSize index = 0; index < curves.size(); ++index) {
-                NodeProperties lane{};
-                lane.layout.preferredSize = Size{680.0F, 34.0F};
-                lane.layout.maximumSize = Size{680.0F, 34.0F};
-                lane.visual.base.background = theme.colors.sunkenSurface;
-                lane.canvas.clipToBounds = true;
-                const auto [curve, label] = curves[index];
-                composer.Canvas(
-                    [&] {
-                      NodeProperties dot{};
-                      dot.layout.preferredSize = Size{140.0F, 26.0F};
-                      dot.layout.padding = Thickness{9.0F, 4.0F, 9.0F, 4.0F};
-                      dot.canvasPlacement =
-                          CanvasPlacement{.offset = Point{4.0F, 4.0F}};
-                      dot.visual = MakePanelVisual(theme);
-                      dot.visual.base.background = theme.colors.accent;
-                      dot.motion.translation = Animate(
-                          model.MotionForward() ? Point{532.0F, 0.0F} : Point{},
-                          AnimationSpec{
-                              .timing =
-                                  TweenTiming{
-                                      .duration =
-                                          std::chrono::milliseconds{620},
-                                      .curve = curve,
-                                  },
-                          });
-                      composer.Border(
-                          [&] {
-                            ComposeText(composer, text, String{label}, 12.0F,
-                                        theme.colors.accentForeground, "label");
-                          },
-                          dot, "dot");
-                    },
-                    lane, std::string{"easing-"} + std::to_string(index));
-              }
-            },
-            "easing-column");
-      },
-      "easing-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Create your own motion"},
-                          18.0F, theme.colors.foreground, "title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Adjust the curve, then press Move it above. The "
-                         "spring and custom dial use the same motion system."},
-                  theme.typography.body, theme.colors.mutedForeground, "help");
-
-              const auto sliderPresentation =
-                  ControlPresentation{.theme = theme};
-              ComposeControlRow(
-                  composer, text, theme, "First handle — horizontal", "x1",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.BezierX1Binding(),
-                           SliderRange{
-                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
-                           sliderPresentation, control, "control");
-                  },
-                  "bezier-x1");
-              ComposeControlRow(
-                  composer, text, theme, "First handle — vertical", "y1",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.BezierY1Binding(),
-                           SliderRange{.minimum = -0.5F,
-                                       .maximum = 1.5F,
-                                       .step = 0.05F},
-                           sliderPresentation, control, "control");
-                  },
-                  "bezier-y1");
-              ComposeControlRow(
-                  composer, text, theme, "Second handle — horizontal", "x2",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.BezierX2Binding(),
-                           SliderRange{
-                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
-                           sliderPresentation, control, "control");
-                  },
-                  "bezier-x2");
-              ComposeControlRow(
-                  composer, text, theme, "Second handle — vertical", "y2",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 320.0F;
-                    Slider(composer, model.BezierY2Binding(),
-                           SliderRange{.minimum = -0.5F,
-                                       .maximum = 1.5F,
-                                       .step = 0.05F},
-                           sliderPresentation, control, "control");
-                  },
-                  "bezier-y2");
-
-              NodeProperties bezierLane{};
-              bezierLane.layout.preferredSize = Size{680.0F, 42.0F};
-              bezierLane.layout.maximumSize = Size{680.0F, 42.0F};
-              bezierLane.visual.base.background = theme.colors.sunkenSurface;
-              bezierLane.canvas.clipToBounds = true;
-              composer.Canvas(
-                  [&] {
-                    NodeProperties marker{};
-                    marker.layout.preferredSize = Size{132.0F, 34.0F};
-                    marker.layout.padding = Thickness{10.0F, 7.0F, 10.0F, 7.0F};
-                    marker.canvasPlacement =
-                        CanvasPlacement{.offset = Point{4.0F, 4.0F}};
-                    marker.visual = MakePanelVisual(theme);
-                    marker.visual.base.background = theme.colors.accent;
-                    marker.motion.translation = Animate(
-                        model.MotionForward() ? Point{540.0F, 0.0F} : Point{},
-                        AnimationSpec{
-                            .timing = TweenTiming{
-                                .duration = std::chrono::milliseconds{720},
-                                .curve = EasingCurve::CubicBezier(
-                                    model.BezierX1(), model.BezierY1(),
-                                    model.BezierX2(), model.BezierY2()),
-                            }});
-                    composer.Border(
-                        [&] {
-                          ComposeText(composer, text, String{"Your curve"},
-                                      12.0F, theme.colors.accentForeground,
-                                      "label");
-                        },
-                        marker, "marker");
-                  },
-                  bezierLane, "bezier-lane");
-
-              ComposeText(composer, text, String{"Spring timing"}, 15.0F,
-                          theme.colors.foreground, "spring-title");
-              NodeProperties springLane{};
-              springLane.layout.preferredSize = Size{680.0F, 42.0F};
-              springLane.layout.maximumSize = Size{680.0F, 42.0F};
-              springLane.visual.base.background = theme.colors.sunkenSurface;
-              springLane.canvas.clipToBounds = true;
-              composer.Canvas(
-                  [&] {
-                    NodeProperties marker{};
-                    marker.layout.preferredSize = Size{34.0F, 34.0F};
-                    marker.canvasPlacement =
-                        CanvasPlacement{.offset = Point{4.0F, 4.0F}};
-                    marker.visual.base.background = theme.colors.focus;
-                    marker.visual.base.cornerRadius =
-                        CornerRadius::Uniform(Dp{17.0F});
-                    marker.motion.translation = Animate(
-                        model.MotionForward() ? Point{638.0F, 0.0F} : Point{},
-                        AnimationSpec{.timing = SpringTiming{
-                                          .stiffness = 150.0F,
-                                          .damping = 9.0F,
-                                      }});
-                    composer.Border([] {}, marker, "marker");
-                  },
-                  springLane, "spring-lane");
-
-              ComposeText(composer, text, String{"Custom control property"},
-                          15.0F, theme.colors.foreground, "dial-title");
-              ComposeText(
-                  composer, text,
-                  String{"This custom-painted dial reads its own animated "
-                         "property. NGIN.UI does not know what the property "
-                         "means."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "dial-help");
-              NodeProperties dial{};
-              dial.layout.preferredSize = Size{150.0F, 96.0F};
-              dial.layout.horizontalAlignment = HorizontalAlignment::Start;
-              dial.motion.Set(
-                  MotionDialSweep,
-                  Animate(model.MotionForward() ? 1.0F : 0.0F,
-                          AnimationSpec{
-                              .timing = TweenTiming{
-                                  .duration = std::chrono::milliseconds{720},
-                                  .curve = GalleryOvershoot(),
-                              }}));
-              composer.Custom(
-                  std::make_shared<MotionDialElement>(
-                      theme.colors.sunkenSurface, theme.colors.accent),
-                  dial, "custom-motion-dial");
-            },
-            "custom-motion-column");
-      },
-      "custom-motion-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Repeat and cancel"}, 18.0F,
-                          theme.colors.foreground, "title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"This sample makes three trips. You can stop "
-                                 "it safely at any time."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "help");
-              NodeProperties actions{};
-              actions.layout.gap = theme.spacing.regular;
-              composer.Row(
-                  [&] {
-                    ComposeButton(
-                        composer, text, theme, "Run three trips",
-                        [&model] { model.StartMotionRepeat(); }, "start-repeat",
-                        180.0F);
-                    ComposeButton(
-                        composer, text, theme, "Stop",
-                        [&model] { model.CancelMotionRepeat(); }, "stop-repeat",
-                        120.0F, model.MotionRepeatRunning());
-                  },
-                  "repeat-actions");
-              NodeProperties lane{};
-              lane.layout.preferredSize = Size{680.0F, 34.0F};
-              lane.layout.maximumSize = Size{680.0F, 34.0F};
-              lane.visual.base.background = theme.colors.sunkenSurface;
-              lane.canvas.clipToBounds = true;
-              composer.Canvas(
-                  [&] {
-                    NodeProperties marker{};
-                    marker.layout.preferredSize = Size{28.0F, 28.0F};
-                    marker.canvasPlacement =
-                        CanvasPlacement{.offset = Point{3.0F, 3.0F}};
-                    marker.visual.base.background = theme.colors.focus;
-                    marker.visual.base.cornerRadius =
-                        CornerRadius::Uniform(Dp{14.0F});
-                    if (model.MotionRepeatRunning() &&
-                        model.MotionRepeatHandle() != nullptr) {
-                      marker.motion.translation = AnimateFrom(
-                          Point{}, Point{646.0F, 0.0F},
-                          AnimationSpec{
-                              .timing =
-                                  TweenTiming{
-                                      .duration =
-                                          std::chrono::milliseconds{450},
-                                      .curve = EasingCurve::EaseInOut(),
-                                  },
-                              .repeatCount = 3,
-                              .repeatMode = AnimationRepeatMode::Reverse,
-                          },
-                          *model.MotionRepeatHandle());
-                      marker.motion.onSettled = [&model] {
-                        model.FinishMotionRepeat();
-                      };
-                    } else {
-                      marker.motion.translation = Animate(
-                          Point{},
-                          AnimationSpec{
-                              .timing = TweenTiming{
-                                  .duration = std::chrono::milliseconds{0},
-                              }});
-                    }
-                    marker.semantics.hidden = true;
-                    composer.Border([] {}, marker, "repeat-marker");
-                  },
-                  lane, "repeat-lane");
-            },
-            "repeat-column");
-      },
-      "repeat-card");
-
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(
-                  composer, text, String{"Controls and motion settings"}, 18.0F,
-                  theme.colors.foreground, "title", SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Hover or press a button to see its colors change. "
-                         "The loading bar keeps moving on its own."},
-                  theme.typography.body, theme.colors.mutedForeground, "help");
-              ComposeText(composer, text, String{"Loading animation"}, 15.0F,
-                          theme.colors.foreground, "progress-label");
-              NodeProperties progress{};
-              progress.layout.preferredSize.width = 360.0F;
-              ProgressBar(composer, ProgressValue{.indeterminate = true},
-                          ControlPresentation{.theme = theme}, progress,
-                          "motion-progress");
-              ComposeButton(
-                  composer, text, theme,
-                  model.MotionPreviewReduced() ? "Turn animations back on"
-                                               : "Turn animations off",
-                  [&model] { model.ToggleMotionPreviewReduced(); },
-                  "reduced-motion", 220.0F);
-              ComposeText(
-                  composer, text,
-                  String{model.MotionPreviewReduced()
-                             ? "Animations are off. Changes happen instantly."
-                             : "Animations are on. Your system setting is also "
-                               "respected."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "reduced-status");
-
-              ComposeText(composer, text,
-                          String{"Popup animation — easy-to-see demo"}, 15.0F,
-                          theme.colors.foreground, "popup-label");
-              ComposeText(
-                  composer, text,
-                  String{"Click Open. Watch the panel rise while it fades in. "
-                         "This example is slower than a normal popup."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "popup-help");
-
-              NodeProperties popupButton{};
-              popupButton.layout.preferredSize =
-                  Size{220.0F, theme.controls.regularHeight};
-              popupButton.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
-              popupButton.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              popupButton.interaction.focusable = true;
-              popupButton.visual = MakeButtonVisual(theme);
-              popupButton.semantics.label = String{"Open popup animation demo"};
-              NodeProperties popup{};
-              popup.semantics.label = String{"Animated popup example"};
-              const auto popupDemo = AnimationSpec{
-                  .timing =
-                      TweenTiming{
-                          .duration = std::chrono::milliseconds{520},
-                          .curve = EasingCurve::EaseOut(),
-                      },
-              };
-              popup.motion.opacity = model.MotionPopup().IsOpen()
-                                         ? AnimateFrom(0.0F, 1.0F, popupDemo)
-                                         : Animate(0.0F, popupDemo);
-              popup.motion.translation =
-                  model.MotionPopup().IsOpen()
-                      ? AnimateFrom(Point{0.0F, 36.0F}, Point{}, popupDemo)
-                      : Animate(Point{0.0F, 36.0F}, popupDemo);
-              MenuButton(
-                  composer, model.MotionPopup(), "motion-popup-anchor",
-                  [&] {
-                    ComposeText(composer, text, String{"Open popup demo"},
-                                theme.typography.body,
-                                theme.colors.accentForeground, "label");
-                  },
-                  [&] {
-                    NodeProperties popupCard{};
-                    popupCard.layout.preferredSize = Size{300.0F, 148.0F};
-                    popupCard.layout.padding =
-                        Thickness::Uniform(Dp{theme.spacing.regular});
-                    popupCard.layout.gap = theme.spacing.compact;
-                    popupCard.visual = MakePanelVisual(theme);
-                    popupCard.visual.base.background =
-                        theme.colors.raisedSurface;
-                    composer.Element(
-                        ElementType::Column, popupCard,
-                        [&] {
-                          ComposeText(composer, text, String{"Animated popup"},
-                                      18.0F, theme.colors.foreground,
-                                      "popup-title", SemanticRole::Heading);
-                          ComposeText(
-                              composer, text,
-                              String{"You saw this panel rise and fade in."},
-                              theme.typography.body, theme.colors.foreground,
-                              "message");
-                          ComposeText(
-                              composer, text,
-                              String{"Press Escape or click outside to close."},
-                              theme.typography.caption,
-                              theme.colors.mutedForeground, "close-help");
-                          ComposeButton(
-                              composer, text, theme, "Close",
-                              [&model] { model.MotionPopup().Close(); },
-                              "close", 100.0F);
-                        },
-                        "popup-card");
-                  },
-                  popupButton, popup, "motion-popup");
-            },
-            "control-motion-column");
-      },
-      "control-motion-card");
-}
-
-void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
-                         GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Overlays",
-      "Open a focused popup, then dismiss it with Close, Escape, or an outside "
-      "click.");
-  ComposeButton(
-      composer, text, theme,
-      model.IsPopupOpen() ? "Popup is open" : "Open popup",
-      [&model] { model.SetPopupOpen(true); }, "open-popup", 230.0F);
-
-  if (!model.IsPopupOpen()) {
-    return;
-  }
-
-  NodeProperties popup{};
-  popup.popup.anchor = Rect{420.0F, 240.0F, 1.0F, 1.0F};
-  popup.popup.placement = PopupPlacement::Center;
-  popup.popup.modal = true;
-  popup.popup.dismissOnEscape = true;
-  popup.popup.dismissOnOutsidePointer = true;
-  popup.popup.onDismiss = [&model] { model.SetPopupOpen(false); };
-  popup.semantics.label = String{"Gallery popup"};
-  composer.Popup(
-      [&] {
-        ComposeCard(
-            composer, theme,
-            [&] {
-              NodeProperties column{};
-              column.layout.gap = theme.spacing.regular;
-              composer.Column(
-                  [&] {
-                    ComposeText(composer, text, String{"Popup"}, 22.0F,
-                                theme.colors.foreground, "popup-title",
-                                SemanticRole::Heading);
-                    ComposeText(
-                        composer, text,
-                        String{"Press Escape, click outside, or use Close."},
-                        theme.typography.body, theme.colors.mutedForeground,
-                        "popup-help");
-                    ComposeButton(
-                        composer, text, theme, "Close",
-                        [&model] { model.SetPopupOpen(false); }, "close-popup",
-                        140.0F);
-                  },
-                  "popup-column");
-            },
-            "popup-card", 360.0F);
-      },
-      popup, "demo-popup");
-}
-
-void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
-                        GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(composer, text, theme, "Windows",
-                     "Open an independent window or a modal dialog and compare "
-                     "their behavior.");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeButton(
-                  composer, text, theme, "Open another window",
-                  [&model] {
-                    auto opened = model.OpenAuxiliaryWindow(false);
-                    if (!opened) {
-                      model.Report(opened.error());
-                    }
-                  },
-                  "open-window", 240.0F);
-              ComposeButton(
-                  composer, text, theme, "Open dialog",
-                  [&model] {
-                    auto opened = model.OpenAuxiliaryWindow(true);
-                    if (!opened) {
-                      model.Report(opened.error());
-                    }
-                  },
-                  "open-dialog", 240.0F);
-              ComposeText(composer, text,
-                          String{"A dialog pauses the main window until it "
-                                 "closes."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "window-help");
-            },
-            "window-actions");
-      },
-      "windows-card");
-}
-
-void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
-                          GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Themes",
-      "Switch color modes and inspect the resources shared by the interface.");
-  ComposeButton(
-      composer, text, theme,
-      model.IsLightTheme() ? "Switch to dark theme" : "Switch to light theme",
-      [&model] { model.ToggleTheme(); }, "toggle-theme", 240.0F);
-
-  auto resources = std::make_shared<ResourceScope>();
-  resources->Provide(ThemeResource, theme);
-  resources->Provide(LocaleResource, std::string{"en-US"});
-  resources->Provide(ReducedMotionResource, false);
-  composer.Scope(
-      resources,
-      [&] {
-        ComposeCard(
-            composer, theme,
-            [&] {
-              NodeProperties column{};
-              column.layout.gap = theme.spacing.regular;
-              composer.Column(
-                  [&] {
-                    ComposeText(composer, text, String{"Current settings"},
-                                19.0F, theme.colors.foreground,
-                                "resources-title", SemanticRole::Heading);
-                    ComposeText(composer, text,
-                                String{model.IsLightTheme() ? "Theme: Light"
-                                                            : "Theme: Dark"},
-                                theme.typography.body,
-                                theme.colors.mutedForeground, "theme-resource");
-                    ComposeText(
-                        composer, text, String{"Language: English (US)"},
-                        theme.typography.body, theme.colors.mutedForeground,
-                        "locale-resource");
-                    ComposeText(composer, text, String{"Reduced motion: Off"},
-                                theme.typography.body,
-                                theme.colors.mutedForeground,
-                                "motion-resource");
-                  },
-                  "resource-values");
-            },
-            "resources-card");
-      },
-      "resource-scope");
-}
-
-void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
-                              GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Accessibility",
-      "Verify labels, focus, live announcements, and common controls with a "
-      "screen reader, keyboard, or pointer.");
-
-  const auto diagnostics = model.AccessibilityDiagnostics();
-  String provider{diagnostics.available ? "Ready: " : "Not available: "};
-  provider.Append(diagnostics.providerName);
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.compact;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Screen reader connection"},
-                          18.0F, theme.colors.foreground, "provider-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text, std::move(provider),
-                          theme.typography.body,
-                          diagnostics.available ? theme.colors.foreground
-                                                : theme.colors.mutedForeground,
-                          "provider-status");
-              ComposeText(
-                  composer, text,
-                  String{
-                      diagnostics.available
-                          ? "Narrator can read and operate this window."
-                          : "A native provider is not enabled on this system."},
-                  theme.typography.caption, theme.colors.mutedForeground,
-                  "provider-help");
-            },
-            "provider-values");
-      },
-      "provider-card");
-
-  const ControlPresentation controls{.theme = theme};
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Controls to try"}, 18.0F,
-                          theme.colors.foreground, "controls-title",
-                          SemanticRole::Heading);
-              ComposeButton(
-                  composer, text, theme, "Announce a message",
-                  [&model] { model.AnnounceAccessibilityDemo(); },
-                  "announce-button", 250.0F);
-              ComposeControlRow(
-                  composer, text, theme, "Enable notifications",
-                  "accessibility-check",
-                  [&](const NodeProperties &control) {
-                    CheckBox(composer, model.CheckBinding(), controls, control,
-                             "control");
-                  },
-                  "accessibility-check-row");
-              ComposeControlRow(
-                  composer, text, theme, "Automatic updates",
-                  "accessibility-switch",
-                  [&](const NodeProperties &control) {
-                    ToggleSwitch(composer, model.ToggleBinding(), controls,
-                                 control, "control");
-                  },
-                  "accessibility-switch-row");
-              ComposeControlRow(
-                  composer, text, theme, "Volume", "accessibility-slider",
-                  [&](NodeProperties control) {
-                    control.layout.preferredSize.width = 300.0F;
-                    Slider(composer, model.SliderBinding(),
-                           SliderRange{
-                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
-                           controls, control, "control");
-                  },
-                  "accessibility-slider-row");
-              ComposeTextField(composer, text, model, theme,
-                               model.NameBinding(), "Display name",
-                               "accessibility-name");
-
-              auto live = TextProperties(text, theme.typography.body,
-                                         theme.colors.foreground);
-              live.semantics.role = SemanticRole::Text;
-              live.semantics.label = model.AccessibilityAnnouncement();
-              live.semantics.live = SemanticLiveSetting::Polite;
-              composer.Text(model.AccessibilityAnnouncement(), text, text, live,
-                            "accessibility-live-region");
-            },
-            "accessibility-controls");
-      },
-      "accessibility-controls-card");
-}
-
-void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
-                            GalleryViewModel &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Diagnostics",
-      "Inspect rendering, text, image, navigation, and accessibility data when "
-      "you need to understand the UI.");
-  const auto diagnostics = model.Diagnostics();
-  const auto textDiagnostics = model.TextDiagnostics();
-  const auto fontDiagnostics = model.FontDiagnostics();
-  const auto imageDiagnostics = model.ImageDiagnostics();
-  const auto navigation = model.PageNavigationDiagnostics();
-  ComposeCard(
-      composer, theme,
-      [&] {
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Page navigation"}, 18.0F,
-                          theme.colors.foreground, "navigation-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          LabeledNumber("Pages in this window: ",
-                                        navigation.stack.size()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-stack-depth");
-              ComposeText(composer, text,
-                          LabeledNumber("Active page scopes: ",
-                                        navigation.stack.size() +
-                                            navigation.cache.size()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-page-scopes");
-              ComposeText(composer, text,
-                          LabeledNumber("ViewModel tasks: ",
-                                        model.ActivePageTaskCount()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-active-tasks");
-              ComposeText(composer, text,
-                          LabeledNumber("Cleanup tasks: ",
-                                        model.CleanupPageTaskCount()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-cleanup-tasks");
-              ComposeText(composer, text,
-                          LabeledNumber("Page activations: ",
-                                        model.PageActivationCount()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-activations");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Page releases: ", model.PageReleaseCount()),
-                  theme.typography.body, theme.colors.foreground,
-                  "navigation-releases");
-              ComposeText(composer, text,
-                          LabeledNumber("Navigation failures: ",
-                                        model.NavigationFailureCount()),
-                          theme.typography.body, theme.colors.foreground,
-                          "navigation-failures");
-              for (NGIN::UIntSize index = 0; index < navigation.stack.size();
-                   ++index) {
-                String entry{"Stack page: "};
-                entry.Append(String{navigation.stack[index].displayName});
-                ComposeText(composer, text, std::move(entry),
-                            theme.typography.body, theme.colors.mutedForeground,
-                            std::string{"navigation-entry-"} +
-                                std::to_string(index));
-              }
-            },
-            "navigation-diagnostic-values");
-      },
-      "navigation-diagnostics-card");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.compact;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text,
-                          LabeledNumber("Frames: ", diagnostics.frameCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "frames");
-              ComposeText(composer, text,
-                          LabeledNumber("Screen updates: ",
-                                        diagnostics.compositionCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "compositions");
-              ComposeText(composer, text,
-                          LabeledNumber("Accessible items: ",
-                                        diagnostics.semanticNodeCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "semantic-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Drawing steps: ",
-                                        diagnostics.displayCommandCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "display-count");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Draw groups: ", diagnostics.drawBatchCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "batch-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Grids laid out: ",
-                                        diagnostics.layout.grids.size()),
-                          theme.typography.body, theme.colors.foreground,
-                          "grid-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Wrapped toolbars: ",
-                                        diagnostics.layout.wrapPanels.size()),
-                          theme.typography.body, theme.colors.foreground,
-                          "wrap-count");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Virtualized lists: ",
-                                diagnostics.layout.virtualizedLists.size()),
-                  theme.typography.body, theme.colors.foreground,
-                  "virtual-list-count");
-              for (NGIN::UIntSize index = 0;
-                   index < diagnostics.layout.grids.size(); ++index) {
-                ComposeText(composer, text,
-                            TrackLine("Grid ", index,
-                                      diagnostics.layout.grids[index].columns),
-                            theme.typography.body, theme.colors.mutedForeground,
-                            std::string{"grid-tracks-"} +
-                                std::to_string(index));
-              }
-              for (NGIN::UIntSize index = 0;
-                   index < diagnostics.layout.wrapPanels.size(); ++index) {
-                ComposeText(
-                    composer, text,
-                    LabeledNumber(
-                        "Wrapped lines: ",
-                        diagnostics.layout.wrapPanels[index].lines.size()),
-                    theme.typography.body, theme.colors.mutedForeground,
-                    std::string{"wrap-lines-"} + std::to_string(index));
-              }
-              for (NGIN::UIntSize index = 0;
-                   index < diagnostics.layout.virtualizedLists.size();
-                   ++index) {
-                const auto &virtualList =
-                    diagnostics.layout.virtualizedLists[index];
-                String line{"Virtual list rows: "};
-                line.Append(Number(virtualList.logicalItemCount));
-                line.Append(String{" total · "});
-                line.Append(Number(virtualList.realizedNodeCount));
-                line.Append(String{" created"});
-                ComposeText(composer, text, std::move(line),
-                            theme.typography.body, theme.colors.mutedForeground,
-                            std::string{"virtual-list-rows-"} +
-                                std::to_string(index));
-              }
-            },
-            "diagnostic-values");
-      },
-      "diagnostics-card");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.compact;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text,
-                          LabeledNumber("Text pages in use: ",
-                                        textDiagnostics.pageCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-page-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Text page limit: ",
-                                        textDiagnostics.maximumPageCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-page-limit");
-              const auto occupancy =
-                  textDiagnostics.capacityPixelArea == 0
-                      ? 0
-                      : (textDiagnostics.usedPixelArea * 100U) /
-                            textDiagnostics.capacityPixelArea;
-              ComposeText(composer, text,
-                          LabeledNumber("Text storage used (%): ", occupancy),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-occupancy");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Stored glyphs: ", textDiagnostics.entryCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "text-entry-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Text sizes stored: ",
-                                        textDiagnostics.pixelSizeCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-size-count");
-              ComposeText(composer, text,
-                          LabeledNumber("Page rebuilds: ",
-                                        textDiagnostics.pageRecycleCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-page-rebuilds");
-              ComposeText(composer, text,
-                          LabeledNumber("Storage waits: ",
-                                        textDiagnostics.allocationFailureCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-storage-waits");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Glyphs reused: ", textDiagnostics.hitCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "text-cache-hits");
-              ComposeText(composer, text,
-                          LabeledNumber("Glyphs uploaded: ",
-                                        textDiagnostics.uploadCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-uploads");
-              ComposeText(composer, text,
-                          LabeledNumber("Glyphs removed: ",
-                                        textDiagnostics.evictionCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-evictions");
-              ComposeText(composer, text,
-                          LabeledNumber("Device restores: ",
-                                        textDiagnostics.restorationCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-restores");
-              ComposeText(composer, text,
-                          LabeledNumber("Fallback characters: ",
-                                        fontDiagnostics.fallbackCodePointCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "fallback-glyphs");
-              ComposeText(composer, text,
-                          LabeledNumber("Missing characters: ",
-                                        fontDiagnostics.missingCodePointCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "missing-glyphs");
-              for (const auto &face : fontDiagnostics.faces) {
-                const auto key =
-                    std::string{"font-face-"} + std::to_string(face.face.index);
-                ComposeText(composer, text, FontFaceLine(face),
-                            theme.typography.body, theme.colors.mutedForeground,
-                            key);
-              }
-              for (const auto &size : textDiagnostics.pixelSizes) {
-                const auto key = std::string{"text-pixel-size-"} +
-                                 std::to_string(size.pixelSize);
-                ComposeText(composer, text, GlyphSizeLine(size),
-                            theme.typography.body, theme.colors.mutedForeground,
-                            key);
-              }
-            },
-            "text-diagnostic-values");
-      },
-      "text-diagnostics-card");
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.compact;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Image cache"}, 18.0F,
-                          theme.colors.foreground, "image-cache-title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Images stored: ", imageDiagnostics.entryCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "image-cache-entries");
-              ComposeText(composer, text,
-                          LabeledNumber("Image limit: ",
-                                        imageDiagnostics.maximumEntryCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "image-cache-limit");
-              ComposeText(composer, text,
-                          LabeledNumber("Image memory (bytes): ",
-                                        imageDiagnostics.residentBytes),
-                          theme.typography.body, theme.colors.foreground,
-                          "image-cache-bytes");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Images reused: ", imageDiagnostics.hitCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "image-cache-hits");
-              ComposeText(composer, text,
-                          LabeledNumber("Images uploaded: ",
-                                        imageDiagnostics.uploadCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "image-cache-uploads");
-              ComposeText(composer, text,
-                          LabeledNumber("Images removed: ",
-                                        imageDiagnostics.evictionCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "image-cache-evictions");
-              ComposeText(composer, text,
-                          LabeledNumber("Images over the memory limit: ",
-                                        imageDiagnostics.capacityFailureCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "image-cache-capacity-failures");
-            },
-            "image-cache-values");
-      },
-      "image-cache-card");
-  ComposeButton(
-      composer, text, theme,
-      model.IsInspectorEnabled() ? "Hide layout guides" : "Show layout guides",
-      [&model] { model.ToggleInspector(); }, "toggle-inspector", 260.0F);
-}
-
-void ComposePublicExample(Composer &composer, NativeTextSystem &text,
-                          GalleryViewModel &model, const Theme &theme) {
-  const auto page = model.CurrentPage();
-  ComposeCard(
-      composer, theme,
-      [&] {
-        NodeProperties column{};
-        column.layout.gap = theme.spacing.regular;
-        composer.Column(
-            [&] {
-              ComposeText(composer, text, String{"Use this pattern"}, 18.0F,
-                          theme.colors.foreground, "example-title",
-                          SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Copy this focused public API example into "
-                                 "your own composition."},
-                          theme.typography.caption,
-                          theme.colors.mutedForeground, "example-help");
-
-              NodeProperties code{};
-              code.layout.preferredSize.width = 680.0F;
-              code.layout.maximumSize.width = 680.0F;
-              code.layout.padding = Thickness::Uniform(Dp{12.0F});
-              code.visual = MakePanelVisual(theme);
-              code.visual.base.background = theme.colors.sunkenSurface;
-              code.semantics.role = SemanticRole::Group;
-              code.semantics.label = String{"Public API example"};
-              composer.Border(
-                  [&] {
-                    ComposeText(composer, text,
-                                String{PageExample(page).data()},
-                                theme.typography.body, theme.colors.foreground,
-                                "example-code");
-                  },
-                  code, "example-code-frame");
-              ComposeButton(
-                  composer, text, theme, "Copy code",
-                  [&model, page] { model.CopyExample(page); }, "copy-example",
-                  180.0F);
-            },
-            "example-content");
-      },
-      "public-example-card");
-}
-
-template <typename TPage, typename Compose>
+template <typename TPage, typename Build>
 auto RegisterGalleryPage(PageRegistry &registry, GalleryViewModel &model,
-                         NativeTextSystem &text, const Page page,
-                         Compose compose) -> UIResult<void> {
+                         Page page, Build build) -> UIResult<void> {
   const auto index = static_cast<NGIN::UIntSize>(page);
   return registry.Register<TPage, GalleryPageViewModel>(
       {.id = std::string{PageIds[index]},
        .displayName = std::string{PageNames[index]},
        .routeName = std::string{PageIds[index]}},
-      [&model,
-       &text](PageActivationContext &, const NoNavigationParameter &,
-              std::string_view) -> UIResult<PageLease<GalleryPageViewModel>> {
-        return PageLease<GalleryPageViewModel>{
-            .viewModel = std::make_shared<GalleryPageViewModel>(
-                GalleryPageViewModel{.gallery = &model, .text = &text})};
+      [&model](PageActivationContext &, const NoNavigationParameter &,
+               std::string_view) {
+        return UIResult<PageLease<GalleryPageViewModel>>{
+            PageLease<GalleryPageViewModel>{
+                .viewModel = std::make_shared<GalleryPageViewModel>(
+                    GalleryPageViewModel{&model})}};
       },
-      [compose = std::move(compose)](Composer &composer,
-                                     GalleryPageViewModel &pageModel,
-                                     const NoNavigationParameter &) {
-        NodeProperties content{};
-        content.layout.gap = 24.0F;
-        content.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-        content.layout.verticalAlignment = VerticalAlignment::Start;
-        composer.Element(
-            ElementType::Column, content,
-            [&] { compose(composer, *pageModel.text, *pageModel.gallery); },
-            "gallery-page-content");
+      [build](GalleryPageViewModel &pageModel, const NoNavigationParameter &) {
+        auto &gallery = *pageModel.gallery;
+        static_cast<void>(gallery.PageRevision());
+        if constexpr (std::is_invocable_v<Build, GalleryViewModel &,
+                                          const Theme &>)
+          return build(gallery, gallery.CurrentTheme());
+        else
+          return build(gallery.CurrentTheme());
       });
 }
 
-auto RegisterGalleryPages(PageRegistry &registry, GalleryViewModel &model,
-                          NativeTextSystem &text) -> UIResult<void> {
-  auto result = RegisterGalleryPage<OverviewPage>(
-      registry, model, text, Page::Overview,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeOverviewPage(composer, pageText, gallery,
-                            gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<LayoutPage>(
-      registry, model, text, Page::Layout,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeLayoutPage(composer, pageText, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<TypographyPage>(
-      registry, model, text, Page::Typography,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeTypographyPage(composer, pageText, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<TextAreaPage>(
-      registry, model, text, Page::TextArea,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeTextAreaPage(composer, pageText, gallery,
-                            gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<ImagesPage>(
-      registry, model, text, Page::Images,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeImagesPage(composer, pageText, gallery, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<InputsPage>(
-      registry, model, text, Page::Inputs,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeInputsPage(composer, pageText, gallery, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<AsyncDataPage>(
-      registry, model, text, Page::AsyncData,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeAsyncDataPage(composer, pageText, gallery,
-                             gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<CollectionsPage>(
-      registry, model, text, Page::Collections,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeCollectionsPage(composer, pageText, gallery,
-                               gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<MotionPage>(
-      registry, model, text, Page::Motion,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeMotionPage(composer, pageText, gallery, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<OverlaysPage>(
-      registry, model, text, Page::Overlays,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeOverlaysPage(composer, pageText, gallery,
-                            gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<WindowsPage>(
-      registry, model, text, Page::Windows,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeWindowsPage(composer, pageText, gallery, gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<ResourcesPage>(
-      registry, model, text, Page::Resources,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeResourcesPage(composer, pageText, gallery,
-                             gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  result = RegisterGalleryPage<AccessibilityPage>(
-      registry, model, text, Page::Accessibility,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeAccessibilityPage(composer, pageText, gallery,
-                                 gallery.CurrentTheme());
-      });
-  if (!result) {
-    return result;
-  }
-  return RegisterGalleryPage<DiagnosticsPage>(
-      registry, model, text, Page::Diagnostics,
-      [](Composer &composer, NativeTextSystem &pageText,
-         GalleryViewModel &gallery) {
-        ComposeDiagnosticsPage(composer, pageText, gallery,
-                               gallery.CurrentTheme());
-      });
+auto RegisterGalleryPages(PageRegistry &registry, GalleryViewModel &model)
+    -> UIResult<void> {
+  if (auto added = RegisterGalleryPage<OverviewPage>(
+          registry, model, Page::Overview, OverviewView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<LayoutPage>(registry, model,
+                                                   Page::Layout, LayoutView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<TypographyPage>(
+          registry, model, Page::Typography, TypographyView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<TextAreaPage>(
+          registry, model, Page::TextArea, TextAreaView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<ImagesPage>(registry, model,
+                                                   Page::Images, ImagesView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<InputsPage>(registry, model,
+                                                   Page::Inputs, InputsView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<AsyncDataPage>(
+          registry, model, Page::AsyncData, AsyncDataView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<CollectionsPage>(
+          registry, model, Page::Collections, CollectionsView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<MotionPage>(registry, model,
+                                                   Page::Motion, MotionView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<OverlaysPage>(
+          registry, model, Page::Overlays, OverlaysView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<WindowsPage>(registry, model,
+                                                    Page::Windows, WindowsView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<ResourcesPage>(
+          registry, model, Page::Resources, ResourcesView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<AccessibilityPage>(
+          registry, model, Page::Accessibility, AccessibilityView);
+      !added)
+    return added;
+  if (auto added = RegisterGalleryPage<DiagnosticsPage>(
+          registry, model, Page::Diagnostics, DiagnosticsView);
+      !added)
+    return added;
+  const auto index = static_cast<NGIN::UIntSize>(Page::PropertyEditor);
+  return RegisterPropertyEditor(registry,
+                                {.id = std::string{PageIds[index]},
+                                 .displayName = std::string{PageNames[index]},
+                                 .routeName = std::string{PageIds[index]}},
+                                model);
 }
 
-void ComposeAuxiliaryWindow(Composer &composer, NativeTextSystem &text,
-                            GalleryViewModel &model, const bool modal) {
-  const auto theme = model.CurrentTheme();
-  NodeProperties root{};
-  root.layout.padding = Thickness::Uniform(Dp{theme.spacing.spacious});
-  root.layout.gap = theme.spacing.spacious;
-  root.visual.base.background = theme.colors.background;
-  root.semantics.role = modal ? SemanticRole::Dialog : SemanticRole::Group;
-  root.semantics.label =
-      String{modal ? "Gallery dialog" : "Gallery second window"};
-  composer.Element(
-      ElementType::Column, root,
-      [&] {
-        ComposeText(composer, text, String{modal ? "Dialog" : "Second window"},
-                    26.0F, theme.colors.foreground, "title",
-                    SemanticRole::Heading);
-        ComposeText(
-            composer, text,
-            String{modal ? "The main window is paused until this closes."
-                         : "This is another NGIN.UI window."},
-            theme.typography.body, theme.colors.mutedForeground, "body");
-        ComposeText(composer, text,
-                    "Use the window close button when you are done.",
-                    theme.typography.caption, theme.colors.mutedForeground,
-                    "close-hint");
-      },
-      "auxiliary-root");
+auto AuxiliaryWindowView(GalleryViewModel &model, bool modal) -> Views::View {
+  return Views::Component([&model, modal] {
+    const auto theme = model.CurrentTheme();
+    NodeProperties root{};
+    root.layout.padding = Thickness::Uniform(Dp{theme.spacing.spacious});
+    root.layout.gap = theme.spacing.spacious;
+    root.visual.base.background = theme.colors.background;
+    root.semantics.role = modal ? SemanticRole::Dialog : SemanticRole::Group;
+    root.semantics.label =
+        String{modal ? "Gallery dialog" : "Gallery second window"};
+    return Views::Column(
+               {
+                   TextView(modal ? "Dialog" : "Second window", 26.0F,
+                            theme.colors.foreground, "title",
+                            SemanticRole::Heading),
+                   TextView(modal
+                                ? "The main window is paused until this closes."
+                                : "This is another NGIN.UI window.",
+                            theme.typography.body, theme.colors.mutedForeground,
+                            "body"),
+                   TextView("Use the window close button when you are done.",
+                            theme.typography.caption,
+                            theme.colors.mutedForeground, "close-hint"),
+               },
+               root)
+        .Key("auxiliary-root");
+  });
 }
+
 } // namespace
 
 auto PageAt(const NGIN::UIntSize index) noexcept -> Page {
@@ -3888,78 +642,24 @@ auto PageName(const Page page) noexcept -> std::string_view {
   return PageNames[static_cast<NGIN::UIntSize>(page)];
 }
 
-auto PageExample(const Page page) noexcept -> std::string_view {
-  return PageExamples[static_cast<NGIN::UIntSize>(page)];
-}
-
 GalleryViewModel::GalleryViewModel()
-    : m_page(
-          Page::Overview,
-          [this](const InvalidationKind kind) { Invalidate(kind); },
-          InvalidationKind::All),
-      m_navigationSearch(
-          String{}, [this](const InvalidationKind kind) { Invalidate(kind); },
-          InvalidationKind::All),
-      m_lightTheme(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); },
-          InvalidationKind::All),
-      m_name(String{"NGIN"},
-             [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_password(String{"retained"},
-                 [this](const InvalidationKind kind) { Invalidate(kind); }),
+    : m_page(Page::Overview), m_navigationSearch(String{}), m_lightTheme(true),
+      m_name(String{"NGIN"}), m_password(String{"retained"}),
       m_notes(String{"Write your project notes here.\n\n"
                      "Long lines wrap automatically, and the editor scrolls as "
                      "you add more text.\n"
-                     "Add a few lines and try moving with the arrow keys."},
-              [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_check(CheckState::Checked,
-              [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_mixedCheck(CheckState::Indeterminate,
-                   [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_unchecked(CheckState::Unchecked,
-                  [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_density(Density::Comfortable,
-                [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_toggle(true, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_disabledToggle(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_slider(0.62F,
-               [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_activationCount(
-          0, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_formSaveCount(
-          0, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_commandSuccessCount(
-          0, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_collectionItems(
-          std::vector<std::uint32_t>{101, 102, 103, 104, 105, 106, 107, 108,
-                                     109, 110, 111, 112},
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_collectionSelection(
-          std::optional<std::uint32_t>{103},
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_collectionDescending(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_collectionFiltered(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_collectionTab(
-          CollectionTab::Selection,
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_motionForward(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierX1(0.2F,
-                 [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierY1(0.0F,
-                 [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierX2(0.2F,
-                 [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierY2(1.0F,
-                 [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_motionRepeatRunning(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_virtualizedSelection(
-          String{"item-0"},
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
+                     "Add a few lines and try moving with the arrow keys."}),
+      m_check(CheckState::Checked), m_mixedCheck(CheckState::Indeterminate),
+      m_unchecked(CheckState::Unchecked), m_density(Density::Comfortable),
+      m_toggle(true), m_disabledToggle(false), m_slider(0.62F),
+      m_formSaveCount(0),
+      m_collectionItems(std::vector<std::uint32_t>{
+          101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112}),
+      m_collectionSelection(std::optional<std::uint32_t>{103}),
+      m_collectionDescending(false), m_collectionFiltered(false),
+      m_collectionTab(CollectionTab::Selection), m_motionForward(false),
+      m_bezierX1(0.2F), m_bezierY1(0.0F), m_bezierX2(0.2F), m_bezierY2(1.0F),
+      m_motionRepeatRunning(false), m_virtualizedSelection(String{"item-0"}),
       m_virtualizedSource(std::make_unique<GalleryVirtualizedSource>()),
       m_virtualizedController(std::make_unique<FixedVirtualizedListController>(
           FixedVirtualizationOptions{
@@ -3967,23 +667,13 @@ GalleryViewModel::GalleryViewModel()
               .itemGap = 2.0F,
               .overscanItems = 3,
               .initialViewportExtent = 280.0F,
-          },
-          [this](const InvalidationKind kind) { Invalidate(kind); })),
+          })),
       m_motionPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_comboPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_menuPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_contextPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_popupOpen(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); },
-          InvalidationKind::All),
-      m_inspectorEnabled(
-          false, [this](const InvalidationKind kind) { Invalidate(kind); },
-          InvalidationKind::All),
-      m_status(String{},
-               [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_accessibilityAnnouncement(
-          String{"No announcement yet."},
-          [this](const InvalidationKind kind) { Invalidate(kind); }) {
+      m_popupOpen(false), m_inspectorEnabled(false), m_status(String{}),
+      m_accessibilityAnnouncement(String{"No announcement yet."}) {
   const auto scheduler = [this](const InvalidationKind kind) {
     Invalidate(kind);
   };
@@ -4047,14 +737,7 @@ void GalleryViewModel::AttachRuntime(Application &application,
   m_application = &application;
   m_text = &text;
   m_window = &window;
-  m_asyncMotion = std::make_shared<GalleryMotionDemo>(application, window);
-  m_commandDemo = std::make_unique<AsyncCommand>(
-      application.BackgroundTasks(), application.CreateTaskContext(window),
-      [this](NGIN::Async::TaskContext &context) {
-        return RunCommandDemo(context);
-      },
-      true, CommandConcurrencyPolicy::Reject, 1,
-      [this](const InvalidationKind kind) { Invalidate(kind); });
+  m_asyncMotion = std::make_shared<GalleryMotionDemo>(application);
   m_formSave = std::make_unique<AsyncCommand>(
       application.BackgroundTasks(), application.CreateTaskContext(window),
       [this](NGIN::Async::TaskContext &context) {
@@ -4089,7 +772,7 @@ void GalleryViewModel::AttachRuntime(Application &application,
     Report(m_galleryImage->Error());
   }
   m_helpToolTip = std::make_unique<ToolTipController>(
-      window, String{"Appears after 500 ms without moving keyboard focus."});
+      window, String{"Clear the name in both fields."});
   auto navigation = InitializePageNavigation();
   if (!navigation) {
     Report(std::move(navigation).error());
@@ -4100,19 +783,17 @@ auto GalleryViewModel::InitializePageNavigation() -> UIResult<void> {
   if (m_navigation) {
     return {};
   }
-  auto registered = RegisterGalleryPages(m_pages, *this, *m_text);
+  auto registered = RegisterGalleryPages(m_pages, *this);
   if (!registered) {
     return registered;
   }
   m_pageActivation = std::make_unique<GalleryPageActivationContext>();
-  m_navigation = std::make_unique<NavigationService>(
-      m_pages, *m_pageActivation,
-      NavigationOptions{
-          .region = "Gallery.Content",
-          .cacheCapacity = 0,
-          .invalidate =
-              [this](const InvalidationKind kind) { Invalidate(kind); },
-      });
+  m_navigation =
+      std::make_unique<NavigationService>(m_pages, *m_pageActivation,
+                                          NavigationOptions{
+                                              .region = "Gallery.Content",
+                                              .cacheCapacity = 0,
+                                          });
   m_navigation->SetFailureObserver([this](const UIError &error) {
     ++m_navigationFailures;
     Report(error);
@@ -4131,6 +812,7 @@ auto GalleryViewModel::CurrentPage() const noexcept -> Page {
 }
 
 void GalleryViewModel::SelectPage(const Page page) {
+  SetBrowserOpen(false);
   if (m_page.Get() == Page::Motion && page != Page::Motion) {
     CancelMotionRepeat();
     CancelAsyncMotion();
@@ -4162,10 +844,12 @@ void GalleryViewModel::SelectPage(const Page page) {
   }
 }
 
-void GalleryViewModel::ComposeCurrentPage(Composer &composer) {
-  if (m_navigation) {
-    m_navigation->Compose(composer);
-  }
+auto GalleryViewModel::CurrentPageView() const -> Views::View {
+  return m_navigation ? m_navigation->ContentView() : Views::View{};
+}
+
+auto GalleryViewModel::PageRevision() const -> UInt64 {
+  return m_pageRevision.Get();
 }
 
 auto GalleryViewModel::PageNavigationDiagnostics() const -> NavigationSnapshot {
@@ -4201,27 +885,6 @@ auto GalleryViewModel::NavigationMatches(const Page page) const -> bool {
   const auto index = static_cast<NGIN::UIntSize>(page);
   return ContainsIgnoringCase(PageNames[index], query) ||
          ContainsIgnoringCase(PageSearchTerms[index], query);
-}
-
-void GalleryViewModel::CopyExample(const Page page) {
-  if (m_application == nullptr) {
-    static_cast<void>(m_status.Set(String{"The Gallery is not attached."}));
-    return;
-  }
-  auto copied = m_application->Platform().SetClipboardText(
-      String{PageExample(page).data()});
-  if (!copied) {
-    Report(std::move(copied).error());
-    return;
-  }
-  String status{"Copied the "};
-  status.Append(String{PageName(page).data()});
-  status.Append(String{" example."});
-  static_cast<void>(m_status.Set(std::move(status)));
-}
-
-auto GalleryViewModel::CurrentTheme() const -> Theme {
-  return IsLightTheme() ? MakeLightTheme() : Theme{};
 }
 
 auto GalleryViewModel::IsLightTheme() const noexcept -> bool {
@@ -4483,76 +1146,6 @@ auto GalleryViewModel::HelpToolTip() noexcept -> ToolTipController * {
   return m_helpToolTip.get();
 }
 
-auto GalleryViewModel::ActivationCount() const noexcept -> std::uint32_t {
-  return m_activationCount.Get();
-}
-
-void GalleryViewModel::Activate() {
-  static_cast<void>(m_activationCount.Set(m_activationCount.Get() + 1));
-}
-
-auto GalleryViewModel::CommandDemoBinding() const -> CommandBinding {
-  return m_commandDemo ? m_commandDemo->AsBinding() : CommandBinding{};
-}
-
-auto GalleryViewModel::CommandDemoStatus() const -> String {
-  if (!m_commandDemo) {
-    return String{"The command is not attached yet."};
-  }
-  const auto &status = m_commandDemo->Status();
-  if (status.isRunning) {
-    return String{"Working... Press Cancel to stop."};
-  }
-  switch (status.lastOutcome.kind) {
-  case CommandOutcomeKind::None:
-    return String{"Ready."};
-  case CommandOutcomeKind::Succeeded:
-    return LabeledNumber("Finished tasks: ", m_commandSuccessCount.Get());
-  case CommandOutcomeKind::DomainError: {
-    String message{"Failed: "};
-    if (status.lastOutcome.error) {
-      message.Append(status.lastOutcome.error->message);
-    }
-    message.Append(String{". Press Run task to retry."});
-    return message;
-  }
-  case CommandOutcomeKind::Canceled:
-    return String{"Canceled. You can run it again."};
-  case CommandOutcomeKind::Fault:
-    return String{"The task stopped unexpectedly. Try again."};
-  }
-  return String{"Ready."};
-}
-
-void GalleryViewModel::StartFailingCommandDemo() {
-  if (!m_commandDemo || !m_commandDemo->Status().canExecute) {
-    return;
-  }
-  m_commandDemoShouldFail = true;
-  static_cast<void>(m_commandDemo->Execute());
-}
-
-void GalleryViewModel::CancelCommandDemo() noexcept {
-  m_commandDemoShouldFail = false;
-  if (m_commandDemo) {
-    m_commandDemo->Cancel();
-  }
-}
-
-auto GalleryViewModel::RunCommandDemo(NGIN::Async::TaskContext &context)
-    -> NGIN::Async::Task<void, CommandError> {
-  const auto shouldFail = std::exchange(m_commandDemoShouldFail, false);
-  co_await context.Delay(NGIN::Units::Seconds(1.2));
-  if (shouldFail) {
-    co_await NGIN::Async::DomainFailure(CommandError{
-        .kind = CommandErrorKind::Domain,
-        .code = String{"gallery-demo"},
-        .message = String{"The demo service rejected the request"},
-    });
-  }
-  static_cast<void>(m_commandSuccessCount.Set(m_commandSuccessCount.Get() + 1));
-}
-
 auto GalleryViewModel::CollectionItems() const -> std::vector<std::uint32_t> {
   auto items = m_collectionItems.Get();
   if (m_collectionFiltered.Get()) {
@@ -4642,7 +1235,6 @@ auto GalleryViewModel::SelectVirtualizedItem(const NGIN::UIntSize index)
 
 void GalleryViewModel::PrependVirtualizedItems() {
   m_virtualizedSource->Prepend(250);
-  Invalidate(InvalidationKind::All);
   Notify("Added 250 rows while keeping the visible item in place");
 }
 
@@ -4733,7 +1325,7 @@ auto GalleryViewModel::AsyncSecondaryMotion() noexcept -> MotionController & {
 }
 
 auto GalleryViewModel::AsyncMotionStatus() const noexcept -> const String & {
-  return m_asyncMotion->status;
+  return m_asyncMotion->status.Get();
 }
 
 void GalleryViewModel::StartAsyncMotionSequence() {
@@ -4777,7 +1369,7 @@ void GalleryViewModel::InterruptAsyncMotion() {
   if (!m_asyncMotion || !m_asyncMotion->context || m_application == nullptr) {
     return;
   }
-  const auto target = m_asyncMotion->interruptForward ? 430.0F : 0.0F;
+  const auto target = m_asyncMotion->interruptForward ? 1.0F : 0.0F;
   m_asyncMotion->interruptForward = !m_asyncMotion->interruptForward;
   if (!m_application->BackgroundTasks().Transfer(
           InterruptMotion(*m_asyncMotion->context, m_asyncMotion, target))) {
@@ -4875,9 +1467,8 @@ auto GalleryViewModel::OpenAuxiliaryWindow(const bool modal) noexcept
     created = result.value();
   }
 
-  created->SetContent([this, modal](Composer &composer) {
-    ComposeAuxiliaryWindow(composer, *m_text, *this, modal);
-  });
+  created->SetContent(AuxiliaryWindowView(*this, modal),
+                      Views::ViewEnvironment{*m_text});
   static_cast<void>(m_status.Set(
       String{modal ? "Opened modal dialog" : "Opened auxiliary window"}));
   return {};
@@ -4921,8 +1512,7 @@ auto GalleryViewModel::AccessibilityAnnouncement() const noexcept
 }
 
 void GalleryViewModel::AnnounceAccessibilityDemo() {
-  const auto next = m_activationCount.Get() + 1;
-  static_cast<void>(m_activationCount.Set(next));
+  const auto next = ++m_announcementCount;
   String message{"Accessibility message "};
   message.Append(Number(next));
   message.Append(String{" is ready."});
@@ -4933,218 +1523,42 @@ void GalleryViewModel::Report(UIError error) {
   static_cast<void>(m_status.Set(std::move(error.message)));
 }
 
-void GalleryViewModel::Invalidate(const InvalidationKind kind) const noexcept {
+void GalleryViewModel::Invalidate(const InvalidationKind kind) const {
+  if (HasInvalidation(kind, InvalidationKind::Compose)) {
+    static_cast<void>(
+        m_pageRevision.Update([](UInt64 &revision) { ++revision; }));
+  }
   if (m_window != nullptr) {
     m_window->Invalidate(kind);
   }
-}
-
-void ComposeMainView(Composer &composer, NativeTextSystem &text,
-                     GalleryViewModel &model) {
-  const auto theme = model.CurrentTheme();
-  NodeProperties root{};
-  root.layout.padding = Thickness::Uniform(Dp{24.0F});
-  root.grid.columns = {GridTrack::Fixed(252.0F),
-                       GridTrack::Weighted(1.0F, 320.0F)};
-  root.grid.rows = {GridTrack::Weighted()};
-  root.grid.columnGap = 28.0F;
-  root.visual.base.background = theme.colors.background;
-  root.semantics.role = SemanticRole::Group;
-  root.semantics.label = String{"NGIN.UI control gallery"};
-
-  composer.Element(
-      ElementType::Grid, root,
-      [&] {
-        NodeProperties sidebar{};
-        sidebar.layout.preferredSize.width = 252.0F;
-        sidebar.layout.minimumSize.width = 252.0F;
-        sidebar.layout.maximumSize.width = 252.0F;
-        sidebar.layout.flexShrink = 0.0F;
-        sidebar.gridPlacement = GridPlacement{.row = 0, .column = 0};
-        sidebar.layout.padding = Thickness::Uniform(Dp{20.0F});
-        sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
-        sidebar.visual = MakePanelVisual(theme);
-        sidebar.scroll.vertical = true;
-        sidebar.scroll.horizontal = false;
-        sidebar.semantics.role = SemanticRole::Group;
-        sidebar.semantics.label = String{"Gallery navigation"};
-        StyleScrollView(sidebar, theme);
-        composer.ScrollView(
-            [&] {
-              NodeProperties navigation{};
-              navigation.layout.gap = theme.spacing.spacious;
-              navigation.layout.horizontalAlignment =
-                  HorizontalAlignment::Stretch;
-              composer.Element(
-                  ElementType::Column, navigation,
-                  [&] {
-                    NodeProperties brand{};
-                    brand.layout.gap = theme.spacing.compact;
-                    composer.Column(
-                        [&] {
-                          ComposeText(composer, text, String{"NGIN.UI"}, 27.0F,
-                                      theme.colors.focus, "brand",
-                                      SemanticRole::Heading);
-                          ComposeText(composer, text,
-                                      String{"Explore, learn, and build"},
-                                      13.0F, theme.colors.mutedForeground,
-                                      "brand-subtitle");
-                        },
-                        "brand-block");
-                    NodeProperties separator{};
-                    separator.visual = MakeSeparatorVisual(theme);
-                    composer.Separator(SeparatorOrientation::Horizontal,
-                                       separator, "nav-separator");
-
-                    NodeProperties search{};
-                    search.layout.gap = theme.spacing.regular;
-                    composer.Column(
-                        [&] {
-                          ComposeText(composer, text,
-                                      String{"Search the gallery"}, 13.0F,
-                                      theme.colors.foreground,
-                                      "navigation-search-label");
-                          ComposeTextField(composer, text, model, theme,
-                                           model.NavigationSearchBinding(),
-                                           "Search pages and features",
-                                           "navigation-search", false, true,
-                                           false, false, 212.0F);
-                        },
-                        "navigation-search-group");
-
-                    NGIN::UIntSize visiblePages = 0;
-                    for (NGIN::UIntSize groupIndex = 0;
-                         groupIndex < NavigationGroups.size(); ++groupIndex) {
-                      const auto &group = NavigationGroups[groupIndex];
-                      bool groupHasMatches = false;
-                      for (NGIN::UIntSize offset = 0; offset < group.pageCount;
-                           ++offset) {
-                        if (model.NavigationMatches(
-                                PageAt(group.firstPage + offset))) {
-                          groupHasMatches = true;
-                          break;
-                        }
-                      }
-                      if (!groupHasMatches) {
-                        continue;
-                      }
-
-                      NodeProperties groupProperties{};
-                      groupProperties.layout.gap = theme.spacing.compact;
-                      groupProperties.layout.horizontalAlignment =
-                          HorizontalAlignment::Stretch;
-                      composer.Column(
-                          [&] {
-                            ComposeText(composer, text,
-                                        String{group.label.data()}, 12.0F,
-                                        theme.colors.mutedForeground,
-                                        "group-label");
-                            for (NGIN::UIntSize offset = 0;
-                                 offset < group.pageCount; ++offset) {
-                              const auto index = group.firstPage + offset;
-                              const auto page = PageAt(index);
-                              if (!model.NavigationMatches(page)) {
-                                continue;
-                              }
-                              ++visiblePages;
-                              const auto name = PageName(page);
-                              ComposeNavigationButton(
-                                  composer, text, theme, name.data(),
-                                  [&model, page] { model.SelectPage(page); },
-                                  std::to_string(index),
-                                  model.CurrentPage() == page);
-                            }
-                          },
-                          std::to_string(groupIndex));
-                    }
-                    if (visiblePages == 0) {
-                      ComposeText(composer, text,
-                                  String{"No matching pages. Try a control or "
-                                         "feature name."},
-                                  theme.typography.caption,
-                                  theme.colors.mutedForeground,
-                                  "navigation-no-results");
-                    }
-
-                    NodeProperties appearanceSeparator{};
-                    appearanceSeparator.visual = MakeSeparatorVisual(theme);
-                    composer.Separator(SeparatorOrientation::Horizontal,
-                                       appearanceSeparator,
-                                       "appearance-separator");
-                    ComposeText(composer, text, String{"Appearance"}, 12.0F,
-                                theme.colors.mutedForeground,
-                                "appearance-label");
-                    ComposeButton(
-                        composer, text, theme,
-                        model.IsLightTheme() ? "Switch to dark theme"
-                                             : "Switch to light theme",
-                        [&model] { model.ToggleTheme(); }, "theme", 212.0F);
-                  },
-                  "sidebar-content");
-            },
-            sidebar, "sidebar");
-
-        NodeProperties viewport{};
-        viewport.layout.preferredSize = Size{860.0F, 720.0F};
-        viewport.layout.minimumSize = Size{320.0F, 320.0F};
-        viewport.layout.flexGrow = 1.0F;
-        viewport.layout.flexShrink = 1.0F;
-        viewport.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-        viewport.layout.verticalAlignment = VerticalAlignment::Stretch;
-        viewport.gridPlacement = GridPlacement{.row = 0, .column = 1};
-        viewport.scroll.vertical = true;
-        viewport.scroll.horizontal = false;
-        StyleScrollView(viewport, theme);
-        composer.ScrollView(
-            [&] {
-              NodeProperties page{};
-              page.layout.padding = Thickness{8.0F, 8.0F, 40.0F, 56.0F};
-              page.layout.gap = 24.0F;
-              page.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-              page.layout.verticalAlignment = VerticalAlignment::Start;
-              page.semantics.role = SemanticRole::Group;
-              page.semantics.label =
-                  String{PageName(model.CurrentPage()).data()};
-              composer.Element(
-                  ElementType::Column, page,
-                  [&] {
-                    const auto currentPage = model.CurrentPage();
-                    ComposeText(composer, text,
-                                String{PageSections[static_cast<NGIN::UIntSize>(
-                                                        currentPage)]
-                                           .data()},
-                                theme.typography.caption, theme.colors.focus,
-                                "page-section");
-                    model.ComposeCurrentPage(composer);
-                    ComposePublicExample(composer, text, model, theme);
-                    if (!model.Status().Empty()) {
-                      ComposeText(composer, text, model.Status(), 13.0F,
-                                  theme.colors.mutedForeground,
-                                  "gallery-status");
-                    }
-                  },
-                  "page");
-            },
-            viewport, "catalogue-viewport");
-      },
-      "gallery-root");
 }
 
 auto CreateMainWindow(Application &application, NativeTextSystem &text,
                       GalleryViewModel &model) -> UIResult<Window *> {
   auto window = application.CreateWindow(WindowCreateInfo{
       .id = String{"Gallery.Main"},
-      .title = String{"NGIN.UI Control Gallery"},
+      .title = String{"NGIN.UI Sample Gallery"},
       .initialSize = PixelSize{1280, 840},
-      .minimumSize = PixelSize{680, 520},
+      .minimumSize = PixelSize{480, 420},
   });
   if (!window) {
     return std::unexpected(std::move(window).error());
   }
   model.AttachRuntime(application, text, *window.value());
-  window.value()->SetContent([&text, &model](Composer &composer) {
-    ComposeMainView(composer, text, model);
+  auto &host = **window;
+  model.UpdateViewport(host.PixelExtent().width, host.ScaleFactor());
+  host.SetEventHandler([&host, &model](const PlatformEvent &event) {
+    if (const auto *resize = std::get_if<WindowResized>(&event)) {
+      model.UpdateViewport(resize->size.width, host.ScaleFactor());
+    } else if (const auto *scale = std::get_if<WindowScaleChanged>(&event)) {
+      model.UpdateViewport(host.PixelExtent().width, scale->scaleFactor);
+    } else if (const auto *key = std::get_if<KeyChanged>(&event);
+               key && key->state == KeyState::Pressed &&
+               key->logicalKey == static_cast<NGIN::UInt32>(LogicalKey::Escape)) {
+      model.SetBrowserOpen(false);
+    }
   });
+  window.value()->SetContent(MainView(model), Views::ViewEnvironment{text});
   return window.value();
 }
 } // namespace NGIN::UIGallery

@@ -9,7 +9,13 @@ ngin build --project Examples/Hello.GameOfLife/Hello.GameOfLife.nginproj --confi
 ngin run --project Examples/Hello.GameOfLife/Hello.GameOfLife.nginproj --configuration Debug --output build/manual/Hello.GameOfLife
 ```
 
-Pass `--smoke` after `--` to compose and render one frame for automation.
+The window mounts `MainView` once. The board is a custom-painted view backed by
+one dynamic texture. It keeps keyboard focus, zoom and pan while the observable
+controls and statistics update. The simulation repaints completed batches and
+publishes statistics at most ten times per second while running.
+
+Pass `--smoke` after `--` to render the board, advance two generations and
+check the updated statistics, keyboard focus and display-list size.
 
 The example is intentionally larger than the learning samples. Start with
 [Hello.ECS](../Hello.ECS) and the [NGIN.UI Gallery](../NGIN.UI.Gallery) if you

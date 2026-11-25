@@ -20,3 +20,13 @@ connects UI lifecycle to `NGIN.Core`.
 The UI core remains testable with headless backends and can support other native
 backends. Applications must select a concrete backend for real windows, and
 backend capability negotiation remains an explicit startup concern.
+
+## Embedding
+
+A retained `Surface` owns composition, layout, interaction, semantics, and
+preparation of draw data. Both native windows and engine-owned targets use it.
+An engine selects the target, drives time and input, and presents the frame.
+Layout and painting are independent stages within the UI library. A shared
+render packet carries geometry across the backend boundary. Embedding contracts
+and resource lifetimes are described in the
+[components and surfaces guide](../../guides/ngin-ui-surfaces.md).

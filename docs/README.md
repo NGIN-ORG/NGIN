@@ -44,6 +44,9 @@ ngin schema --format json
 See the [libraries index](libraries/README.md) for `NGIN.Base`, `NGIN.Core`,
 `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`, and `NGIN.UI`.
 
+For async work, see the [NGIN.Base async contract](../Dependencies/NGIN/NGIN.Base/docs/Async.md)
+and the [Hello.IO example](../Examples/Hello.IO/README.md).
+
 ## Work on NGIN itself
 
 - [Architecture overview](architecture/overview.md)

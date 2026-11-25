@@ -32,6 +32,8 @@ struct WrapPanelLayoutDiagnostics final {
 struct LayoutPassStats final {
   UIntSize measured{0};
   UIntSize arranged{0};
+  UIntSize reusedMeasurements{0};
+  UIntSize reusedPlacements{0};
   std::vector<GridLayoutDiagnostics> grids{};
   std::vector<WrapPanelLayoutDiagnostics> wrapPanels{};
   std::vector<VirtualizedListDiagnostics> virtualizedLists{};
@@ -42,13 +44,21 @@ class LayoutEngine final {
 public:
   explicit LayoutEngine(RuntimeTree &tree) noexcept;
 
+  /// @brief Reuse pure reconciled subtrees when constraints, scale, and text
+  /// service revisions match. Direct mutations of RuntimeTree properties
+  /// require an eager pass (the default).
   auto Perform(SizeConstraints constraints, Rect finalBounds,
-               F32 scaleFactor = 1.0F) -> LayoutPassStats;
+               F32 scaleFactor = 1.0F, bool reuseMeasurements = false)
+      -> LayoutPassStats;
   [[nodiscard]] auto Measure(ElementHandle node, SizeConstraints constraints)
       -> Size;
   void Arrange(ElementHandle node, Rect finalBounds);
 
 private:
+  friend class ArrangeChildren;
+  auto PrepareSubtree(ElementHandle handle, bool visible, bool canReuse)
+      -> bool;
+  void ResolveTextGlyphs(RuntimeNode &node);
   [[nodiscard]] auto MeasureLeaf(RuntimeNode &node, SizeConstraints constraints)
       -> Size;
   [[nodiscard]] auto MeasureCustom(RuntimeNode &node,
@@ -78,5 +88,7 @@ private:
   UInt64 m_revision{0};
   F32 m_scaleFactor{1.0F};
   LayoutPassStats m_stats{};
+  bool m_incremental{};
+  bool m_deferGlyphs{};
 };
 } // namespace NGIN::UI

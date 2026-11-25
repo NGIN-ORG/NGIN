@@ -67,6 +67,8 @@ private:
   auto SetCloseHandler(NGIN::Utilities::Callable<void()> handler) noexcept
       -> Core::CoreResult<void>;
   void ClearCloseHandler() noexcept;
+  [[nodiscard]] auto TaskOwner() const noexcept
+      -> NGIN::Async::TaskSupervisor<> *;
 
   std::shared_ptr<State> m_state{};
   Core::ServiceScopeId m_id{};
@@ -201,7 +203,8 @@ public:
 
   [[nodiscard]] auto Mount(std::string_view serviceName = {}) noexcept
       -> Core::CoreResult<NGIN::Memory::Shared<T>> {
-    if (!m_state || m_state->closing || !m_state->scope.IsActive()) {
+    if (!m_state || m_state->closing || !m_state->scope.IsActive() ||
+        !m_state->scope.TaskOwner()) {
       return NGIN::Utilities::Unexpected<Core::KernelError>(
           Core::MakeKernelError(Core::KernelErrorCode::InvalidState,
                                 "NGIN.UI.Hosting", "HostedViewModelHost::Mount",
@@ -212,14 +215,14 @@ public:
     }
     auto resolved = m_state->scope.template ResolveRequired<T>(serviceName);
     if (!resolved) {
-      return NGIN::Utilities::Unexpected<Core::KernelError>(resolved.Error());
+      return NGIN::Utilities::Unexpected<Core::KernelError>(resolved.error());
     }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     try {
 #endif
-      m_state->viewModel = resolved.Value();
+      m_state->viewModel = resolved.value();
       m_state->activeTasks = std::make_unique<ViewModelTaskScope>(
-          m_state->context, m_state->scheduler);
+          *m_state->scope.TaskOwner(), m_state->context, m_state->scheduler);
       const auto weak = std::weak_ptr<State>{m_state};
       auto closeHandler = m_state->scope.SetCloseHandler([weak] {
         if (const auto state = weak.lock()) {
@@ -230,7 +233,7 @@ public:
         m_state->activeTasks.reset();
         m_state->viewModel.Reset();
         return NGIN::Utilities::Unexpected<Core::KernelError>(
-            closeHandler.Error());
+            closeHandler.error());
       }
       if constexpr (requires(T &value, ViewModelTaskScope &scope) {
                       { value.Activate(scope) } noexcept -> std::same_as<void>;
@@ -325,7 +328,7 @@ private:
       try {
 #endif
         state->cleanupTasks = std::make_unique<ViewModelTaskScope>(
-            state->context, state->scheduler);
+            *state->scope.TaskOwner(), state->context, state->scheduler);
         const auto retained = state->viewModel;
         const auto weak = std::weak_ptr<State>{state};
         const auto task = state->cleanupTasks->Start(
@@ -362,7 +365,7 @@ private:
       }
     }
     if (!state->activeTasks) {
-      StartAsyncDeactivation(state);
+      Finalize(state);
       return;
     }
     state->activeTasks->Close([state] { StartAsyncDeactivation(state); });
@@ -562,15 +565,16 @@ public:
           auto *hosted = dynamic_cast<HostedNavigationContext *>(&activation);
           if (hosted == nullptr || !hosted->Runtime() ||
               !hosted->WindowHandle().IsOpen()) {
-            return MakeUIError(UIErrorCode::InvalidState,
-                               "Hosted page needs an open hosted window",
-                               "NGIN.UI.Hosting", "HostedPageBuilder::UsePage");
+            return std::unexpected(
+                MakeUIError(UIErrorCode::InvalidState,
+                            "Hosted page needs an open hosted window",
+                            "NGIN.UI.Hosting", "HostedPageBuilder::UsePage"));
           }
           auto scope =
               hosted->WindowHandle().CreatePageScope(std::string{entryKey});
           if (!scope) {
-            return MakeHostedUIError(scope.Error(),
-                                     "HostedPageBuilder::CreatePageScope");
+            return std::unexpected(MakeHostedUIError(
+                scope.error(), "HostedPageBuilder::CreatePageScope"));
           }
 #if NGIN_ASYNC_HAS_EXCEPTIONS
           try {
@@ -578,21 +582,22 @@ public:
             auto host = std::make_shared<HostedViewModelHost<ViewModel>>(
                 hosted->Runtime()->UI().CreateTaskContext(
                     *hosted->WindowHandle().UI()),
-                std::move(scope).Value());
+                std::move(scope).value());
             auto mounted = host->Mount(serviceName);
             if (!mounted) {
-              return MakeHostedUIError(mounted.Error(),
-                                       "HostedPageBuilder::Mount");
+              return std::unexpected(MakeHostedUIError(
+                  mounted.error(), "HostedPageBuilder::Mount"));
             }
             return PageLease<ViewModel>{
-                .viewModel = ToStdShared(std::move(mounted).Value()),
+                .viewModel = ToStdShared(std::move(mounted).value()),
                 .close = [host] { host->Unmount(); },
             };
 #if NGIN_ASYNC_HAS_EXCEPTIONS
           } catch (...) {
-            return MakeUIError(UIErrorCode::OutOfMemory,
-                               "Hosted page activation allocation failed",
-                               "NGIN.UI.Hosting", "HostedPageBuilder::UsePage");
+            return std::unexpected(
+                MakeUIError(UIErrorCode::OutOfMemory,
+                            "Hosted page activation allocation failed",
+                            "NGIN.UI.Hosting", "HostedPageBuilder::UsePage"));
           }
 #endif
         },
@@ -617,9 +622,10 @@ CreateHostedNavigationContext(const UIHostingRegistration &hosting,
                               HostedWindow window) noexcept
     -> UIResult<HostedNavigationContext> {
   if (!hosting.runtime || !window.IsOpen()) {
-    return MakeUIError(UIErrorCode::InvalidState,
-                       "Hosted navigation needs a runtime and open window",
-                       "NGIN.UI.Hosting", "CreateHostedNavigationContext");
+    return std::unexpected(
+        MakeUIError(UIErrorCode::InvalidState,
+                    "Hosted navigation needs a runtime and open window",
+                    "NGIN.UI.Hosting", "CreateHostedNavigationContext"));
   }
   return HostedNavigationContext{hosting.runtime, std::move(window)};
 }

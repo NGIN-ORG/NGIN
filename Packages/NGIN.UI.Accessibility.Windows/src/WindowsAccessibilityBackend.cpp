@@ -773,7 +773,7 @@ private:
                     .numericValue = numericValue,
                 },
         });
-    if (result.HasValue()) {
+    if (result.has_value()) {
       ++m_state->postedActions;
       return S_OK;
     }
@@ -992,7 +992,7 @@ private:
     auto error = MakeUIError(code, message, Name(), operation, "", nativeCode);
     std::scoped_lock lock{m_mutex};
     m_diagnostics.lastError = error;
-    return error;
+    return std::unexpected(std::move(error));
   }
 
   void CountEvent(const HRESULT status) noexcept {

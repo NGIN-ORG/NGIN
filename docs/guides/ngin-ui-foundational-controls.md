@@ -1,6 +1,6 @@
 # NGIN.UI Foundational Controls
 
-`<NGIN/UI/Controls.hpp>` provides the standard controls needed by a small
+`<NGIN/UI/ViewControls.hpp>` provides the standard controls needed by a small
 settings-style application:
 
 - `CheckBox`, with unchecked, checked, and indeterminate values;
@@ -8,13 +8,12 @@ settings-style application:
 - `ToggleSwitch`;
 - `Slider`;
 - determinate and indeterminate `ProgressBar`;
-- semantic `Label` association;
-- delayed `ToolTipController`;
+- semantic label association;
+- delayed tooltips with `Views::ToolTip` and `ToolTipController`;
 - visual, draggable, keyboard-operable `ScrollView` scrollbars.
 
-They are also available through the aggregate `<NGIN/UI/UI.hpp>` header. All
-controls are backend-neutral and use the same public custom-element contract as
-application-authored controls.
+They are also available through the aggregate `<NGIN/UI/UI.hpp>` header. Each
+factory returns a backend-neutral `Views::View` that can be keyed, nested, and mounted on a surface.
 
 ## Bind Controls to Model State
 
@@ -27,13 +26,13 @@ State<CheckState> automaticUpdates{CheckState::Indeterminate};
 State<bool> darkMode{true};
 State<F32> volume{0.65F};
 
-window.SetContent([&](Composer &composer) {
-  CheckBox(composer, Bind(automaticUpdates), {}, {}, "automatic-updates");
-  ToggleSwitch(composer, Bind(darkMode), {}, {}, "dark-mode");
-  Slider(composer, Bind(volume),
-         SliderRange{.minimum = 0.0F, .maximum = 1.0F, .step = 0.05F}, {},
-         {}, "volume");
+auto controls = Views::Column({
+    Views::CheckBox(Bind(automaticUpdates)).Key("automatic-updates"),
+    Views::ToggleSwitch(Bind(darkMode)).Key("dark-mode"),
+    Views::Slider("Volume", Bind(volume),
+                  {.minimum = 0.0F, .maximum = 1.0F, .step = 0.05F}).Key("volume"),
 });
+window.SetContent(controls, Views::ViewEnvironment{text});
 ```
 
 The model state and anything captured by a binding must outlive composed
@@ -48,12 +47,14 @@ are delivered through `ControlPresentation::onError`.
 enum class Density { Compact, Comfortable, Spacious };
 State<Density> density{Density::Comfortable};
 
-RadioButton(composer, BindRadio(Bind(density), Density::Compact), {}, {},
-            "compact");
-RadioButton(composer, BindRadio(Bind(density), Density::Comfortable), {}, {},
-            "comfortable");
-RadioButton(composer, BindRadio(Bind(density), Density::Spacious), {}, {},
-            "spacious");
+auto choice = [&](Density value, const char *label) {
+  NodeProperties properties{};
+  properties.semantics.label = NGIN::Text::String{label};
+  return Views::RadioButton(BindRadio(Bind(density), value), {}, properties).Key(label);
+};
+auto choices = Views::Column({choice(Density::Compact, "Compact"),
+                              choice(Density::Comfortable, "Comfortable"),
+                              choice(Density::Spacious, "Spacious")});
 ```
 
 The group value remains the application's type; there is no integer index or
@@ -74,7 +75,7 @@ ControlPresentation invalid{
 NodeProperties properties{};
 properties.interaction.enabled = canEdit;
 properties.semantics.label = NGIN::Text::String{"Volume"};
-Slider(composer, Bind(volume), {}, invalid, properties, "volume");
+auto slider = Views::Slider(Bind(volume), {}, invalid, properties).Key("volume");
 ```
 
 Controls resolve colors from the supplied theme. Disabled presentation takes
@@ -86,14 +87,13 @@ End, and capture the pointer while dragging.
 `ProgressBar` is read-only:
 
 ```cpp
-ProgressBar(composer,
-            ProgressValue{.value = progress,
-                          .minimum = 0.0F,
-                          .maximum = 100.0F},
-            ControlPresentation{.theme = theme}, {}, "download-progress");
-
-ProgressBar(composer, ProgressValue{.indeterminate = true},
-            ControlPresentation{.theme = theme}, {}, "working");
+auto progressBars = Views::Component([&] {
+  return Views::Column({
+      Views::ProgressBar({.value = progress.Get(), .minimum = 0.0F, .maximum = 100.0F},
+                         {.theme = theme}).Key("download-progress"),
+      Views::ProgressBar({.indeterminate = true}, {.theme = theme}).Key("working"),
+  });
+});
 ```
 
 ## Associate Labels
@@ -101,17 +101,17 @@ ProgressBar(composer, ProgressValue{.indeterminate = true},
 Semantic identifiers explicitly connect visible labels to controls:
 
 ```cpp
-NodeProperties labelProperties{};
-labelProperties.text.color = theme.colors.foreground;
-Label(composer, NGIN::Text::String{"Volume"}, textLayout, glyphAtlas,
-      "volume-label", "volume-control", labelProperties, "label");
+NodeProperties label{};
+label.text.color = theme.colors.foreground;
+label.semantics.identifier = NGIN::Text::String{"volume-label"};
+label.semantics.labelFor = NGIN::Text::String{"volume-control"};
 
-NodeProperties sliderProperties{};
-sliderProperties.semantics.identifier =
-    NGIN::Text::String{"volume-control"};
-sliderProperties.semantics.labelledBy =
-    NGIN::Text::String{"volume-label"};
-Slider(composer, Bind(volume), {}, {}, sliderProperties, "slider");
+NodeProperties control{};
+control.semantics.identifier = NGIN::Text::String{"volume-control"};
+control.semantics.labelledBy = label.semantics.identifier;
+
+auto volumeRow = Views::Row({Views::Label("Volume", label),
+                             Views::Slider(Bind(volume), {}, {}, control)});
 ```
 
 The semantic tree exposes `identifier`, `labelFor`, and `labelledBy` on each
@@ -124,18 +124,13 @@ A controller owns hover delay and open state. It must outlive every composition
 that attaches or renders it:
 
 ```cpp
-ToolTipController help{
-    window, NGIN::Text::String{"Changes the application theme."},
-    std::chrono::milliseconds{500}};
-
-window.SetContent([&](Composer &composer) {
-  NodeProperties target{};
-  help.Attach(target);
-  composer.Button([] {}, target, "theme-button");
-
-  help.Compose(composer, [&] {
-    composer.Leaf(ElementType::Border, "tooltip-surface");
-  });
+ToolTipController help{window, NGIN::Text::String{"Changes the application theme."}};
+NodeProperties target{};
+target.semantics.label = NGIN::Text::String{"Dark mode"};
+help.Attach(target);
+auto themeSwitch = Views::Overlay({
+    Views::ToggleSwitch(Bind(darkMode), {}, target),
+    Views::ToolTip(help, Views::Label("Changes the application theme.")),
 });
 ```
 
@@ -159,8 +154,8 @@ scroll.scroll.scrollbarTrack = theme.colors.sunkenSurface;
 scroll.scroll.scrollbarThumb = theme.colors.border;
 scroll.scroll.scrollbarThumbHovered = theme.colors.focus;
 
-composer.ScrollView([&] { ComposeLongContent(composer); }, scroll,
-                    "settings-scroll");
+auto viewport = Views::ScrollView({settingsPanel}, scroll)
+                    .Key("settings-scroll");
 ```
 
 The mouse wheel chains to an ancestor scroll view when the nearest view cannot
@@ -186,3 +181,12 @@ See the buildable
 [`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) Inputs page for complete
 state matrices and the deterministic tests in
 [`ControlsTests.cpp`](../../Packages/NGIN.UI/tests/ControlsTests.cpp).
+
+## Editing reflected settings
+
+The Gallery’s **Property Editor** uses a checkbox and a slider to edit a reflected
+playback object. It enumerates properties at composition time, reads their values,
+and checks `Property::IsWritable()` before creating an editable binding. The
+output level comes from a getter on the same object and updates after either edit.
+The Gallery products declare their Reflection dependency. See the
+[page implementation](../../Examples/NGIN.UI.Gallery/src/GalleryPropertyEditor.cpp).

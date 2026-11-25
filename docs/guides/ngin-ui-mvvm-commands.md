@@ -13,12 +13,11 @@ Construct a command with an action and optional invalidation scheduler:
 ```cpp
 class CounterViewModel final {
 public:
-  explicit CounterViewModel(Window &window)
-      : increment(
-            [this] { ++count; }, true,
-            [&window](InvalidationKind kind) { window.Invalidate(kind); }) {}
+  CounterViewModel() : increment([this] {
+    static_cast<void>(count.Update([](int &value) { ++value; }));
+  }) {}
 
-  int count{0};
+  State<int> count{0};
   Command increment;
 };
 ```
@@ -78,44 +77,27 @@ through an unobserved detached task.
 
 ## Compose a command button
 
-The leaf form is useful for a custom-painted button:
+Pass the command binding and a child view to `Views::Button`. The control
+observes command availability, combines it with the authored enabled state,
+and executes the binding when activated. An expired binding rejects activation.
 
 ```cpp
-composer.Button(viewModel.save.AsBinding(), buttonProperties, "save");
+buttonProperties.semantics.label = NGIN::Text::String{"Save"};
+auto saveButton = Views::Button(viewModel.save.AsBinding(), Views::Label("Save"),
+                                buttonProperties).Key("save");
 ```
 
-Use `BeginButton` when the button contains a text label or other children:
+Present progress and errors in a component that reads the command's status.
+Each status change schedules an update for that component.
 
 ```cpp
-{
-  auto button = composer.BeginButton(
-      viewModel.save.AsBinding(), buttonProperties, "save");
-  composer.Text(
-      NGIN::Text::String{"Save"}, textLayout, glyphAtlas, labelProperties,
-      "label");
-}
+auto saveStatus = Views::Component([&viewModel]() -> Views::View {
+  const auto &status = viewModel.save.Status();
+  if (status.isRunning) return Views::Label("Saving…");
+  if (status.lastOutcome.error) return Views::Label(status.lastOutcome.error->message);
+  return {};
+});
 ```
-
-The Composer reads `canExecute`, combines it with the authored enabled state,
-and installs a safe activation callback. If the owning command is destroyed,
-the retained binding becomes disabled and rejects activation instead of
-calling stale memory.
-
-Views may read status to present progress, cancellation, and errors:
-
-```cpp
-const auto &status = viewModel.save.Status();
-if (status.isRunning) {
-  ComposeProgress(composer);
-}
-if (status.lastOutcome.error) {
-  ComposeError(composer, status.lastOutcome.error->message);
-}
-```
-
-Do not retain a `Composer` or suspend composition. The command updates its
-observable status, invalidates the window, and the next synchronous
-composition pass presents the new state.
 
 ## Cancellation and concurrency
 

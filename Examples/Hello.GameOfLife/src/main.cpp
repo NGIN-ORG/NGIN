@@ -3,6 +3,7 @@
 
 #include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UI/UI.hpp>
+#include <NGIN/UI/ViewControls.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -19,14 +20,25 @@ namespace Hello::GameOfLife {
 namespace {
 using namespace NGIN::UI;
 
+struct FrameStats final {
+  NGIN::UInt64 generation{};
+  NGIN::UIntSize population{};
+  double batchMicroseconds{};
+  double actualRate{};
+  NGIN::UIntSize displayCommands{};
+  NGIN::UIntSize drawBatches{};
+  double uiMilliseconds{};
+  NGIN::Text::String status{};
+  auto operator==(const FrameStats &) const -> bool = default;
+};
+
 class GameModel final {
 public:
   explicit GameModel(Window &window, IRenderBackend &renderer)
       : m_window(window), m_images(renderer),
-        m_surface(CreateSurface(m_simulation)),
-        m_speed(0.58F, [this](const InvalidationKind kind) {
-          m_window.Invalidate(kind);
-        }) {}
+        m_surface(CreateSurface(m_simulation)) {
+    PublishStats();
+  }
 
   ~GameModel() {
     if (m_scheduledAction != 0) {
@@ -47,42 +59,34 @@ public:
     return m_images;
   }
 
-  [[nodiscard]] auto Running() const noexcept -> bool { return m_running; }
+  [[nodiscard]] auto Running() const noexcept -> bool {
+    return m_running.Get();
+  }
 
   [[nodiscard]] auto Speed() noexcept -> State<NGIN::F32> & { return m_speed; }
 
-  [[nodiscard]] auto ActualRate() const noexcept -> double {
-    return m_actualRate;
+  [[nodiscard]] auto Stats() const noexcept -> const FrameStats & {
+    return m_stats.Get();
   }
+  [[nodiscard]] auto Rule() const noexcept -> LifeRule { return m_rule.Get(); }
 
   [[nodiscard]] auto TargetRate() const noexcept -> double {
     return std::pow(120.0, static_cast<double>(m_speed.Get()));
   }
 
-  [[nodiscard]] auto Status() const noexcept -> const NGIN::Text::String & {
-    return m_status;
-  }
-
-  [[nodiscard]] auto UIDiagnostics() const noexcept
-      -> const WindowDiagnostics & {
-    return m_window.Diagnostics();
-  }
-
   void Start() {
-    if (!m_running) {
-      m_running = true;
+    if (!Running()) {
+      static_cast<void>(m_running.Set(true));
       m_generationAccumulator = 0.0;
       m_lastPulse = std::chrono::steady_clock::now();
       m_rateWindowStarted = m_lastPulse;
       m_rateWindowGeneration = m_simulation.Generation();
-      m_window.Invalidate(InvalidationKind::Compose |
-                          InvalidationKind::Semantics);
     }
     ScheduleNext();
   }
 
   void ToggleRunning() {
-    if (m_running) {
+    if (Running()) {
       Pause();
     } else {
       Start();
@@ -147,6 +151,7 @@ public:
     m_simulation.SetRule(m_simulation.Rule() == LifeRule::Conway
                              ? LifeRule::HighLife
                              : LifeRule::Conway);
+    static_cast<void>(m_rule.Set(m_simulation.Rule()));
     InvalidateSimulation();
   }
 
@@ -168,9 +173,9 @@ private:
         },
         TextureFilter::Nearest);
     if (!created) {
-      throw std::runtime_error{created.Error().message.CStr()};
+      throw std::runtime_error{created.error().message.CStr()};
     }
-    return std::move(created).Value();
+    return std::move(created).value();
   }
 
   void RefreshSurface() {
@@ -180,31 +185,30 @@ private:
         .rgba = m_simulation.Pixels(),
     });
     if (!updated) {
-      throw std::runtime_error{updated.Error().message.CStr()};
+      throw std::runtime_error{updated.error().message.CStr()};
     }
   }
 
   void Pause() {
-    if (!m_running) {
+    if (!Running()) {
       return;
     }
-    m_running = false;
+    static_cast<void>(m_running.Set(false));
     m_actualRate = 0.0;
     if (m_scheduledAction != 0) {
       static_cast<void>(m_window.CancelScheduled(m_scheduledAction));
       m_scheduledAction = 0;
     }
-    m_window.Invalidate(InvalidationKind::Compose |
-                        InvalidationKind::Semantics);
+    PublishStats();
   }
 
   void ScheduleNext() {
-    if (!m_running || m_scheduledAction != 0) {
+    if (!Running() || m_scheduledAction != 0) {
       return;
     }
     auto scheduled = m_window.Schedule(std::chrono::milliseconds{8}, [this] {
       m_scheduledAction = 0;
-      if (!m_running) {
+      if (!Running()) {
         return;
       }
       const auto now = std::chrono::steady_clock::now();
@@ -240,14 +244,14 @@ private:
       ScheduleNext();
     });
     if (!scheduled) {
-      Fail(scheduled.Error().message.CStr());
+      Fail(scheduled.error().message.CStr());
       return;
     }
-    m_scheduledAction = scheduled.Value();
+    m_scheduledAction = scheduled.value();
   }
 
   void Fail(const char *message) {
-    m_running = false;
+    static_cast<void>(m_running.Set(false));
     m_scheduledAction = 0;
     m_status = NGIN::Text::String{message};
     InvalidateSimulation();
@@ -267,24 +271,39 @@ private:
   }
 
   void InvalidateFrame(const std::chrono::steady_clock::time_point now) {
-    auto kind = InvalidationKind::Paint;
     if (now - m_lastDetailsInvalidation >= std::chrono::milliseconds{100}) {
-      kind = kind | InvalidationKind::Compose | InvalidationKind::Semantics;
+      PublishStats();
       m_lastDetailsInvalidation = now;
     }
-    m_window.Invalidate(kind);
+    m_window.Invalidate(InvalidationKind::Paint);
   }
 
-  void InvalidateSimulation() const noexcept {
-    m_window.Invalidate(InvalidationKind::Compose | InvalidationKind::Paint |
-                        InvalidationKind::Semantics);
+  void InvalidateSimulation() {
+    PublishStats();
+    m_window.Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
+  }
+
+  void PublishStats() {
+    const auto &ui = m_window.Diagnostics();
+    static_cast<void>(m_stats.Set(FrameStats{
+        .generation = m_simulation.Generation(),
+        .population = m_simulation.Population(),
+        .batchMicroseconds = m_simulation.LastFrameMicroseconds(),
+        .actualRate = m_actualRate,
+        .displayCommands = ui.displayCommandCount,
+        .drawBatches = ui.drawBatchCount,
+        .uiMilliseconds = ui.frameTimings.totalMilliseconds,
+        .status = m_status,
+    }));
   }
 
   Window &m_window;
   LifeSimulation m_simulation{};
   ImageTextureCache m_images;
   std::shared_ptr<ImageResource> m_surface;
-  State<NGIN::F32> m_speed;
+  State<NGIN::F32> m_speed{0.58F};
+  State<LifeRule> m_rule{m_simulation.Rule()};
+  State<FrameStats> m_stats{};
   NGIN::Text::String m_status{};
   Window::ScheduledActionId m_scheduledAction{0};
   std::chrono::steady_clock::time_point m_lastPulse{};
@@ -294,11 +313,10 @@ private:
   double m_generationAccumulator{0.0};
   double m_actualRate{0.0};
   NGIN::UIntSize m_lastBatchSize{0};
-  bool m_running{false};
+  State<bool> m_running{false};
 };
 
-[[nodiscard]] auto TextProperties(NativeTextSystem &text,
-                                  const NGIN::F32 fontSize, const Color color)
+[[nodiscard]] auto TextProperties(const NGIN::F32 fontSize, const Color color)
     -> NodeProperties {
   NodeProperties properties{};
   properties.layout.horizontalAlignment = HorizontalAlignment::Start;
@@ -306,25 +324,21 @@ private:
   properties.interaction.hitTestVisible = false;
   properties.text.fontSize = fontSize;
   properties.text.color = color;
-  properties.text.geometry = &text;
   properties.text.wrapping = TextWrapping::Wrap;
   return properties;
 }
 
-void ComposeText(Composer &composer, NativeTextSystem &text,
-                 NGIN::Text::String value, const NGIN::F32 fontSize,
-                 const Color color, const std::string_view key,
-                 const SemanticRole role = SemanticRole::Text) {
-  auto properties = TextProperties(text, fontSize, color);
+auto Caption(NGIN::Text::String value, const NGIN::F32 fontSize, Color color,
+             std::string_view key, SemanticRole role = SemanticRole::Text)
+    -> Views::View {
+  auto properties = TextProperties(fontSize, color);
   properties.semantics.role = role;
-  composer.Text(std::move(value), text, text, properties, key);
+  return Views::Label(std::move(value), properties).Key(key);
 }
 
-void ComposeButton(Composer &composer, NativeTextSystem &text,
-                   const Theme &theme, const char *label,
-                   NGIN::Utilities::Callable<void()> onActivate,
-                   const std::string_view key, const NGIN::F32 width = 118.0F,
-                   const bool selected = false) {
+auto Action(const Theme &theme, const char *label,
+            NGIN::Utilities::Callable<void()> onActivate, std::string_view key,
+            NGIN::F32 width, bool selected = false) -> Views::View {
   NodeProperties button{};
   button.layout.preferredSize = Size{width, theme.controls.regularHeight};
   button.layout.padding = Thickness{12.0F, 8.0F, 12.0F, 8.0F};
@@ -344,20 +358,17 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
     button.visual.states.selected.borderColor = theme.colors.focus;
   }
 
-  composer.Element(
-      ElementType::Button, button,
-      [&] {
-        auto labelProperties = TextProperties(
-            text, theme.typography.body,
-            selected ? theme.colors.foreground : theme.colors.accentForeground);
-        labelProperties.layout.horizontalAlignment =
-            HorizontalAlignment::Center;
-        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
-        labelProperties.text.wrapping = TextWrapping::NoWrap;
-        composer.Text(NGIN::Text::String{label}, text, text, labelProperties,
-                      "label");
-      },
-      key);
+  auto caption = TextProperties(theme.typography.body,
+                                selected ? theme.colors.foreground
+                                         : theme.colors.accentForeground);
+  caption.layout.horizontalAlignment = HorizontalAlignment::Center;
+  caption.layout.verticalAlignment = VerticalAlignment::Center;
+  caption.text.wrapping = TextWrapping::NoWrap;
+  return Views::Box(
+             ElementType::Button,
+             {Views::Label(NGIN::Text::String{label}, caption).Key("label")},
+             button)
+      .Key(key);
 }
 
 [[nodiscard]] auto NumberText(const char *label, const NGIN::UInt64 value)
@@ -393,226 +404,167 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
   return NGIN::Text::String{result.c_str()};
 }
 
-void ComposeMainView(Composer &composer, NativeTextSystem &text,
-                     GameModel &model) {
-  const Theme theme{};
-  const auto &simulation = model.Simulation();
+auto Toolbar(GameModel &model, const Theme &theme) -> Views::View {
+  NodeProperties toolbar{};
+  toolbar.gridPlacement = GridPlacement{.row = 1, .column = 0, .columnSpan = 2};
+  toolbar.wrapPanel.itemGap = 8;
+  toolbar.wrapPanel.lineGap = 8;
+  return Views::Box(
+             ElementType::WrapPanel,
+             {
+                 Views::Component([&model, theme] {
+                   return Action(
+                       theme, model.Running() ? "Pause" : "Run",
+                       [&model] { model.ToggleRunning(); }, "run", 104,
+                       model.Running());
+                 }),
+                 Action(
+                     theme, "Step", [&model] { model.Step(); }, "step", 92),
+                 Action(
+                     theme, "Clear", [&model] { model.Clear(); }, "clear", 92),
+                 Action(
+                     theme, "Randomize", [&model] { model.Randomize(); },
+                     "random", 116),
+                 Action(
+                     theme, "Glider fleet",
+                     [&model] { model.LoadGliderFleet(); }, "fleet", 122),
+                 Action(
+                     theme, "Acorn field",
+                     [&model] { model.LoadMethuselahField(); }, "acorns", 122),
+                 Views::Component([&model, theme] {
+                   return Action(
+                       theme,
+                       model.Rule() == LifeRule::Conway ? "Rule: Conway"
+                                                        : "Rule: HighLife",
+                       [&model] { model.ToggleRule(); }, "rule", 134, true);
+                 }),
+             },
+             toolbar)
+      .Key("toolbar");
+}
 
+auto Details(GameModel &model, const Theme &theme) -> Views::View {
+  NodeProperties sidebar{};
+  sidebar.gridPlacement = GridPlacement{.row = 2, .column = 1};
+  sidebar.layout.padding = Thickness::Uniform(Dp{16});
+  sidebar.layout.gap = 11;
+  sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
+  sidebar.visual = MakePanelVisual(theme);
+  sidebar.interaction.focusable = true;
+  sidebar.scroll.vertical = true;
+  sidebar.scroll.horizontal = false;
+  sidebar.semantics.role = SemanticRole::Group;
+  sidebar.semantics.label = NGIN::Text::String{"Simulation details"};
+  auto details = Views::Component([&model, theme] {
+    const auto &stats = model.Stats();
+    const auto &simulation = model.Simulation();
+    auto title = [&theme](const char *value, const char *key) {
+      return Caption(value, theme.typography.title, theme.colors.foreground,
+                     key, SemanticRole::Heading);
+    };
+    auto body = [&theme](NGIN::Text::String value, const char *key) {
+      return Caption(std::move(value), theme.typography.body,
+                     theme.colors.foreground, key);
+    };
+    auto note = [&theme](NGIN::Text::String value, const char *key) {
+      return Caption(std::move(value), theme.typography.caption,
+                     theme.colors.mutedForeground, key);
+    };
+    NodeProperties separator{};
+    separator.visual = MakeSeparatorVisual(theme);
+    NodeProperties slider{};
+    slider.layout.preferredSize = Size{240, 40};
+    std::vector<Views::View> children{
+        title("Simulation", "simulation-heading"),
+        body(NumberText("Entities: ", LifeSimulation::EntityCount), "entities"),
+        body(NumberText("Generation: ", stats.generation), "generation"),
+        body(NumberText("Living cells: ", stats.population), "population"),
+        Caption(FrameTimeText(stats.batchMicroseconds), theme.typography.body,
+                theme.colors.mutedForeground, "frame-time"),
+        Views::Separator(SeparatorOrientation::Horizontal, separator)
+            .Key("stats-separator"),
+        title("ECS schedule", "schedule-heading"),
+        body(NumberText("Systems: ", simulation.SystemCount()), "systems"),
+        body(NumberText("Dependency stages: ", simulation.StageCount()),
+             "stages"),
+        note("Deterministic parallel executor\nParallel chunks: evolve, "
+             "commit, rasterize",
+             "executor"),
+        title("NGIN.UI frame", "ui-heading"),
+        body(NumberText("Display commands: ", stats.displayCommands),
+             "commands"),
+        body(NumberText("Draw batches: ", stats.drawBatches), "batches"),
+        note(MillisecondsText("UI CPU frame: ", stats.uiMilliseconds),
+             "ui-time"),
+        body(RateText("Target: ", model.TargetRate()), "speed-label"),
+        note(RateText("Measured: ", stats.actualRate), "actual-speed"),
+        Views::Slider(Bind(model.Speed()),
+                      SliderRange{.minimum = 0, .maximum = 1, .step = 0.01F},
+                      ControlPresentation{.theme = theme}, slider)
+            .Key("speed"),
+        note("Wheel to zoom. Middle/right drag to pan. Primary drag paints "
+             "cells. Click the minimap to jump. Home shows the whole universe; "
+             "arrow keys and Space edit the focused cell.",
+             "instructions")};
+    if (!stats.status.Empty()) {
+      children.push_back(Caption(stats.status, theme.typography.caption,
+                                 theme.colors.error, "status"));
+    }
+    NodeProperties column{};
+    column.layout.gap = 10;
+    return Views::Column(std::move(children), column).Key("details");
+  });
+  return Views::Box(ElementType::ScrollView, {std::move(details)}, sidebar)
+      .Key("sidebar");
+}
+
+auto MainView(GameModel &model) -> Views::View {
+  const Theme theme{};
   NodeProperties root{};
-  root.layout.padding = Thickness::Uniform(Dp{22.0F});
+  root.layout.padding = Thickness::Uniform(Dp{22});
   root.grid.rows = {GridTrack::Auto(), GridTrack::Auto(),
-                    GridTrack::Weighted(1.0F, 300.0F)};
-  root.grid.columns = {GridTrack::Weighted(1.0F, 420.0F),
-                       GridTrack::Fixed(276.0F)};
-  root.grid.rowGap = 14.0F;
-  root.grid.columnGap = 18.0F;
+                    GridTrack::Weighted(1, 300)};
+  root.grid.columns = {GridTrack::Weighted(1, 420), GridTrack::Fixed(276)};
+  root.grid.rowGap = 14;
+  root.grid.columnGap = 18;
   root.visual.base.background = theme.colors.background;
   root.semantics.role = SemanticRole::Group;
   root.semantics.label = NGIN::Text::String{"Hello Game of Life"};
 
-  composer.Grid(
-      [&] {
-        NodeProperties heading{};
-        heading.gridPlacement =
-            GridPlacement{.row = 0, .column = 0, .columnSpan = 2};
-        heading.layout.gap = 4.0F;
-        composer.Element(
-            ElementType::Column, heading,
-            [&] {
-              ComposeText(composer, text,
-                          NGIN::Text::String{"Hello, Game of Life"}, 30.0F,
-                          theme.colors.foreground, "title",
-                          SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  NGIN::Text::String{
-                      "NGIN.ECS evolves 1,048,576 entities while NGIN.UI "
-                      "streams the universe through one dynamic texture."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "subtitle");
-            },
-            "heading");
+  NodeProperties heading{};
+  heading.gridPlacement = GridPlacement{.row = 0, .column = 0, .columnSpan = 2};
+  heading.layout.gap = 4;
+  auto title = Views::Column(
+                   {Caption("Hello, Game of Life", 30, theme.colors.foreground,
+                            "title", SemanticRole::Heading),
+                    Caption("NGIN.ECS evolves 1,048,576 entities while NGIN.UI "
+                            "streams the universe through one dynamic texture.",
+                            theme.typography.body, theme.colors.mutedForeground,
+                            "subtitle")},
+                   heading)
+                   .Key("heading");
 
-        NodeProperties toolbar{};
-        toolbar.gridPlacement =
-            GridPlacement{.row = 1, .column = 0, .columnSpan = 2};
-        toolbar.wrapPanel.itemGap = 8.0F;
-        toolbar.wrapPanel.lineGap = 8.0F;
-        composer.WrapPanel(
-            [&] {
-              ComposeButton(
-                  composer, text, theme, model.Running() ? "Pause" : "Run",
-                  [&model] { model.ToggleRunning(); }, "run", 104.0F,
-                  model.Running());
-              ComposeButton(
-                  composer, text, theme, "Step", [&model] { model.Step(); },
-                  "step", 92.0F);
-              ComposeButton(
-                  composer, text, theme, "Clear", [&model] { model.Clear(); },
-                  "clear", 92.0F);
-              ComposeButton(
-                  composer, text, theme, "Randomize",
-                  [&model] { model.Randomize(); }, "random", 116.0F);
-              ComposeButton(
-                  composer, text, theme, "Glider fleet",
-                  [&model] { model.LoadGliderFleet(); }, "fleet", 122.0F);
-              ComposeButton(
-                  composer, text, theme, "Acorn field",
-                  [&model] { model.LoadMethuselahField(); }, "acorns", 122.0F);
-              ComposeButton(
-                  composer, text, theme,
-                  simulation.Rule() == LifeRule::Conway ? "Rule: Conway"
-                                                        : "Rule: HighLife",
-                  [&model] { model.ToggleRule(); }, "rule", 134.0F, true);
-            },
-            toolbar, "toolbar");
-
-        NodeProperties board{};
-        board.gridPlacement = GridPlacement{.row = 2, .column = 0};
-        board.layout.minimumSize = Size{360.0F, 260.0F};
-        board.layout.flexGrow = 1.0F;
-        board.layout.horizontalAlignment = HorizontalAlignment::Stretch;
-        board.layout.verticalAlignment = VerticalAlignment::Stretch;
-        board.interaction.focusable = true;
-        board.semantics.role = SemanticRole::Image;
-        composer.Custom(
-            std::make_shared<LifeBoardElement>(
-                simulation, model.Surface(), model.Images(),
-                [&model](const NGIN::UIntSize x, const NGIN::UIntSize y,
-                         const bool alive) { model.SetCell(x, y, alive); }),
-            board, "life-board");
-
-        NodeProperties sidebar{};
-        sidebar.gridPlacement = GridPlacement{.row = 2, .column = 1};
-        sidebar.layout.padding = Thickness::Uniform(Dp{16.0F});
-        sidebar.layout.gap = 11.0F;
-        sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
-        sidebar.visual = MakePanelVisual(theme);
-        sidebar.interaction.focusable = true;
-        sidebar.scroll.vertical = true;
-        sidebar.scroll.horizontal = false;
-        sidebar.semantics.role = SemanticRole::Group;
-        sidebar.semantics.label = NGIN::Text::String{"Simulation details"};
-        composer.ScrollView(
-            [&] {
-              NodeProperties details{};
-              details.layout.gap = 10.0F;
-              composer.Element(
-                  ElementType::Column, details,
-                  [&] {
-                    ComposeText(composer, text,
-                                NGIN::Text::String{"Simulation"},
-                                theme.typography.title, theme.colors.foreground,
-                                "simulation-heading", SemanticRole::Heading);
-                    ComposeText(
-                        composer, text,
-                        NumberText("Entities: ", LifeSimulation::EntityCount),
-                        theme.typography.body, theme.colors.foreground,
-                        "entities");
-                    ComposeText(
-                        composer, text,
-                        NumberText("Generation: ", simulation.Generation()),
-                        theme.typography.body, theme.colors.foreground,
-                        "generation");
-                    ComposeText(
-                        composer, text,
-                        NumberText("Living cells: ", simulation.Population()),
-                        theme.typography.body, theme.colors.foreground,
-                        "population");
-                    ComposeText(
-                        composer, text,
-                        FrameTimeText(simulation.LastFrameMicroseconds()),
-                        theme.typography.body, theme.colors.mutedForeground,
-                        "frame-time");
-
-                    NodeProperties separator{};
-                    separator.visual = MakeSeparatorVisual(theme);
-                    composer.Separator(SeparatorOrientation::Horizontal,
-                                       separator, "stats-separator");
-
-                    ComposeText(composer, text,
-                                NGIN::Text::String{"ECS schedule"},
-                                theme.typography.title, theme.colors.foreground,
-                                "schedule-heading", SemanticRole::Heading);
-                    ComposeText(
-                        composer, text,
-                        NumberText("Systems: ", simulation.SystemCount()),
-                        theme.typography.body, theme.colors.foreground,
-                        "systems");
-                    ComposeText(composer, text,
-                                NumberText("Dependency stages: ",
-                                           simulation.StageCount()),
-                                theme.typography.body, theme.colors.foreground,
-                                "stages");
-                    ComposeText(
-                        composer, text,
-                        NGIN::Text::String{"Deterministic parallel executor\n"
-                                           "Parallel chunks: evolve, commit, "
-                                           "rasterize"},
-                        theme.typography.caption, theme.colors.mutedForeground,
-                        "executor");
-
-                    const auto &ui = model.UIDiagnostics();
-                    ComposeText(composer, text,
-                                NGIN::Text::String{"NGIN.UI frame"},
-                                theme.typography.title, theme.colors.foreground,
-                                "ui-heading", SemanticRole::Heading);
-                    ComposeText(composer, text,
-                                NumberText("Display commands: ",
-                                           ui.displayCommandCount),
-                                theme.typography.body, theme.colors.foreground,
-                                "commands");
-                    ComposeText(composer, text,
-                                NumberText("Draw batches: ", ui.drawBatchCount),
-                                theme.typography.body, theme.colors.foreground,
-                                "batches");
-                    ComposeText(
-                        composer, text,
-                        MillisecondsText("UI CPU frame: ",
-                                         ui.frameTimings.totalMilliseconds),
-                        theme.typography.caption, theme.colors.mutedForeground,
-                        "ui-time");
-
-                    ComposeText(composer, text,
-                                RateText("Target: ", model.TargetRate()),
-                                theme.typography.body, theme.colors.foreground,
-                                "speed-label");
-                    ComposeText(composer, text,
-                                RateText("Measured: ", model.ActualRate()),
-                                theme.typography.caption,
-                                theme.colors.mutedForeground, "actual-speed");
-                    NodeProperties slider{};
-                    slider.layout.preferredSize = Size{240.0F, 40.0F};
-                    Slider(composer, Bind(model.Speed()),
-                           SliderRange{
-                               .minimum = 0.0F,
-                               .maximum = 1.0F,
-                               .step = 0.01F,
-                           },
-                           ControlPresentation{.theme = theme}, slider,
-                           "speed");
-
-                    ComposeText(
-                        composer, text,
-                        NGIN::Text::String{
-                            "Wheel to zoom. Middle/right drag to pan. Primary "
-                            "drag paints cells. Click the minimap to jump. "
-                            "Home shows the whole universe; arrow keys and "
-                            "Space edit the focused cell."},
-                        theme.typography.caption, theme.colors.mutedForeground,
-                        "instructions");
-
-                    if (!model.Status().Empty()) {
-                      ComposeText(composer, text, model.Status(),
-                                  theme.typography.caption, theme.colors.error,
-                                  "status");
-                    }
-                  },
-                  "details");
-            },
-            sidebar, "sidebar");
-      },
-      root, "root");
+  NodeProperties board{};
+  board.gridPlacement = GridPlacement{.row = 2, .column = 0};
+  board.layout.minimumSize = Size{360, 260};
+  board.layout.flexGrow = 1;
+  board.layout.horizontalAlignment = HorizontalAlignment::Stretch;
+  board.layout.verticalAlignment = VerticalAlignment::Stretch;
+  board.interaction.focusable = true;
+  board.semantics.role = SemanticRole::Image;
+  board.semantics.identifier = NGIN::Text::String{"life-board"};
+  auto lifeBoard = std::make_shared<LifeBoardElement>(
+      model.Simulation(), model.Surface(), model.Images(),
+      [&model](NGIN::UIntSize x, NGIN::UIntSize y, bool alive) {
+        model.SetCell(x, y, alive);
+      });
+  return Views::Box(
+             ElementType::Grid,
+             {std::move(title), Toolbar(model, theme),
+              Views::Custom(std::move(lifeBoard), board).Key("life-board"),
+              Details(model, theme)},
+             root)
+      .Key("root");
 }
 
 auto ReportError(const char *context, const UIError &error) -> int {
@@ -642,15 +594,15 @@ auto main(const int argc, char **argv) -> int {
   });
   if (!createdApplication) {
     return ReportError("Application creation failed",
-                       createdApplication.Error());
+                       createdApplication.error());
   }
-  auto application = std::move(createdApplication).Value();
+  auto application = std::move(createdApplication).value();
 
   auto createdText = NativeTextSystem::Create(application->Renderer());
   if (!createdText) {
-    return ReportError("Native text creation failed", createdText.Error());
+    return ReportError("Native text creation failed", createdText.error());
   }
-  auto text = std::move(createdText).Value();
+  auto text = std::move(createdText).value();
   text->SetResourcesInvalidatedCallback(
       [applicationObserver = application.get()] {
         applicationObserver->InvalidateAll(InvalidationKind::All);
@@ -663,20 +615,39 @@ auto main(const int argc, char **argv) -> int {
       .minimumSize = PixelSize{760, 560},
   });
   if (!createdWindow) {
-    return ReportError("Window creation failed", createdWindow.Error());
+    return ReportError("Window creation failed", createdWindow.error());
   }
-  auto *window = createdWindow.Value();
+  auto *window = createdWindow.value();
 
   GameModel model{*window, application->Renderer()};
-  window->SetContent([&text, &model](Composer &composer) {
-    ComposeMainView(composer, *text, model);
-  });
+  window->SetContent(MainView(model), Views::ViewEnvironment{*text});
 
   if (smoke) {
+    auto initial = application->PumpOnce();
+    if (!initial) {
+      return ReportError("Initial smoke frame failed", initial.error());
+    }
+    const auto board = window->Tree().FindBySemanticIdentifier(
+        NGIN::Text::String{"life-board"});
+    if (!board.IsValid() || !window->Focus(board)) {
+      std::cerr << "The mounted game board did not accept keyboard focus\n";
+      return 1;
+    }
+    const auto expectedGeneration = model.Simulation().Generation() + 2;
     model.RunSmokeBatch();
     auto pumped = application->PumpOnce();
     if (!pumped) {
-      return ReportError("Smoke frame failed", pumped.Error());
+      return ReportError("Smoke frame failed", pumped.error());
+    }
+    const auto expectedLabel = NumberText("Generation: ", expectedGeneration);
+    const auto &nodes = window->Semantics().Nodes();
+    if (window->FocusedElement() != board ||
+        std::none_of(nodes.begin(), nodes.end(), [&](const auto &node) {
+          return node.value == expectedLabel;
+        })) {
+      std::cerr << "Advancing the simulation must update statistics and "
+                   "preserve board focus\n";
+      return 1;
     }
     const auto &diagnostics = window->Diagnostics();
     std::cout << "entities=" << LifeSimulation::EntityCount
@@ -684,8 +655,10 @@ auto main(const int argc, char **argv) -> int {
               << " draw_batches=" << diagnostics.drawBatchCount
               << " ui_cpu_ms=" << diagnostics.frameTimings.totalMilliseconds
               << '\n';
-    if (diagnostics.displayCommandCount > 128U) {
-      std::cerr << "Smoke frame emitted an unexpectedly large display list\n";
+    if (diagnostics.displayCommandCount == 0 ||
+        diagnostics.displayCommandCount > 128U) {
+      std::cerr
+          << "Smoke frame emitted an unexpected number of display commands\n";
       return 1;
     }
     return 0;
@@ -693,5 +666,5 @@ auto main(const int argc, char **argv) -> int {
   model.Start();
 
   auto run = application->Run();
-  return run ? 0 : ReportError("Application run failed", run.Error());
+  return run ? 0 : ReportError("Application run failed", run.error());
 }

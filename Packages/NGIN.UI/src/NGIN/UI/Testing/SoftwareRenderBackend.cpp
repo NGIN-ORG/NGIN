@@ -566,10 +566,12 @@ auto SoftwareRenderBackend::Render(const RenderSurfaceHandle surface,
         return std::unexpected(updated.error());
       }
     }
-    const auto clear = UnpackClear(packet.clearColor);
-    for (UIntSize offset = 0; offset < record->rgba.size(); offset += 4U) {
-      std::copy(clear.begin(), clear.end(),
-                record->rgba.begin() + static_cast<std::ptrdiff_t>(offset));
+    if (packet.loadAction == RenderLoadAction::Clear) {
+      const auto clear = UnpackClear(packet.clearColor);
+      for (UIntSize offset = 0; offset < record->rgba.size(); offset += 4U) {
+        std::copy(clear.begin(), clear.end(),
+                  record->rgba.begin() + static_cast<std::ptrdiff_t>(offset));
+      }
     }
     for (const auto &batch : packet.batches) {
       const auto firstIndex = static_cast<UIntSize>(batch.firstIndex);

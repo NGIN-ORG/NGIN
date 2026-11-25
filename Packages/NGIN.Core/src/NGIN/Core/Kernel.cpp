@@ -1,5 +1,7 @@
 #include <NGIN/Core/Kernel.hpp>
 
+#include "TaskRuntimeDetail.hpp"
+
 #include <NGIN/IO/FileSystemUtilities.hpp>
 #include <NGIN/IO/LocalFileSystem.hpp>
 #include <NGIN/Log/Log.hpp>
@@ -105,16 +107,16 @@ struct ResolvedModule {
     -> CoreResult<std::string> {
   auto text = NGIN::IO::ReadAllText(fileSystem, path);
   if (!text) {
-    const auto code = text.Error().code == IoErrorCode::NotFound
+    const auto code = text.error().code == IoErrorCode::NotFound
                           ? KernelErrorCode::NotFound
                           : KernelErrorCode::ConfigFailure;
-    const auto message = text.Error().code == IoErrorCode::NotFound
+    const auto message = text.error().code == IoErrorCode::NotFound
                              ? "failed to open config input"
                              : "failed to read config input";
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeKernelError(code, "Config", ToString(path), message));
   }
-  return std::string(text.Value().Data(), text.Value().Size());
+  return std::string(text.value().Data(), text.value().Size());
 }
 
 template <typename Callback>
@@ -161,12 +163,28 @@ public:
     if (m_config.workingDirectory.empty()) {
       auto currentDirectory = m_config.fileSystem->CurrentWorkingDirectory();
       if (currentDirectory) {
-        m_config.workingDirectory = ToString(currentDirectory.Value());
+        m_config.workingDirectory = ToString(currentDirectory.value());
       }
     }
     if (!m_config.moduleCatalog) {
       m_config.moduleCatalog = CreateStaticModuleCatalog();
     }
+  }
+
+  ~KernelImpl() override {
+    if (m_tasks) {
+      TaskScheduler().CloseAdmission();
+      m_stopRequested.store(true, std::memory_order_release);
+      (void)m_tasks->WaitIdle(std::chrono::milliseconds(-1));
+    }
+    ReleaseConfigSubscription();
+    for (std::size_t i = m_moduleInfos.size(); i > 0; --i) {
+      ReleaseModuleScope(i - 1);
+    }
+  }
+
+  [[nodiscard]] auto IsExecutingTask() const noexcept -> bool {
+    return m_tasks && TaskScheduler().IsExecutingTask();
   }
 
   auto Start() noexcept -> CoreResult<void> override {
@@ -189,38 +207,37 @@ public:
     m_startupReport.targetName = m_config.targetName;
     m_startupReport.hostType = std::string(ToString(m_config.hostType));
     m_stopRequested.store(false, std::memory_order_release);
-    m_stopReason.clear();
     m_moduleInfos.clear();
     m_moduleInstances.clear();
     m_moduleScopes.clear();
+    m_moduleTasks.clear();
     m_resolvedModules.clear();
     m_moduleDescriptorByName.clear();
 
     SetState(KernelState::ConfigLoaded);
 
     if (auto applied = ApplyHostConfig(); !applied) {
-      CaptureFailure(applied.Error());
+      CaptureFailure(applied.error());
       SetState(KernelState::Stopped);
       SetState(KernelState::Shutdown);
-      return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(applied.error());
     }
 
     auto resolve = ResolveModules();
     if (!resolve) {
-      CaptureFailure(resolve.Error());
+      CaptureFailure(resolve.error());
       SetState(KernelState::Stopped);
       SetState(KernelState::Shutdown);
-      return NGIN::Utilities::Unexpected<KernelError>(resolve.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(resolve.error());
     }
 
     SetState(KernelState::ModulesResolved);
 
     auto build = BuildSubsystems();
     if (!build) {
-      CaptureFailure(build.Error());
-      SetState(KernelState::Stopped);
-      SetState(KernelState::Shutdown);
-      return NGIN::Utilities::Unexpected<KernelError>(build.Error());
+      CaptureFailure(build.error());
+      (void)ShutdownLocked(apiLock);
+      return NGIN::Utilities::Unexpected<KernelError>(build.error());
     }
 
     SetState(KernelState::ServicesBuilt);
@@ -236,24 +253,23 @@ public:
       };
       auto configured = m_config.configureServices(bootstrapContext);
       if (!configured) {
-        CaptureFailure(configured.Error());
-        SetState(KernelState::Stopped);
-        SetState(KernelState::Shutdown);
-        return NGIN::Utilities::Unexpected<KernelError>(configured.Error());
+        CaptureFailure(configured.error());
+        auto shutdown = ShutdownLocked(apiLock);
+        if (!shutdown) {
+          CaptureFailure(shutdown.error());
+        }
+        return NGIN::Utilities::Unexpected<KernelError>(configured.error());
       }
     }
 
     auto load = LoadAndStartModules();
     if (!load) {
-      CaptureFailure(load.Error());
-      if (apiLock.owns_lock()) {
-        apiLock.unlock();
-      }
-      auto shutdown = Shutdown();
+      CaptureFailure(load.error());
+      auto shutdown = ShutdownLocked(apiLock);
       if (!shutdown) {
-        return NGIN::Utilities::Unexpected<KernelError>(shutdown.Error());
+        CaptureFailure(shutdown.error());
       }
-      return NGIN::Utilities::Unexpected<KernelError>(load.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(load.error());
     }
 
     SetState(KernelState::ModulesLoaded);
@@ -316,7 +332,7 @@ public:
     if (m_events) {
       auto flush = m_events->FlushRaw();
       if (!flush) {
-        return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(flush.error());
       }
     }
 
@@ -324,9 +340,8 @@ public:
   }
 
   void RequestStop(std::string reason) noexcept override {
-    m_stopReason = std::move(reason);
     m_stopRequested.store(true, std::memory_order_release);
-    LogCategory("Kernel", "stop requested: " + m_stopReason);
+    LogCategory("Kernel", "stop requested: " + reason);
   }
 
   [[nodiscard]] auto IsStopRequested() const noexcept -> bool override {
@@ -339,31 +354,7 @@ public:
       return guard;
     }
 
-    if (m_state == KernelState::Shutdown) {
-      return CoreResult<void>{};
-    }
-
-    if (m_state == KernelState::Created) {
-      SetState(KernelState::Stopped);
-      SetState(KernelState::Shutdown);
-      return CoreResult<void>{};
-    }
-
-    SetState(KernelState::Stopping);
-    EmitKernelEvent(ReservedKernelEvent::KernelStopping);
-    StopAndShutdownModules();
-
-    if (m_tasks) {
-      const auto wait = m_tasks->WaitIdle(std::chrono::milliseconds(2000));
-      if (!wait) {
-        LogCategory("Tasks", "wait idle failed during shutdown");
-      }
-    }
-
-    SetState(KernelState::Stopped);
-    SetState(KernelState::Shutdown);
-    LogCategory("Kernel", "kernel shutdown complete");
-    return CoreResult<void>{};
+    return ShutdownLocked(apiLock);
   }
 
   [[nodiscard]] auto GetState() const noexcept -> KernelState override {
@@ -400,6 +391,76 @@ public:
   }
 
 private:
+  [[nodiscard]] auto TaskScheduler() const noexcept -> TaskRuntime & {
+    return static_cast<TaskRuntime &>(*m_tasks);
+  }
+
+  auto ShutdownLocked(std::unique_lock<std::mutex> &apiLock) noexcept
+      -> CoreResult<void> {
+    if (m_state == KernelState::Shutdown) {
+      return {};
+    }
+    if (m_state == KernelState::Created) {
+      SetState(KernelState::Stopped);
+      SetState(KernelState::Shutdown);
+      return {};
+    }
+    if (IsExecutingTask() || m_shutdownInProgress) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidState, "Tasks", {},
+                          "shutdown cannot run from a task or during an active shutdown"));
+    }
+
+    const bool firstAttempt = m_state != KernelState::Stopping;
+    if (firstAttempt) {
+      if (m_tasks) {
+        TaskScheduler().CloseAdmission();
+      }
+      m_stopRequested.store(true, std::memory_order_release);
+      m_state = KernelState::Stopping;
+    }
+
+    // Claim shutdown before publishing events or invoking hooks that can
+    // synchronously call back into the kernel.
+    m_shutdownInProgress = true;
+    const bool locked = apiLock.owns_lock();
+    if (locked) {
+      apiLock.unlock();
+    }
+    if (firstAttempt) {
+      LogStateTransition(KernelState::Stopping);
+      EmitKernelEvent(ReservedKernelEvent::KernelStopping);
+      StopModules();
+    }
+    const auto wait = m_tasks ? m_tasks->WaitIdle(std::chrono::seconds(2))
+                              : CoreResult<bool>{true};
+    if (wait && wait.value()) {
+      ShutdownModules();
+    }
+    if (locked) {
+      apiLock.lock();
+    }
+    m_shutdownInProgress = false;
+    if (!wait) {
+      return NGIN::Utilities::Unexpected<KernelError>(wait.error());
+    }
+    if (!wait.value()) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::TaskDrainTimeout, "Tasks", {},
+                          "timed out waiting for accepted tasks during shutdown"));
+    }
+
+    m_state = KernelState::Stopped;
+    m_state = KernelState::Shutdown;
+    if (locked) {
+      apiLock.unlock();
+    }
+    LogStateTransition(KernelState::Stopped);
+    LogStateTransition(KernelState::Shutdown);
+    LogCategory("Kernel", "kernel shutdown complete");
+    return {};
+  }
+
   [[nodiscard]] auto
   AcquireApiAccess(bool mutating, std::unique_lock<std::mutex> &lock) noexcept
       -> CoreResult<void> {
@@ -425,6 +486,10 @@ private:
 
   void SetState(const KernelState state) noexcept {
     m_state = state;
+    LogStateTransition(state);
+  }
+
+  void LogStateTransition(const KernelState state) noexcept {
     LogCategory("Kernel",
                 "state transition -> " + std::string(ToString(state)));
   }
@@ -512,61 +577,61 @@ private:
     auto set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                        "Kernel.HostName", m_config.hostName);
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                   "Kernel.TargetName", m_config.targetName);
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                   "Kernel.Platform", m_config.platformName);
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                   "Kernel.OperatingSystem",
                                   m_config.operatingSystemName);
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                   "Kernel.Architecture",
                                   m_config.architectureName);
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(
         ConfigLayer::BuiltInDefaults, "Kernel.PlatformVersion",
         FormatSemanticVersion(m_config.platformVersion));
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set =
         m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostType",
                                 std::string(ToString(m_config.hostType)));
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
                                   "Kernel.ReflectionEnabled",
                                   m_config.enableReflection ? "true" : "false");
     if (!set)
-      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(set.error());
 
     if (!m_config.environmentName.empty()) {
       set = m_configStore->SetValue(ConfigLayer::Environment,
                                     "Kernel.EnvironmentName",
                                     m_config.environmentName);
       if (!set)
-        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(set.error());
     }
 
     IoPath baseDir(m_config.workingDirectory);
     if (baseDir.IsEmpty()) {
       auto currentDirectory = m_config.fileSystem->CurrentWorkingDirectory();
       if (currentDirectory) {
-        baseDir = currentDirectory.Value();
+        baseDir = currentDirectory.value();
       }
     }
 
@@ -597,10 +662,10 @@ private:
       const IoPath filePath = ResolvePath(source, baseDir);
       auto configText = ReadConfigSource(*m_config.fileSystem, filePath);
       if (!configText) {
-        return NGIN::Utilities::Unexpected<KernelError>(configText.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(configText.error());
       }
 
-      ForEachConfigLine(configText.Value(), [&](std::string_view line) {
+      ForEachConfigLine(configText.value(), [&](std::string_view line) {
         std::string ownedLine(line);
         const auto hashPos = ownedLine.find('#');
         if (hashPos != std::string::npos) {
@@ -622,7 +687,7 @@ private:
       });
 
       if (!set) {
-        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(set.error());
       }
     }
 
@@ -638,7 +703,7 @@ private:
       const std::string value = arg.substr(eqPos + 1);
       set = m_configStore->SetValue(ConfigLayer::CommandLine, key, value);
       if (!set) {
-        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(set.error());
       }
     }
 
@@ -672,19 +737,21 @@ private:
     m_loggerRegistry.SetDefaultSinks(std::move(sinks));
 
     auto configSub =
-        m_configStore->Subscribe([this](const ConfigChangeEvent &change) {
-          if (!m_events) {
-            return;
-          }
-
-          (void)m_events->Publish(change);
+        m_configStore->Subscribe([events = m_events](const ConfigChangeEvent &change) {
+          (void)events->Publish(change);
         });
     if (!configSub) {
-      return NGIN::Utilities::Unexpected<KernelError>(configSub.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(configSub.error());
     }
-    m_configSubscription = configSub.Value();
+    m_configSubscription = configSub.value();
 
     return CoreResult<void>{};
+  }
+
+  void ReleaseConfigSubscription() noexcept {
+    if (m_configSubscription.value != 0) {
+      (void)m_configStore->Unsubscribe(m_configSubscription);
+    }
   }
 
   [[nodiscard]] auto ResolveModules() noexcept -> CoreResult<void> {
@@ -710,7 +777,7 @@ private:
       auto collect =
           m_config.pluginCatalog->CollectDescriptors(dynamicDescriptors);
       if (!collect) {
-        return NGIN::Utilities::Unexpected<KernelError>(collect.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(collect.error());
       }
 
       for (auto &descriptor : dynamicDescriptors) {
@@ -1107,6 +1174,7 @@ private:
     m_moduleInfos.reserve(m_resolvedModules.size());
     m_moduleInstances.resize(m_resolvedModules.size());
     m_moduleScopes.resize(m_resolvedModules.size(), ServiceScopeId::Global());
+    m_moduleTasks.resize(m_resolvedModules.size());
 
     // 1) construct + register
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
@@ -1141,9 +1209,9 @@ private:
         auto factory =
             m_config.pluginBinaryLoader->LoadModuleFactory(descriptor);
         if (!factory) {
-          return NGIN::Utilities::Unexpected<KernelError>(factory.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(factory.error());
         }
-        resolved.registration.factory = std::move(factory.Value());
+        resolved.registration.factory = std::move(factory.value());
       }
 
       if (!resolved.registration.factory) {
@@ -1154,28 +1222,34 @@ private:
 
       auto instance = resolved.registration.factory();
       if (!instance) {
-        return NGIN::Utilities::Unexpected<KernelError>(instance.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(instance.error());
+      }
+
+      try {
+        m_moduleTasks[index] =
+            std::make_unique<TaskRuntime::ModuleTasks>(TaskScheduler());
+      } catch (...) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+            KernelErrorCode::InternalError, "Tasks", descriptor.name,
+            "failed to allocate module task runtime"));
       }
 
       auto scope =
           m_services->BeginScope(ServiceScopeKind::Module, descriptor.name);
       if (!scope) {
-        return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(scope.error());
       }
 
-      m_moduleInstances[index] = instance.Value();
-      m_moduleScopes[index] = scope.Value();
+      m_moduleInstances[index] = instance.value();
+      m_moduleScopes[index] = scope.value();
       m_moduleInfos[index].state = ModuleState::Constructed;
 
-      ModuleContext context(
-          descriptor, m_moduleScopes[index], *m_services, *m_events,
-          *m_tasks, *m_configStore, m_loggerRegistry,
-          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+      auto context = MakeModuleContext(index, descriptor);
 
       auto reg = m_moduleInstances[index]->OnRegister(context);
       if (!reg) {
-        m_moduleInfos[index].lastError = reg.Error().message;
-        return LifecycleFailure("OnRegister", descriptor.name, reg.Error());
+        m_moduleInfos[index].lastError = reg.error().message;
+        return LifecycleFailure("OnRegister", descriptor.name, reg.error());
       }
 
       m_moduleInfos[index].registered = true;
@@ -1199,15 +1273,12 @@ private:
     // 3) init
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
       const auto &descriptor = m_resolvedModules[index].registration.descriptor;
-      ModuleContext context(
-          descriptor, m_moduleScopes[index], *m_services, *m_events,
-          *m_tasks, *m_configStore, m_loggerRegistry,
-          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+      auto context = MakeModuleContext(index, descriptor);
 
       auto init = m_moduleInstances[index]->OnInit(context);
       if (!init) {
-        m_moduleInfos[index].lastError = init.Error().message;
-        return LifecycleFailure("OnInit", descriptor.name, init.Error());
+        m_moduleInfos[index].lastError = init.error().message;
+        return LifecycleFailure("OnInit", descriptor.name, init.error());
       }
 
       m_moduleInfos[index].initialized = true;
@@ -1217,16 +1288,13 @@ private:
     // 4) start
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
       const auto &descriptor = m_resolvedModules[index].registration.descriptor;
-      ModuleContext context(
-          descriptor, m_moduleScopes[index], *m_services, *m_events,
-          *m_tasks, *m_configStore, m_loggerRegistry,
-          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+      auto context = MakeModuleContext(index, descriptor);
 
       auto start = m_moduleInstances[index]->OnStart(context);
       if (!start) {
-        m_moduleInfos[index].lastError = start.Error().message;
+        m_moduleInfos[index].lastError = start.error().message;
         EmitModuleEvent(ReservedKernelEvent::ModuleFailed, descriptor.name);
-        return LifecycleFailure("OnStart", descriptor.name, start.Error());
+        return LifecycleFailure("OnStart", descriptor.name, start.error());
       }
 
       m_moduleInfos[index].started = true;
@@ -1238,66 +1306,82 @@ private:
     return CoreResult<void>{};
   }
 
-  void StopAndShutdownModules() noexcept {
-    if (!m_services || !m_events || !m_tasks || !m_configStore) {
-      return;
-    }
+  [[nodiscard]] auto MakeModuleContext(std::size_t index,
+                                       const ModuleDescriptor &descriptor)
+      -> ModuleContext {
+    return ModuleContext(
+        descriptor, m_moduleScopes[index], *m_services, *m_events,
+        *m_moduleTasks[index], *m_configStore, m_loggerRegistry,
+        [this]() { return m_stopRequested.load(std::memory_order_acquire); });
+  }
 
+  void StopModules() noexcept {
     for (std::size_t i = m_moduleInfos.size(); i > 0; --i) {
       const std::size_t index = i - 1;
       auto &info = m_moduleInfos[index];
-      const auto &descriptor = info.descriptor;
-
       if (!m_moduleInstances[index]) {
         continue;
       }
 
-      ModuleContext context(
-          descriptor, m_moduleScopes[index], *m_services, *m_events,
-          *m_tasks, *m_configStore, m_loggerRegistry,
-          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
-
       info.state = ModuleState::Stopping;
 
       if (info.started) {
+        auto context = MakeModuleContext(index, info.descriptor);
         auto stop = m_moduleInstances[index]->OnStop(context);
         if (!stop) {
-          info.lastError = stop.Error().message;
+          info.lastError = stop.error().message;
         }
         info.started = false;
       }
+    }
+  }
 
-      m_events->ClearScope(EventScope{.owner = descriptor.name});
+  void ShutdownModules() noexcept {
+    for (std::size_t i = m_moduleInfos.size(); i > 0; --i) {
+      const std::size_t index = i - 1;
+      auto &info = m_moduleInfos[index];
+      if (!m_moduleInstances[index]) {
+        continue;
+      }
+
+      m_events->ClearScope(EventScope{.owner = info.descriptor.name});
 
       if (info.registered) {
+        auto context = MakeModuleContext(index, info.descriptor);
         auto shutdown = m_moduleInstances[index]->OnShutdown(context);
         if (!shutdown) {
-          info.lastError = shutdown.Error().message;
+          info.lastError = shutdown.error().message;
         }
         info.registered = false;
       }
 
-      if (!m_moduleScopes[index].IsGlobal()) {
-        auto endScope = m_services->EndScope(m_moduleScopes[index]);
-        if (!endScope) {
-          info.lastError = endScope.Error().message;
-        }
-      }
+      ReleaseModuleScope(index);
 
       info.initialized = false;
       info.state = ModuleState::Unloaded;
     }
   }
 
+  void ReleaseModuleScope(std::size_t index) noexcept {
+    const auto scope = m_moduleScopes[index];
+    if (!scope.IsGlobal()) {
+      auto endScope = m_services->EndScope(scope);
+      if (!endScope) {
+        m_moduleInfos[index].lastError = endScope.error().message;
+      }
+      m_moduleScopes[index] = ServiceScopeId::Global();
+    }
+  }
+
 private:
   KernelHostConfig m_config;
-  KernelState m_state{KernelState::Created};
+  std::atomic<KernelState> m_state{KernelState::Created};
 
   std::thread::id m_ownerThread;
   mutable std::mutex m_apiMutex;
+  bool m_shutdownInProgress{false};
 
   std::atomic<bool> m_stopRequested{false};
-  std::string m_stopReason{};
 
   NGIN::Memory::Shared<IServiceRegistry> m_services{};
   NGIN::Memory::Shared<IEventBus> m_events{};
@@ -1311,6 +1395,7 @@ private:
   std::unordered_map<std::string, ModuleDescriptor> m_moduleDescriptorByName{};
   std::vector<ResolvedModule> m_resolvedModules{};
   std::vector<ModuleRuntimeInfo> m_moduleInfos{};
+  std::vector<std::unique_ptr<TaskRuntime::ModuleTasks>> m_moduleTasks{};
   std::vector<NGIN::Memory::Shared<IModule>> m_moduleInstances{};
   std::vector<ServiceScopeId> m_moduleScopes{};
   std::vector<std::string> m_effectivePluginPaths{};
@@ -1318,13 +1403,12 @@ private:
 
 auto CreateKernel(const KernelHostConfig &config) noexcept
     -> CoreResult<NGIN::Memory::Shared<IKernel>> {
-  auto kernel = NGIN::Memory::MakeSharedAs<IKernel, KernelImpl>(config);
-  if (!kernel) {
+  try {
+    return MakeTaskAwareShared<IKernel>(&KernelImpl::IsExecutingTask, config);
+  } catch (...) {
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeKernelError(KernelErrorCode::InternalError, "Kernel", {},
                         "failed to allocate kernel instance"));
   }
-
-  return kernel;
 }
 } // namespace NGIN::Core

@@ -25,10 +25,11 @@ backends for tests.
 
 ## Start here
 
-1. [Create a standalone window](../../docs/guides/ngin-ui-first-window.md).
-2. Browse the runnable [Gallery](../../Examples/NGIN.UI.Gallery).
-3. Read the [developer guide](../../docs/guides/ngin-ui.md) for the topic map.
-4. Use [application composition](../../docs/guides/ngin-ui-application-composition.md)
+1. [Create a component and open a desktop window](../../docs/guides/ngin-ui-first-window.md).
+2. Mount the [same settings panel in a desktop window or game frame](../../Examples/NGIN.UI.Settings/). Read the [surface and component guide](../../docs/guides/ngin-ui-surfaces.md) for ownership and embedding contracts.
+3. Browse the runnable [Gallery](../../Examples/NGIN.UI.Gallery).
+4. Read the [developer guide](../../docs/guides/ngin-ui.md) for the topic map.
+5. Use [application composition](../../docs/guides/ngin-ui-application-composition.md)
    when building a multi-page application.
 
 For hosted applications, start with

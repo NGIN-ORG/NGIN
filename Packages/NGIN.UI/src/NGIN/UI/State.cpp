@@ -17,12 +17,59 @@ struct BatchContext final {
 };
 
 thread_local BatchContext Batch{};
+thread_local ReadCollection *ActiveReadCollection{};
 std::atomic<UInt64> NextObservableId{1};
 std::atomic<UInt64> ActiveSubscriptions{0};
 std::atomic<UInt64> PeakSubscriptions{0};
 std::atomic<UInt64> CreatedSubscriptions{0};
 std::atomic<UInt64> CanceledSubscriptions{0};
 } // namespace
+
+SuspendReadCollection::SuspendReadCollection() noexcept
+    : m_previous(std::exchange(ActiveReadCollection, nullptr)) {}
+SuspendReadCollection::~SuspendReadCollection() {
+  ActiveReadCollection = m_previous;
+}
+
+ReadCollection::ReadCollection(
+    std::vector<ObservedRead> &active,
+    ObservableDependency::Observer invalidate) noexcept
+    : m_active(active), m_invalidate(std::move(invalidate)),
+      m_previous(std::exchange(ActiveReadCollection, this)) {}
+ReadCollection::~ReadCollection() { ActiveReadCollection = m_previous; }
+
+void ReadCollection::Add(ObservableDependency dependency) {
+  const auto identity = dependency.ObservableNode()->id;
+  if (std::ranges::find(m_seen, identity) != m_seen.end())
+    return;
+  m_seen.push_back(identity);
+  if (std::ranges::find(m_active, identity, &ObservedRead::identity) ==
+      m_active.end()) {
+    SuspendReadCollection suspend;
+    m_new.push_back({identity, dependency.Subscribe(m_invalidate)});
+  }
+}
+
+void ReadCollection::Commit() {
+  if (failure)
+    std::rethrow_exception(failure);
+  m_active.reserve(m_seen.size());
+  std::erase_if(m_active, [&](const ObservedRead &old) {
+    return std::ranges::find(m_seen, old.identity) == m_seen.end();
+  });
+  for (auto &connection : m_new)
+    m_active.push_back(std::move(connection));
+}
+
+auto IsCollectingReads() noexcept -> bool {
+  return ActiveReadCollection != nullptr;
+}
+void RecordReadFailure() noexcept {
+  ActiveReadCollection->failure = std::current_exception();
+}
+void RecordRead(ObservableDependency dependency) {
+  ActiveReadCollection->Add(std::move(dependency));
+}
 
 auto CreateObservableNode() -> std::shared_ptr<ObservableNode> {
   return std::make_shared<ObservableNode>(ObservableNode{

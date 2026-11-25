@@ -1,20 +1,71 @@
-#include <NGIN/Core/Tasks.hpp>
+#include "TaskRuntimeDetail.hpp"
 
 #include <NGIN/Execution/WorkItem.hpp>
 #include <NGIN/Time/MonotonicClock.hpp>
 #include <NGIN/Time/TimePoint.hpp>
 
 #include <algorithm>
+#include <limits>
+#include <utility>
 
 namespace NGIN::Core
 {
     namespace
     {
+        thread_local const TaskRuntime* executingRuntime = nullptr;
+        thread_local TaskLane executingLane = TaskLane::Main;
+
         [[nodiscard]] constexpr auto LaneIndex(const TaskLane lane) noexcept -> std::size_t
         {
             return static_cast<std::size_t>(lane);
         }
     }
+
+    // The scheduler owns this object after submission. A task remains active
+    // until its callback and captures are gone, including on rejection or discard.
+    class TaskRuntime::PendingTask
+    {
+    public:
+        PendingTask(Activity& activity, TaskLane lane, TaskCallback callback) noexcept
+            : m_callback(std::move(callback)), m_activity(&activity), m_lane(lane)
+        {
+        }
+
+        PendingTask(PendingTask&& other) noexcept
+            : m_callback(std::move(other.m_callback)),
+              m_activity(std::exchange(other.m_activity, nullptr)), m_lane(other.m_lane)
+        {
+        }
+
+        ~PendingTask()
+        {
+            Finish();
+        }
+
+        void operator()() noexcept
+        {
+            const auto* previousRuntime = std::exchange(executingRuntime, &m_activity->runtime);
+            const auto previousLane = std::exchange(executingLane, m_lane);
+            m_callback();
+            Finish();
+            executingLane = previousLane;
+            executingRuntime = previousRuntime;
+        }
+
+    private:
+        void Finish() noexcept
+        {
+            if (auto* activity = std::exchange(m_activity, nullptr))
+            {
+                m_callback = nullptr;
+                activity->runtime.FinishTask(*activity, m_lane);
+            }
+        }
+
+        TaskCallback m_callback;
+        Activity* m_activity;
+        TaskLane m_lane;
+    };
 
     TaskRuntime::TaskRuntime(const NGIN::UInt32 workerThreads, const bool enableRenderLane)
     {
@@ -35,36 +86,45 @@ namespace NGIN::Core
 
     TaskRuntime::~TaskRuntime() = default;
 
-    auto TaskRuntime::SchedulerForLane(const TaskLane lane) noexcept -> NGIN::Execution::ThreadPoolScheduler*
+    void TaskRuntime::FinishTask(Activity& activity, const TaskLane lane) noexcept
     {
-        return m_schedulers[LaneIndex(lane)].get();
-    }
+        std::lock_guard lock(m_idleMutex);
+        const auto laneIndex = LaneIndex(lane);
+        auto laneBecameIdle = --m_activity.lanes[laneIndex] == 0;
+        --m_activity.total;
 
-    auto TaskRuntime::SchedulerForLane(const TaskLane lane) const noexcept -> const NGIN::Execution::ThreadPoolScheduler*
-    {
-        return m_schedulers[LaneIndex(lane)].get();
-    }
-
-    void TaskRuntime::OnTaskBegin() noexcept
-    {
-        m_activeTasks.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    void TaskRuntime::OnTaskEnd() noexcept
-    {
-        if (m_activeTasks.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        if (&activity != &m_activity)
         {
-            std::lock_guard<std::mutex> lock(m_idleMutex);
+            --activity.total;
+            const auto ownerLaneIdle = --activity.lanes[laneIndex] == 0;
+            laneBecameIdle = laneBecameIdle || ownerLaneIdle;
+        }
+        if (laneBecameIdle)
+        {
             m_idleCv.notify_all();
         }
     }
 
-    auto TaskRuntime::IsLaneEnabled(const TaskLane lane) const noexcept -> bool
+    void TaskRuntime::CloseAdmission() noexcept
     {
-        return SchedulerForLane(lane) != nullptr;
+        std::lock_guard lock(m_idleMutex);
+        m_acceptingTasks = false;
     }
 
-    auto TaskRuntime::Submit(const TaskLane lane, TaskCallback callback) noexcept -> CoreResult<TaskId>
+    auto TaskRuntime::IsExecutingTask() const noexcept -> bool
+    {
+        return executingRuntime == this;
+    }
+
+    auto TaskRuntime::IsLaneEnabled(const TaskLane lane) const noexcept -> bool
+    {
+        const auto index = LaneIndex(lane);
+        return index < m_schedulers.size() && m_schedulers[index] != nullptr;
+    }
+
+    auto TaskRuntime::QueueTask(Activity& activity, const TaskLane lane,
+                                const std::chrono::milliseconds delay,
+                                TaskCallback callback) noexcept -> CoreResult<TaskId>
     {
         if (!callback)
         {
@@ -72,119 +132,176 @@ namespace NGIN::Core
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task callback cannot be empty"));
         }
 
-        auto* scheduler = SchedulerForLane(lane);
-        if (!scheduler)
+        if (!IsLaneEnabled(lane))
         {
             return NGIN::Utilities::Unexpected<KernelError>(
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
         }
 
-        const TaskId id = m_nextId.fetch_add(1, std::memory_order_relaxed);
-        OnTaskBegin();
+        NGIN::Time::TimePoint runAt;
+        const bool delayed = delay.count() > 0;
+        if (delayed)
+        {
+            constexpr NGIN::UInt64 nanosecondsPerMillisecond = 1'000'000;
+            const auto now = NGIN::Time::MonotonicClock::Now().ToNanoseconds();
+            const auto delayMs = static_cast<NGIN::UInt64>(delay.count());
+            if (delayMs > ((std::numeric_limits<NGIN::UInt64>::max)() - now) / nanosecondsPerMillisecond)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task delay is too large"));
+            }
+            runAt = NGIN::Time::TimePoint::FromNanoseconds(now + delayMs * nanosecondsPerMillisecond);
+        }
+
+        const auto laneIndex = LaneIndex(lane);
+        TaskId id;
+        {
+            std::lock_guard lock(m_idleMutex);
+            if (!m_acceptingTasks)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeKernelError(KernelErrorCode::InvalidState, "Tasks", {}, "task runtime is stopping"));
+            }
+            id = m_nextId++;
+            ++m_activity.total;
+            ++m_activity.lanes[laneIndex];
+            if (&activity != &m_activity)
+            {
+                ++activity.total;
+                ++activity.lanes[laneIndex];
+            }
+        }
 
         try
         {
-            scheduler->Execute(NGIN::Execution::WorkItem([this, callback = std::move(callback)]() mutable {
-                callback();
-                OnTaskEnd();
-            }));
+            NGIN::Execution::WorkItem work(PendingTask(activity, lane, std::move(callback)));
+            auto& scheduler = *m_schedulers[laneIndex];
+            const auto submission = delayed ? scheduler.ExecuteAt(std::move(work), runAt)
+                                            : scheduler.Execute(std::move(work));
+            if (submission)
+            {
+                return id;
+            }
         }
         catch (...)
         {
-            OnTaskEnd();
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::TaskSubmissionFailure, "Tasks", {}, "failed to submit task"));
+            // Constructing the work item can allocate. Its pending task owns
+            // the accounting so a failed allocation also retires the task.
         }
 
-        return id;
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeKernelError(KernelErrorCode::TaskSubmissionFailure, "Tasks", {},
+                            delayed ? "failed to schedule delayed task" : "failed to submit task"));
     }
 
-    auto TaskRuntime::ScheduleAfter(const TaskLane lane,
-                                    const std::chrono::milliseconds delay,
+    auto TaskRuntime::Submit(const TaskLane lane, TaskCallback callback) noexcept -> CoreResult<TaskId>
+    {
+        return QueueTask(m_activity, lane, {}, std::move(callback));
+    }
+
+    auto TaskRuntime::ScheduleAfter(const TaskLane lane, const std::chrono::milliseconds delay,
                                     TaskCallback callback) noexcept -> CoreResult<TaskId>
     {
-        if (!callback)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "delayed callback cannot be empty"));
-        }
+        return QueueTask(m_activity, lane, delay, std::move(callback));
+    }
 
-        auto* scheduler = SchedulerForLane(lane);
-        if (!scheduler)
+    auto TaskRuntime::WaitForBarrier(const Activity& activity, const std::optional<TaskLane> lane) noexcept
+        -> CoreResult<void>
+    {
+        if (lane && !IsLaneEnabled(*lane))
         {
             return NGIN::Utilities::Unexpected<KernelError>(
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
         }
 
-        const TaskId id = m_nextId.fetch_add(1, std::memory_order_relaxed);
-        OnTaskBegin();
-
-        const auto now = NGIN::Time::MonotonicClock::Now().ToNanoseconds();
-        const auto delayNs = static_cast<NGIN::UInt64>(delay.count() < 0 ? 0 : delay.count()) * 1'000'000ULL;
-        const auto runAt = NGIN::Time::TimePoint::FromNanoseconds(now + delayNs);
-
-        try
+        const auto idle = WaitForIdle(activity, std::chrono::milliseconds(-1), lane);
+        if (!idle)
         {
-            scheduler->ExecuteAt(
-                NGIN::Execution::WorkItem([this, callback = std::move(callback)]() mutable {
-                    callback();
-                    OnTaskEnd();
-                }),
-                runAt);
+            return NGIN::Utilities::Unexpected<KernelError>(idle.error());
         }
-        catch (...)
-        {
-            OnTaskEnd();
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::TaskSubmissionFailure, "Tasks", {}, "failed to schedule delayed task"));
-        }
-
-        return id;
+        return {};
     }
 
     auto TaskRuntime::Barrier(const TaskLane lane) noexcept -> CoreResult<void>
     {
-        auto* scheduler = SchedulerForLane(lane);
-        if (!scheduler)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
-        }
-
-        scheduler->RunUntilIdle();
-        return CoreResult<void> {};
+        return WaitForBarrier(m_activity, lane);
     }
 
     auto TaskRuntime::BarrierAll() noexcept -> CoreResult<void>
     {
-        for (const auto& scheduler : m_schedulers)
+        return WaitForBarrier(m_activity, std::nullopt);
+    }
+
+    auto TaskRuntime::WaitForIdle(const Activity& activity, const std::chrono::milliseconds timeout,
+                                  const std::optional<TaskLane> lane) noexcept -> CoreResult<bool>
+    {
+        std::unique_lock lock(m_idleMutex);
+        const auto idle = [&]()
         {
-            if (scheduler)
-            {
-                scheduler->RunUntilIdle();
-            }
+            return (lane ? activity.lanes[LaneIndex(*lane)] : activity.total) == 0;
+        };
+        if (idle() || timeout.count() == 0)
+        {
+            return idle();
         }
-        return CoreResult<void> {};
+        if (IsExecutingTask() && (!lane || *lane == executingLane))
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidState, "Tasks", {}, "task cannot wait for its own lane to drain"));
+        }
+        if (timeout.count() < 0)
+        {
+            m_idleCv.wait(lock, idle);
+            return true;
+        }
+        return m_idleCv.wait_for(lock, timeout, idle);
     }
 
     auto TaskRuntime::WaitIdle(const std::chrono::milliseconds timeout) noexcept -> CoreResult<bool>
     {
-        std::unique_lock<std::mutex> lock(m_idleMutex);
-        if (timeout.count() < 0)
-        {
-            m_idleCv.wait(lock, [&]() { return m_activeTasks.load(std::memory_order_acquire) == 0; });
-            return true;
-        }
+        return WaitForIdle(m_activity, timeout);
+    }
 
-        const auto success = m_idleCv.wait_for(
-            lock,
-            timeout,
-            [&]() { return m_activeTasks.load(std::memory_order_acquire) == 0; });
-        return success;
+    auto TaskRuntime::ModuleTasks::Submit(const TaskLane lane, TaskCallback callback) noexcept -> CoreResult<TaskId>
+    {
+        return m_activity.runtime.QueueTask(m_activity, lane, {}, std::move(callback));
+    }
+
+    auto TaskRuntime::ModuleTasks::ScheduleAfter(const TaskLane lane, const std::chrono::milliseconds delay,
+                                                 TaskCallback callback) noexcept -> CoreResult<TaskId>
+    {
+        return m_activity.runtime.QueueTask(m_activity, lane, delay, std::move(callback));
+    }
+
+    auto TaskRuntime::ModuleTasks::Barrier(const TaskLane lane) noexcept -> CoreResult<void>
+    {
+        return m_activity.runtime.WaitForBarrier(m_activity, lane);
+    }
+
+    auto TaskRuntime::ModuleTasks::BarrierAll() noexcept -> CoreResult<void>
+    {
+        return m_activity.runtime.WaitForBarrier(m_activity, std::nullopt);
+    }
+
+    auto TaskRuntime::ModuleTasks::WaitIdle(const std::chrono::milliseconds timeout) noexcept -> CoreResult<bool>
+    {
+        return m_activity.runtime.WaitForIdle(m_activity, timeout);
+    }
+
+    auto TaskRuntime::ModuleTasks::IsLaneEnabled(const TaskLane lane) const noexcept -> bool
+    {
+        return m_activity.runtime.IsLaneEnabled(lane);
     }
 
     auto CreateTaskRuntime(const NGIN::UInt32 workerThreads, const bool enableRenderLane) noexcept -> NGIN::Memory::Shared<ITaskRuntime>
     {
-        return NGIN::Memory::MakeSharedAs<ITaskRuntime, TaskRuntime>(workerThreads, enableRenderLane);
+        try
+        {
+            return MakeTaskAwareShared<ITaskRuntime>(&TaskRuntime::IsExecutingTask, workerThreads, enableRenderLane);
+        }
+        catch (...)
+        {
+            return {};
+        }
     }
 }

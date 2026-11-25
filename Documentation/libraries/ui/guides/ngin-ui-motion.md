@@ -30,7 +30,7 @@ card.motion.background =
                      : theme.colors.accentPressed,
             transition);
 
-composer.Border([] {}, card, "moving-card");
+auto movingCard = Views::Border({}, card).Key("moving-card");
 ```
 
 The key is the animation identity. Reusing `"moving-card"` preserves the
@@ -156,7 +156,7 @@ NodeProperties gauge{};
 gauge.motion.Set(
     GaugeSweep,
     Animate(GaugeReading{.sweep = expanded ? 1.0F : 0.0F}, transition));
-composer.Custom(gaugeElement, gauge, "gauge");
+auto gaugeView = Views::Custom(gaugeElement, gauge).Key("gauge");
 
 // Inside ICustomElement::Paint:
 const auto reading = context.MotionValue(GaugeSweep);
@@ -182,11 +182,10 @@ every composition:
 ```cpp
 MotionController cardMotion;
 
-window.SetContent([&](Composer& composer) {
-  NodeProperties card{};
-  cardMotion.Attach(card.motion);
-  composer.Border([] {}, card, "account-card");
-});
+NodeProperties card{};
+cardMotion.Attach(card.motion);
+window.SetContent(Views::Border({}, card).Key("account-card"),
+                  Views::ViewEnvironment{text});
 ```
 
 Create a UI task context from the application. Start a task with the normal

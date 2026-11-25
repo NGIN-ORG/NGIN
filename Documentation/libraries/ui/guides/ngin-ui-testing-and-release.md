@@ -99,8 +99,7 @@ The version 0.3 MVVM contracts have backend-neutral lifetime budgets:
   each affected `ComputedState` at most once when the outer batch closes;
 - the Gallery permits one active load per mounted async screen and one active
   save; both return to zero when canceled or completed;
-- unobserved command failures, retained `Composer` instances, and native
-  backend dependencies in the install consumer have a budget of zero.
+- unobserved command failures and native backend dependencies in the install consumer have a budget of zero.
 
 Use delta checks: snapshot before mounting UI and require the active count to
 return to that baseline after teardown. Created, canceled, and peak counters
@@ -154,8 +153,8 @@ coverage check, and install consumer on Windows, Linux, and macOS.
 | Hosted native `--smoke` | CI | CI under Xvfb | CI |
 | Headless checks | CI | CI | CI |
 
-All three products compile the same `Gallery.cpp` and use the same
-`GalleryViewModel`; only startup and backend ownership differ.
+All three products link `NGIN.UI.Gallery.Shared`, which owns the component
+pages and `GalleryViewModel`. Each host supplies startup and backends.
 
 Applications opt into the `NGIN.UI` `RuntimeAssets` feature and SDL backend
 `RuntimeNotices` feature. The resolved stage then contains the bundled font,

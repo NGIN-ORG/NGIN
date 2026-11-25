@@ -57,7 +57,7 @@ namespace {
   host.RequestStop(error.message);
   auto shutdown = host.Shutdown();
   if (!shutdown) {
-    return NGIN::Utilities::Unexpected<Core::KernelError>(shutdown.Error());
+    return NGIN::Utilities::Unexpected<Core::KernelError>(shutdown.error());
   }
   return NGIN::Utilities::Unexpected<Core::KernelError>(std::move(error));
 }
@@ -67,24 +67,24 @@ auto HostedUIRuntime::Create(UIHostingCreateInfo info) noexcept
     -> UIResult<NGIN::Memory::Shared<HostedUIRuntime>> {
   auto application = CreateApplication(std::move(info.application));
   if (!application) {
-    return std::move(application).Error();
+    return std::unexpected(std::move(application).error());
   }
   auto text =
-      NativeTextSystem::Create(application.Value()->Renderer(), info.text);
+      NativeTextSystem::Create(application.value()->Renderer(), info.text);
   if (!text) {
-    return std::move(text).Error();
+    return std::unexpected(std::move(text).error());
   }
-  auto *applicationObserver = application.Value().get();
-  text.Value()->SetResourcesInvalidatedCallback([applicationObserver] {
+  auto *applicationObserver = application.value().get();
+  text.value()->SetResourcesInvalidatedCallback([applicationObserver] {
     applicationObserver->InvalidateAll(InvalidationKind::All);
   });
   try {
     return NGIN::Memory::MakeShared<HostedUIRuntime>(
-        std::move(application).Value(), std::move(text).Value());
+        std::move(application).value(), std::move(text).value());
   } catch (...) {
-    return MakeUIError(UIErrorCode::OutOfMemory,
-                       "Hosted UI runtime allocation failed", "NGIN.UI.Hosting",
-                       "HostedUIRuntime::Create");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::OutOfMemory, "Hosted UI runtime allocation failed",
+        "NGIN.UI.Hosting", "HostedUIRuntime::Create"));
   }
 }
 
@@ -125,10 +125,10 @@ struct HostedUIScope::State final {
     auto scope = serviceRegistry.BeginScope(Core::ServiceScopeKind::Application,
                                             "NGIN.UI.Application");
     if (!scope) {
-      return NGIN::Utilities::Unexpected<Core::KernelError>(scope.Error());
+      return NGIN::Utilities::Unexpected<Core::KernelError>(scope.error());
     }
     registry = &serviceRegistry;
-    applicationScope = scope.Value();
+    applicationScope = scope.value();
     try {
       scopes.emplace(applicationScope.value,
                      ScopeRecord{.id = applicationScope,
@@ -167,9 +167,9 @@ struct HostedUIScope::State final {
     }
     auto created = registry->BeginScope(kind, owner);
     if (!created) {
-      return NGIN::Utilities::Unexpected<Core::KernelError>(created.Error());
+      return NGIN::Utilities::Unexpected<Core::KernelError>(created.error());
     }
-    const auto id = created.Value();
+    const auto id = created.value();
     try {
       scopes.emplace(id.value, ScopeRecord{.id = id,
                                            .kind = kind,
@@ -360,7 +360,7 @@ struct HostedUIScope::State final {
       auto pumped = runtime->UI().PumpOnce(std::chrono::milliseconds{0});
       if (!pumped) {
         return NGIN::Utilities::Unexpected<Core::KernelError>(HostingError(
-            "HostedUIServiceProvider::DrainAndShutdown", pumped.Error()));
+            "HostedUIServiceProvider::DrainAndShutdown", pumped.error()));
       }
     }
     std::scoped_lock lock{mutex};
@@ -444,6 +444,12 @@ void HostedUIScope::ClearCloseHandler() noexcept {
   }
 }
 
+auto HostedUIScope::TaskOwner() const noexcept
+    -> NGIN::Async::TaskSupervisor<> * {
+  return m_state && m_state->runtime ? &m_state->runtime->UI().BackgroundTasks()
+                                     : nullptr;
+}
+
 auto HostedUIScope::Provider() const noexcept -> Core::IServiceProvider * {
   return m_state ? m_state->Provider() : nullptr;
 }
@@ -473,9 +479,9 @@ auto HostedWindow::CreatePageScope(std::string owner) const noexcept
   auto created = m_state->BeginScope(Core::ServiceScopeKind::Page,
                                      std::move(owner), ScopeId());
   if (!created) {
-    return NGIN::Utilities::Unexpected<Core::KernelError>(created.Error());
+    return NGIN::Utilities::Unexpected<Core::KernelError>(created.error());
   }
-  return HostedUIScope{m_state, created.Value(), Core::ServiceScopeKind::Page};
+  return HostedUIScope{m_state, created.value(), Core::ServiceScopeKind::Page};
 }
 
 auto HostedWindow::Close() noexcept -> Core::CoreResult<void> {
@@ -486,7 +492,7 @@ auto HostedWindow::Close() noexcept -> Core::CoreResult<void> {
     auto closed = m_state->runtime->UI().CloseWindow(*m_window);
     if (!closed) {
       return NGIN::Utilities::Unexpected<Core::KernelError>(
-          HostingError("HostedWindow::Close", closed.Error()));
+          HostingError("HostedWindow::Close", closed.error()));
     }
   }
   return m_state->RequestEnd(ScopeId());
@@ -526,16 +532,16 @@ auto HostedUIServiceProvider::CreateWindow(
   auto created = m_state->runtime->UI().CreateWindow(info);
   if (!created) {
     return NGIN::Utilities::Unexpected<Core::KernelError>(
-        HostingError("HostedUIServiceProvider::CreateWindow", created.Error()));
+        HostingError("HostedUIServiceProvider::CreateWindow", created.error()));
   }
   auto scope =
       m_state->BeginScope(Core::ServiceScopeKind::Window, std::move(owner),
-                          ApplicationScopeId(), created.Value());
+                          ApplicationScopeId(), created.value());
   if (!scope) {
-    static_cast<void>(m_state->runtime->UI().CloseWindow(*created.Value()));
-    return NGIN::Utilities::Unexpected<Core::KernelError>(scope.Error());
+    static_cast<void>(m_state->runtime->UI().CloseWindow(*created.value()));
+    return NGIN::Utilities::Unexpected<Core::KernelError>(scope.error());
   }
-  return HostedWindow{m_state, created.Value()};
+  return HostedWindow{m_state, created.value()};
 }
 
 auto HostedUIServiceProvider::CreatePageScope(Window &window,
@@ -556,9 +562,9 @@ auto HostedUIServiceProvider::CreateActivationScope(const HostedUIScope &parent,
   auto created = m_state->BeginScope(Core::ServiceScopeKind::Activation,
                                      std::move(owner), parent.Id());
   if (!created) {
-    return NGIN::Utilities::Unexpected<Core::KernelError>(created.Error());
+    return NGIN::Utilities::Unexpected<Core::KernelError>(created.error());
   }
-  return HostedUIScope{m_state, created.Value(),
+  return HostedUIScope{m_state, created.value(),
                        Core::ServiceScopeKind::Activation};
 }
 
@@ -749,23 +755,23 @@ auto UIHostRunLoop::Run(Core::IApplicationHost &host) noexcept
     firstFrame = false;
     if (!pumped) {
       return StopWithError(
-          host, HostingError("UIHostRunLoop::PumpOnce", pumped.Error()));
+          host, HostingError("UIHostRunLoop::PumpOnce", pumped.error()));
     }
     if (m_services) {
       auto reconciled = m_services->ReconcileClosedWindows();
       if (!reconciled) {
-        return StopWithError(host, reconciled.Error());
+        return StopWithError(host, reconciled.error());
       }
     }
 
     auto dispatched = m_dispatcher->Drain();
     if (!dispatched) {
-      return StopWithError(host, dispatched.Error());
+      return StopWithError(host, dispatched.error());
     }
 
     auto ticked = host.Tick();
     if (!ticked) {
-      return StopWithError(host, ticked.Error());
+      return StopWithError(host, ticked.error());
     }
   }
 
@@ -774,7 +780,7 @@ auto UIHostRunLoop::Run(Core::IApplicationHost &host) noexcept
   }
   auto dispatched = m_dispatcher->Drain();
   if (!dispatched) {
-    return StopWithError(host, dispatched.Error());
+    return StopWithError(host, dispatched.error());
   }
   return host.Shutdown();
 }
@@ -885,10 +891,14 @@ auto UIModule::OnShutdown(Core::ModuleContext &) noexcept
       return shutdown;
     }
   }
+  auto joined = m_runtime->UI().ShutdownTasks();
+  if (!joined) {
+    return std::unexpected(HostingError("UIModule::OnShutdown", joined.error()));
+  }
   auto idle = m_runtime->UI().Renderer().WaitIdle();
   if (!idle) {
     return NGIN::Utilities::Unexpected<Core::KernelError>(
-        HostingError("UIModule::OnShutdown", idle.Error()));
+        HostingError("UIModule::OnShutdown", idle.error()));
   }
   return {};
 }
@@ -899,14 +909,14 @@ auto ConfigureUIHosting(Core::ApplicationBuilder &builder,
   const auto maximumWait = info.maximumWait;
   auto runtime = HostedUIRuntime::Create(std::move(info));
   if (!runtime) {
-    return std::move(runtime).Error();
+    return std::unexpected(std::move(runtime).error());
   }
   try {
     auto dispatcher = NGIN::Memory::MakeSharedAs<IUIDispatcher, UIDispatcher>(
-        runtime.Value());
+        runtime.value());
     auto services =
-        NGIN::Memory::MakeShared<HostedUIServiceProvider>(runtime.Value());
-    auto runLoop = std::make_shared<UIHostRunLoop>(runtime.Value(), dispatcher,
+        NGIN::Memory::MakeShared<HostedUIServiceProvider>(runtime.value());
+    auto runLoop = std::make_shared<UIHostRunLoop>(runtime.value(), dispatcher,
                                                    services, maximumWait);
 
     Core::ModuleOptions options{};
@@ -922,7 +932,7 @@ auto ConfigureUIHosting(Core::ApplicationBuilder &builder,
         Core::ModuleCapability{.name = "UI.RenderBackend", .exclusive = true},
     };
 
-    auto runtimeService = runtime.Value();
+    auto runtimeService = runtime.value();
     auto dispatcherService = dispatcher;
     auto serviceProvider = services;
     builder.UseRunLoop(runLoop).AddModule(
@@ -941,15 +951,15 @@ auto ConfigureUIHosting(Core::ApplicationBuilder &builder,
         });
 
     return UIHostingRegistration{
-        .runtime = runtime.Value(),
+        .runtime = runtime.value(),
         .dispatcher = dispatcher,
         .services = services,
         .runLoop = std::move(runLoop),
     };
   } catch (...) {
-    return MakeUIError(UIErrorCode::OutOfMemory,
-                       "UI hosting service allocation failed",
-                       "NGIN.UI.Hosting", "ConfigureUIHosting");
+    return std::unexpected(MakeUIError(
+        UIErrorCode::OutOfMemory, "UI hosting service allocation failed",
+        "NGIN.UI.Hosting", "ConfigureUIHosting"));
   }
 }
 } // namespace NGIN::UI::Hosting

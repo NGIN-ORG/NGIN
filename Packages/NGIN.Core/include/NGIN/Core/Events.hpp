@@ -343,18 +343,18 @@ public:
   auto Publish(TEvent &&event) noexcept -> CoreResult<void> {
     auto rawRecord = detail::MakeTypedEventRecord(std::forward<TEvent>(event));
     if (!rawRecord) {
-      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.error());
     }
-    return PublishRawImmediate(std::move(rawRecord.Value()));
+    return PublishRawImmediate(std::move(rawRecord.value()));
   }
 
   template <typename TEvent>
   auto Enqueue(TEvent &&event) noexcept -> CoreResult<void> {
     auto rawRecord = detail::MakeTypedEventRecord(std::forward<TEvent>(event));
     if (!rawRecord) {
-      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.error());
     }
-    return EnqueueRaw(std::move(rawRecord.Value()));
+    return EnqueueRaw(std::move(rawRecord.value()));
   }
 
   template <typename TEvent>
@@ -362,9 +362,9 @@ public:
       -> CoreResult<void> {
     auto rawRecord = detail::MakeTypedEventRecord(std::forward<TEvent>(event));
     if (!rawRecord) {
-      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.Error());
+      return NGIN::Utilities::Unexpected<KernelError>(rawRecord.error());
     }
-    return EnqueueRawTo(queue, std::move(rawRecord.Value()));
+    return EnqueueRawTo(queue, std::move(rawRecord.value()));
   }
 
   template <typename TEvent> auto Flush() noexcept -> CoreResult<void> {

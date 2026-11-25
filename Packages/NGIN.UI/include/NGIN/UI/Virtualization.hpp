@@ -136,7 +136,7 @@ private:
   FixedVirtualizationOptions m_options{};
   InvalidationScheduler m_scheduler{};
   VirtualizedSourceBinding m_source{};
-  VirtualizedRange m_range{};
+  State<VirtualizedRange> m_range{};
   std::optional<VirtualizedRange> m_requestedRange{};
   std::vector<VirtualizedItemMapping> m_mappings{};
   NGIN::Text::String m_anchorKey{};

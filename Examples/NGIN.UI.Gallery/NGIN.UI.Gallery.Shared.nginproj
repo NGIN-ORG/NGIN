@@ -2,6 +2,7 @@
 
 <Library Name="NGIN.UI.Gallery.Shared" Kind="Static" Version="0.4.0">
   <Uses>
+    <Package Name="NGIN.Reflection" Version="0.1" />
     <Package Name="NGIN.UI" Version="0.4" />
   </Uses>
   <Build Conventions="false">

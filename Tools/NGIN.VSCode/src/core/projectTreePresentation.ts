@@ -9,7 +9,7 @@ export interface ProjectTreePresentationInput {
   analysisState?: 'analyzing' | 'failed';
   lastOperation?: {
     command: string;
-    state: 'succeeded' | 'failed';
+    state: 'succeeded' | 'failed' | 'canceled';
     durationMs: number;
   };
 }
@@ -33,8 +33,8 @@ export function projectTreePresentation(input: ProjectTreePresentationInput): Pr
     ? `${input.busy} in progress`
     : input.graphIssue
       ? 'model issue'
-      : input.lastOperation?.state === 'failed'
-        ? `${input.lastOperation.command} failed`
+      : input.lastOperation && input.lastOperation.state !== 'succeeded'
+        ? `${input.lastOperation.command} ${input.lastOperation.state}`
         : input.analysisState === 'failed'
           ? 'analysis issue'
           : input.analysisState === 'analyzing'

@@ -1,9 +1,12 @@
 #include "Budgets.hpp"
 
-#include <NGIN/UI/Collections.hpp>
+#include <NGIN/UI/CollectionPrimitives.hpp>
+#include <NGIN/UI/CollectionViews.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/NativeText.hpp>
+#include <NGIN/UI/SplitPane.hpp>
+#include <NGIN/UI/Surface.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 
 #include <algorithm>
@@ -82,6 +85,76 @@ auto Median(const NGIN::UIntSize iterations, Operation &&operation) -> Sample {
   return {milliseconds, samples[samples.size() / 2].allocations};
 }
 
+template <typename Operation>
+auto ReportFrameSamples(std::string_view name, Operation operation) -> Sample {
+  // Nearest-rank quantiles. Set up the frame and warm up before counting.
+  constexpr NGIN::UIntSize Count = 200;
+  std::vector<Sample> samples;
+  samples.reserve(Count);
+  for (NGIN::UIntSize i = 0; i < Count; ++i) {
+    samples.push_back(Measure([&] { operation(i); }));
+  }
+  std::ranges::sort(samples, {}, &Sample::milliseconds);
+  const auto p95 = samples[189].milliseconds;
+  const auto p99 = samples[197].milliseconds;
+  std::ranges::sort(samples, {}, &Sample::allocations);
+  const auto peakAllocations = samples.back().allocations;
+  std::cout << "{\"name\":\"" << name << "\",\"samples\":" << Count
+            << ",\"p95Ms\":" << p95 << ",\"p99Ms\":" << p99
+            << ",\"p95Allocations\":" << samples[189].allocations
+            << ",\"maxAllocations\":" << peakAllocations << "}\n";
+  return {p99, peakAllocations};
+}
+
+auto BenchSurface(NGIN::UI::NativeTextSystem &text) -> bool {
+  using namespace NGIN;
+  using namespace NGIN::UI;
+  State<F32> split{0.5F};
+  Surface surface;
+  NodeProperties panel{};
+  panel.layout.preferredSize = {100, 120};
+  panel.layout.horizontalAlignment = HorizontalAlignment::End;
+  panel.layout.verticalAlignment = VerticalAlignment::End;
+  panel.interaction.hitTestVisible = false;
+  surface.SetContent(
+      Views::Overlay({
+          Views::SplitPane(Bind(split), Views::Label("Volume"),
+                           Views::Label("Audio output")),
+          Views::Column(std::vector<Views::View>(5, Views::Label("Property")),
+                        panel)
+              .Key("inspector"),
+      }),
+      Views::ViewEnvironment{text});
+  constexpr PixelSize Extent{640, 360};
+  if (!surface.Update(Extent, 1))
+    return false;
+  const auto frameCount = surface.Diagnostics().frameCount;
+  const auto idle = ReportFrameSamples("idle-surface-update", [&](UIntSize) {
+    if (!surface.Update(Extent, 1))
+      std::abort();
+  });
+  if (idle.allocations || surface.Diagnostics().frameCount != frameCount)
+    return false;
+  const auto down =
+      surface.Route(PointerButtonChanged{.pointerId = 1,
+                                         .button = PointerButton::Primary,
+                                         .state = ButtonState::Pressed,
+                                         .position = {320, 12}});
+  if (!down.handled || !surface.CapturedElement(1) ||
+      !surface.Update(Extent, 1))
+    return false;
+  const auto compositions = surface.Diagnostics().compositionCount;
+  ReportFrameSamples("split-pane-drag", [&](UIntSize i) {
+    const auto x = static_cast<F32>(180 + i % 180);
+    if (!surface.Route(PointerMoved{.pointerId = 1, .position = {x, 12}})
+             .handled ||
+        !surface.Update(Extent, 1))
+      std::abort();
+  });
+  return surface.Diagnostics().compositionCount == compositions &&
+         surface.Diagnostics().layout.reusedMeasurements > 0;
+}
+
 auto ComposeItems(NGIN::UI::Composer &composer, const NGIN::UIntSize count,
                   const bool listItems) -> void {
   using namespace NGIN::UI;
@@ -113,10 +186,10 @@ public:
   [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
       -> NGIN::UI::UIResult<NGIN::UIntSize> override {
     if (!m_requested.Contains(index)) {
-      return NGIN::UI::MakeUIError(NGIN::UI::UIErrorCode::ResourceFailed,
-                                   "Benchmark item was not requested",
-                                   "NGIN.UI.Benchmarks",
-                                   "GeneratedVirtualizedSource::ItemAt");
+      return std::unexpected(NGIN::UI::MakeUIError(
+          NGIN::UI::UIErrorCode::ResourceFailed,
+          "Benchmark item was not requested", "NGIN.UI.Benchmarks",
+          "GeneratedVirtualizedSource::ItemAt"));
     }
     return index;
   }
@@ -142,6 +215,44 @@ public:
 private:
   NGIN::UI::VirtualizedRange m_requested{};
 };
+
+auto BenchScrolling(NGIN::UI::NativeTextSystem &text) -> bool {
+  using namespace NGIN;
+  using namespace NGIN::UI;
+  constexpr PixelSize Extent{800, 720};
+  GeneratedVirtualizedSource source;
+  Surface surface;
+  FixedVirtualizedListController controller{{.itemExtent = 24.0F,
+                                             .overscanItems = 3,
+                                             .initialViewportExtent = 720.0F},
+                                            surface.Invalidator()};
+  surface.SetContent(
+      Views::VirtualizedList<UIntSize>(controller, source,
+                                       [](UIntSize item, UIntSize) {
+                                         return Views::Label(Text::String{
+                                             std::to_string(item)});
+                                       }),
+      Views::ViewEnvironment{text});
+  if (!surface.Update(Extent, 1))
+    return false;
+  UIntSize maximumLive{};
+  ReportFrameSamples("virtual-list-100000-scroll", [&](UIntSize) {
+    if (!surface
+             .Route(PointerWheelChanged{
+                 .pointerId = 1, .delta = {0, -1}, .position = {50, 50}})
+             .handled ||
+        !surface.Update(Extent, 1))
+      std::abort();
+    // The controller may request composition after layout discovers new rows.
+    if (surface.IsDirty() && !surface.Update(Extent, 1))
+      std::abort();
+    maximumLive = std::max(maximumLive, surface.Tree().LiveCount());
+  });
+  // 30 visible plus a partial row and three overscan rows on either end.
+  constexpr UIntSize MaximumRows = 37;
+  return !surface.IsDirty() && controller.RealizedRange().first > 0 &&
+         maximumLive <= 2 + 2 * MaximumRows;
+}
 
 auto Report(const NGIN::UI::Benchmarks::Budget &budget, const Sample sample)
     -> bool {
@@ -188,17 +299,19 @@ auto main() -> int {
   passed = Report(LayoutBudget, layoutSample) && passed;
 
   Testing::RecordingRenderBackend renderer;
-  if (!renderer.Initialize({}).HasValue()) {
+  if (!renderer.Initialize({})) {
     return 2;
   }
   auto createdText = NativeTextSystem::Create(
       renderer, NativeTextCreateInfo{.atlasSize = {512, 512}});
   if (!createdText) {
     std::cerr << "Text benchmark setup failed: "
-              << createdText.Error().message.CStr() << '\n';
+              << createdText.error().message.CStr() << '\n';
     return 2;
   }
-  auto text = std::move(createdText).Value();
+  auto text = std::move(createdText).value();
+  passed = BenchSurface(*text) && passed;
+  passed = BenchScrolling(*text) && passed;
   std::string paragraphSource;
   for (NGIN::UIntSize index = 0; index < 32; ++index) {
     paragraphSource +=
@@ -215,7 +328,7 @@ auto main() -> int {
   };
   const auto textSample = Median(7, [&] {
     auto result = text->LayoutParagraph(paragraph);
-    if (!result || result.Value().lines.empty()) {
+    if (!result || result.value().lines.empty()) {
       std::abort();
     }
   });

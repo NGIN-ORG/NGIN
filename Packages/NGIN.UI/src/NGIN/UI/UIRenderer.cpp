@@ -17,6 +17,7 @@ auto PreparedRenderPacket::View() const noexcept -> RenderPacket {
       .targetSize = targetSize,
       .scaleFactor = scaleFactor,
       .clearColor = clearColor,
+      .loadAction = loadAction,
   };
 }
 
@@ -526,6 +527,7 @@ auto UIRenderer::Build(const DisplayList &displayList,
               const auto scissor =
                   ToScissor(clips.back(), effectiveScale, targetSize);
               for (const auto &glyph : value.glyphs) {
+                if (glyph.lease) packet.glyphLeases.push_back(glyph.lease);
                 AppendQuad(packet, glyph.destination, transforms.back(),
                            effectiveScale, color, scissor, value.atlas,
                            glyph.textureCoordinates, true);

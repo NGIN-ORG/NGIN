@@ -1,3 +1,4 @@
+import { checkBuildInterrupt } from './buildTerminal';
 import { NginDebugProvider } from '../../../providers/debug';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -7,7 +8,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { NginController } from '../../../core/controller';
-import type { CompositionGraph, ContextSnapshot, NginContext } from '../../../model';
+import type { CliResult, CompositionGraph, ContextSnapshot, NginContext } from '../../../model';
 import { NginCppConfigurationProvider } from '../../../providers/cppTools';
 
 export async function run(): Promise<void> {
@@ -100,14 +101,22 @@ export async function run(): Promise<void> {
   await fs.rm(providerOutput, { recursive: true, force: true });
 
   const tasks = await vscode.tasks.fetchTasks({ type: 'ngin' });
-  const build = tasks.find(task => task.definition.command === 'build')?.execution as vscode.ProcessExecution | undefined;
-  assert.ok(build, 'active project supplies a build task');
-  const outputFlag = build.args.indexOf('--output');
+  const build = tasks.find(task => task.definition.command === 'build');
+  assert.ok(build?.execution instanceof vscode.CustomExecution, 'Run Build Task provides the interactive build terminal');
+  assert.equal(build.presentationOptions.focus, true);
+  await vscode.commands.executeCommand('workbench.action.closePanel');
+  const built = await vscode.commands.executeCommand<CliResult>('ngin.build');
+  assert.equal(built?.exitCode, 0, 'Build Project completes through the extension');
+  const outputFlag = built.args.indexOf('--output');
   assert.ok(outputFlag >= 0);
-  const selection = build.args.slice(1, outputFlag);
-  const cliContext = await promisify(execFile)(build.process, ['context', ...selection], { cwd: workspace });
-  assert.equal(build.args[outputFlag + 1], JSON.parse(cliContext.stdout).outputDirectory,
-    'editor tasks and the CLI select the same native build directory');
+  const selection = built.args.slice(1, outputFlag);
+  const cliContext = await promisify(execFile)(built.command, ['context', ...selection], { cwd: workspace });
+  assert.equal(built.args[outputFlag + 1], JSON.parse(cliContext.stdout).outputDirectory,
+    'editor builds and the CLI select the same native build directory');
+  const buildLog = path.join(built.args[outputFlag + 1], 'diagnostics', 'build.log');
+  assert.match(await fs.readFile(buildLog, 'utf8'), /Built Hello\.Native/u);
+
+  await checkBuildInterrupt(workspace);
 
   const hostedSource = vscode.Uri.file(path.join(workspace, 'Examples', 'Hello.Hosted', 'src', 'main.cpp'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostedSource));

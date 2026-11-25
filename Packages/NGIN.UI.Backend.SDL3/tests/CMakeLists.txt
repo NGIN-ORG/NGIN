@@ -12,3 +12,7 @@ else()
 endif()
 
 add_test(NAME UI.SDL3Backend.Contracts COMMAND NGINUISDL3Tests)
+
+add_executable(NGINUISDL3OverlayTests OverlayTests.cpp)
+target_link_libraries(NGINUISDL3OverlayTests PRIVATE NGIN::UI::Backend::SDL3 SDL3::SDL3-static)
+add_test(NAME UI.SDL3Backend.Overlay COMMAND NGINUISDL3OverlayTests)

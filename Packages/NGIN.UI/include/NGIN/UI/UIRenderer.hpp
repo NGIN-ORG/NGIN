@@ -12,9 +12,12 @@ struct PreparedRenderPacket final {
   std::vector<UInt32> indices{};
   std::vector<RenderBatch> batches{};
   std::vector<TextureUpdate> textureUpdates{};
+  /// Keep sampled atlas pages resident until the last queued frame retires.
+  std::vector<std::shared_ptr<const GlyphAtlasLease>> glyphLeases{};
   PixelSize targetSize{};
   F32 scaleFactor{1.0F};
   Color clearColor{0.08F, 0.09F, 0.11F, 1.0F};
+  RenderLoadAction loadAction{RenderLoadAction::Clear};
 
   [[nodiscard]] auto View() const noexcept -> RenderPacket;
 };

@@ -73,6 +73,13 @@ RuntimeTree::RuntimeTree() {
       CreateNode(ElementType::Root, NGIN::Text::String{}, NodeProperties{}, {});
 }
 
+void RuntimeTree::Clear() noexcept {
+  if (auto *root = Get(m_root)) {
+    const auto children = std::exchange(root->children, {});
+    for (const auto child : children) DestroySubtree(child);
+  }
+}
+
 auto RuntimeTree::Root() const noexcept -> ElementHandle { return m_root; }
 
 auto RuntimeTree::IsAlive(const ElementHandle handle) const noexcept -> bool {
@@ -135,6 +142,10 @@ auto RuntimeTree::CreateNode(const ElementType type,
                              const ElementHandle parent) -> ElementHandle {
   UInt32 index = 0;
   if (m_freeSlots.empty()) {
+    // Reserve the return slot at allocation time so teardown does not allocate.
+    if (m_freeSlots.capacity() <= m_slots.size()) {
+      m_freeSlots.reserve(std::max<UIntSize>(8, 2 * m_slots.size()));
+    }
     index = static_cast<UInt32>(m_slots.size());
     m_slots.emplace_back();
   } else {
@@ -264,7 +275,7 @@ auto RuntimeTree::DestroySubtree(const ElementHandle handle) noexcept
   }
 
   auto &slot = m_slots[handle.index];
-  const auto children = slot.node.children;
+  const auto children = std::exchange(slot.node.children, {});
   UIntSize removed = 1;
   for (const auto child : children) {
     removed += DestroySubtree(child);
@@ -312,7 +323,7 @@ auto Reconciler::ReconcileChildren(
 
   for (UIntSize declarationIndex = 0; declarationIndex < declarations.size();
        ++declarationIndex) {
-    const auto &declaration = declarations[declarationIndex];
+    const auto &declaration = declarations[declarationIndex].Resolved();
 
     if (declaration.IsKeyed()) {
       for (UIntSize previousIndex = 0; previousIndex < previousChildren.size();
@@ -323,6 +334,7 @@ auto Reconciler::ReconcileChildren(
         const auto *candidate = m_tree.Get(previousChildren[previousIndex]);
         if (candidate != nullptr && candidate->IsKeyed() &&
             candidate->type == declaration.type &&
+            candidate->componentInstance == declaration.componentInstance &&
             candidate->key == declaration.key) {
           matches[declarationIndex] = candidate->handle;
           used[previousIndex] = true;
@@ -332,7 +344,8 @@ auto Reconciler::ReconcileChildren(
     } else if (declarationIndex < previousChildren.size()) {
       const auto *candidate = m_tree.Get(previousChildren[declarationIndex]);
       if (candidate != nullptr && !candidate->IsKeyed() &&
-          candidate->type == declaration.type) {
+          candidate->type == declaration.type &&
+          candidate->componentInstance == declaration.componentInstance) {
         matches[declarationIndex] = candidate->handle;
         used[declarationIndex] = true;
       }
@@ -357,13 +370,19 @@ auto Reconciler::ReconcileChildren(
     }
 
     auto *node = m_tree.Get(matched);
-    node->properties = declaration.properties;
+    nextChildren.push_back(matched);
+    ++stats.preserved;
+    if (declaration.cached && node->lastDeclaration.lock() == declaration.cached) {
+      ++stats.skippedSubtrees;
+      continue;
+    }
+    const auto &resolved = declaration.Resolved();
+    node->lastDeclaration = declaration.cached;
+    node->properties = resolved.properties;
     m_tree.SynchronizeTextField(*node);
     m_tree.SynchronizeCustom(*node);
     node->compositionRevision = m_revision;
-    nextChildren.push_back(matched);
-    ++stats.preserved;
-    ReconcileChildren(matched, declaration.children, stats);
+    ReconcileChildren(matched, resolved.children, stats);
   }
 
   parentNode = m_tree.Get(parent);
@@ -373,14 +392,17 @@ auto Reconciler::ReconcileChildren(
 auto Reconciler::MaterializeSubtree(const ElementHandle parent,
                                     const ElementDeclaration &declaration,
                                     ReconcileStats &stats) -> ElementHandle {
-  const auto handle = m_tree.CreateNode(declaration.type, declaration.key,
-                                        declaration.properties, parent);
+  const auto &resolved = declaration.Resolved();
+  const auto handle = m_tree.CreateNode(resolved.type, resolved.key,
+                                        resolved.properties, parent);
   auto *node = m_tree.Get(handle);
   node->compositionRevision = m_revision;
-  node->children.reserve(declaration.children.size());
+  node->lastDeclaration = declaration.cached;
+  node->componentInstance = resolved.componentInstance;
+  node->children.reserve(resolved.children.size());
   ++stats.created;
 
-  for (const auto &child : declaration.children) {
+  for (const auto &child : resolved.children) {
     const auto childHandle = MaterializeSubtree(handle, child, stats);
     m_tree.Get(handle)->children.push_back(childHandle);
   }

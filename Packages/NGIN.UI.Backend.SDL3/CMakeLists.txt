@@ -20,6 +20,7 @@ if(NOT TARGET SDL3::SDL3-static)
 endif()
 
 add_library(NGIN.UI.Backend.SDL3 STATIC
+    src/Desktop.cpp
     src/SDLPlatformBackend.cpp
     src/SDLGpuRenderBackend.cpp
 )

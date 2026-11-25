@@ -1086,8 +1086,8 @@
         },
         "ngin.revealOutputOnRun": {
           "type": "boolean",
-          "default": false,
-          "description": "Reveal the NGIN output channel when starting a lifecycle command. Failures remain available through Problems and actionable error messages."
+          "default": true,
+          "description": "Reveal NGIN Output for lifecycle commands that write there. Build commands open the integrated terminal."
         },
         "ngin.statusBar.enabled": {
           "type": "boolean",

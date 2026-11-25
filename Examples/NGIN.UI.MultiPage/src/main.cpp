@@ -1,6 +1,7 @@
 #include <NGIN/Reflection/ModuleInit.hpp>
 #include <NGIN/Reflection/TypeBuilder.hpp>
 #include <NGIN/UI/Backend/SDL3/SDL3.hpp>
+#include <NGIN/UI/Components.hpp>
 #include <NGIN/UI/Hosting/Hosting.hpp>
 #include <NGIN/Units.hpp>
 #if defined(NGIN_PLATFORM_WINDOWS)
@@ -28,13 +29,12 @@ struct DetailParameter final {
 struct NavigationActions final {
   NGIN::Utilities::Callable<void(UInt32)> openDetail{};
   NGIN::Utilities::Callable<void()> back{};
-  NGIN::Utilities::Callable<void()> invalidate{};
 };
 
 class MessageService final {
 public:
-  [[nodiscard]] auto Load(const UInt32 itemId) const -> Text::String {
-    return Text::String{"Loaded item " + std::to_string(itemId)};
+  [[nodiscard]] auto Load() const -> Text::String {
+    return Text::String{"Item details are ready."};
   }
 };
 
@@ -54,30 +54,27 @@ private:
 class DetailViewModel final {
 public:
   DetailViewModel(Memory::Shared<MessageService> messages,
-                  Memory::Shared<NavigationActions> actions) noexcept
+                  Memory::Shared<NavigationActions> actions)
       : m_messages(std::move(messages)), m_actions(std::move(actions)) {}
 
   [[nodiscard]] auto ActivateAsync(NGIN::Async::TaskContext &context)
       -> ViewModelTaskScope::Task {
-    m_status = Text::String{"Loading..."};
-    m_actions->invalidate();
+    static_cast<void>(m_status->Set(Text::String{"Loading..."}));
     co_await ViewModelTaskScope::Task::Delay(context,
                                              NGIN::Units::Milliseconds{700.0});
-    m_status = m_messages->Load(m_itemId);
-    m_actions->invalidate();
+    static_cast<void>(m_status->Set(m_messages->Load()));
   }
 
-  void SetItem(const UInt32 itemId) noexcept { m_itemId = itemId; }
   void Back() { m_actions->back(); }
   [[nodiscard]] auto Status() const noexcept -> const Text::String & {
-    return m_status;
+    return m_status->Get();
   }
 
 private:
   Memory::Shared<MessageService> m_messages{};
   Memory::Shared<NavigationActions> m_actions{};
-  Text::String m_status{"Waiting to load"};
-  UInt32 m_itemId{0};
+  std::unique_ptr<State<Text::String>> m_status =
+      std::make_unique<State<Text::String>>(Text::String{"Waiting to load"});
 };
 
 inline void NginReflect(Reflection::Tag<DetailViewModel>,
@@ -86,65 +83,45 @@ inline void NginReflect(Reflection::Tag<DetailViewModel>,
                              Memory::Shared<NavigationActions>>();
 }
 
-void ComposeLabel(Composer &composer, NativeTextSystem &text,
-                  const Text::String &value, const F32 size, const char *key) {
-  NodeProperties properties{};
-  properties.text.fontSize = size;
-  properties.text.color = Color{0.92F, 0.94F, 0.98F, 1.0F};
-  composer.Text(value, text, text, properties, key);
-}
-
-void ComposeAction(Composer &composer, NativeTextSystem &text,
-                   const char *label, NGIN::Utilities::Callable<void()> action,
-                   const char *key) {
-  NodeProperties properties{};
-  properties.layout.padding = Thickness::Uniform(Dp{12.0F});
-  properties.paintsBackground = true;
-  properties.background = Color{0.12F, 0.42F, 0.88F, 1.0F};
-  properties.semantics.role = SemanticRole::Button;
-  properties.semantics.label = Text::String{label};
-  auto button = composer.BeginButton(std::move(action), properties, key);
-  ComposeLabel(composer, text, Text::String{label}, 16.0F, "label");
-}
-
-void ComposeHome(Composer &composer, NativeTextSystem &text,
-                 HomeViewModel &viewModel, const NoNavigationParameter &) {
+auto PageProperties() -> NodeProperties {
   NodeProperties page{};
   page.layout.padding = Thickness::Uniform(Dp{28.0F});
   page.layout.gap = 18.0F;
-  composer.Element(
-      ElementType::Column, page,
-      [&] {
-        ComposeLabel(composer, text, Text::String{"Multi-page app"}, 30.0F,
-                     "title");
-        ComposeLabel(composer, text,
-                     Text::String{"Services build the ViewModels. Views build "
-                                  "the controls."},
-                     17.0F, "description");
-        ComposeAction(
-            composer, text, "Open item 42",
-            [&viewModel] { viewModel.OpenDetail(); }, "open-detail");
-      },
-      "home");
+  return page;
 }
 
-void ComposeDetail(Composer &composer, NativeTextSystem &text,
-                   DetailViewModel &viewModel,
-                   const DetailParameter &parameter) {
-  viewModel.SetItem(parameter.itemId);
-  NodeProperties page{};
-  page.layout.padding = Thickness::Uniform(Dp{28.0F});
-  page.layout.gap = 18.0F;
-  composer.Element(
-      ElementType::Column, page,
-      [&] {
-        ComposeLabel(composer, text, Text::String{"Item details"}, 30.0F,
-                     "title");
-        ComposeLabel(composer, text, viewModel.Status(), 17.0F, "status");
-        ComposeAction(
-            composer, text, "Back", [&viewModel] { viewModel.Back(); }, "back");
-      },
-      "detail");
+auto Heading(Text::String title) -> Views::View {
+  NodeProperties heading{};
+  heading.text.fontSize = 30.0F;
+  heading.semantics.role = SemanticRole::Heading;
+  return Views::Label(std::move(title), heading).Key("title");
+}
+
+auto HomeView(HomeViewModel &viewModel, const NoNavigationParameter &)
+    -> Views::View {
+  return Views::Column(
+             {Heading(Text::String{"Multi-page app"}),
+              Views::Label(
+                  "Services build the ViewModels. Views build the controls."),
+              Views::Button(Text::String{"Open item 42"},
+                            [&viewModel] { viewModel.OpenDetail(); })
+                  .Key("open-detail")},
+             PageProperties())
+      .Key("home");
+}
+
+auto DetailView(DetailViewModel &viewModel, const DetailParameter &parameter)
+    -> Views::View {
+  return Views::Column(
+             {Heading(Text::String{"Item " + std::to_string(parameter.itemId)}),
+              Views::Component([&viewModel] {
+                return Views::Label(viewModel.Status());
+              }).Key("status"),
+              Views::Button(Text::String{"Back"},
+                            [&viewModel] { viewModel.Back(); })
+                  .Key("back")},
+             PageProperties())
+      .Key("detail");
 }
 } // namespace MultiPage
 
@@ -171,48 +148,40 @@ public:
         context.Services().ResolveRequired<MultiPage::NavigationActions>();
     if (!actions) {
       return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-          actions.Error());
+          actions.error());
     }
-    m_actions = std::move(actions).Value();
+    m_actions = std::move(actions).value();
     auto window = m_hosting.services->CreateWindow(
         {.id = NGIN::Text::String{"MultiPage.Main"},
          .title = NGIN::Text::String{"NGIN.UI Multi-Page"},
          .initialSize = PixelSize{760, 480},
          .minimumSize = PixelSize{520, 360}});
     if (!window) {
-      return Failure("Window creation", window.Error().message.c_str());
+      return Failure("Window creation", window.error().message.c_str());
     }
-    m_window = std::move(window).Value();
+    m_window = std::move(window).value();
 
     auto activation = CreateHostedNavigationContext(m_hosting, m_window);
     if (!activation) {
-      return Failure("Navigation context", activation.Error().message.CStr());
+      return Failure("Navigation context", activation.error().message.CStr());
     }
-    m_activation.emplace(std::move(activation).Value());
+    m_activation.emplace(std::move(activation).value());
     m_navigation = std::make_unique<NavigationService>(
         *m_pages, *m_activation,
-        NavigationOptions{
-            .region = "Main",
-            .cacheCapacity = 1,
-            .isOnScheduler =
-                [dispatcher = m_hosting.dispatcher] {
-                  return dispatcher->IsCurrentThread();
-                },
-            .invalidate =
-                [uiWindow = m_window.UI()](InvalidationKind kind) {
-                  uiWindow->Invalidate(kind);
-                }});
+        NavigationOptions{.region = "Main",
+                          .cacheCapacity = 1,
+                          .isOnScheduler = [dispatcher = m_hosting.dispatcher] {
+                            return dispatcher->IsCurrentThread();
+                          }});
     m_content = std::make_unique<NavigationHost>(*m_navigation);
     m_actions->openDetail = [this](const NGIN::UInt32 itemId) {
       static_cast<void>(m_navigation->Navigate<MultiPage::DetailPage>(
           MultiPage::DetailParameter{itemId}));
     };
     m_actions->back = [this] { static_cast<void>(m_navigation->Back()); };
-    m_actions->invalidate = [uiWindow = m_window.UI()] {
-      uiWindow->Invalidate(InvalidationKind::Compose);
-    };
     m_window.UI()->SetContent(
-        [this](Composer &composer) { m_content->Compose(composer); });
+        m_content->ContentView(),
+        Views::ViewEnvironment{m_hosting.runtime->Text()});
     m_window.UI()->SetEventHandler([this](const PlatformEvent &event) {
       static_cast<void>(m_content->HandleEvent(event));
     });
@@ -239,11 +208,13 @@ public:
 
   auto OnStop(NGIN::Core::ModuleContext &) noexcept
       -> NGIN::Core::CoreResult<void> override {
-    m_actions->openDetail = {};
-    m_actions->back = {};
-    m_actions->invalidate = {};
+    if (m_actions) {
+      m_actions->openDetail = {};
+      m_actions->back = {};
+    }
     if (m_window.IsOpen()) {
-      m_window.UI()->SetContent({});
+      m_window.UI()->SetContent(
+          {}, NGIN::UI::Views::ViewEnvironment{m_hosting.runtime->Text()});
       m_window.UI()->SetEventHandler({});
     }
     m_content.reset();
@@ -307,7 +278,7 @@ auto main(const int argc, char **argv) -> int {
   auto hosting =
       ConfigureUIHosting(*builder, {.application = std::move(application)});
   if (!hosting) {
-    return Report("UI hosting failed", hosting.Error().message.CStr());
+    return Report("UI hosting failed", hosting.error().message.CStr());
   }
 
   auto pages = std::make_shared<PageRegistry>();
@@ -316,20 +287,11 @@ auto main(const int argc, char **argv) -> int {
       .AddSingleton<NavigationActions>()
       .AddScoped<MessageService>();
   auto home = pageBuilder.AddPage<HomePage, HomeViewModel>(
-      {.id = "home", .displayName = "Home", .routeName = "home"},
-      [&text = hosting.Value().runtime->Text()](
-          Composer &composer, HomeViewModel &viewModel,
-          const NoNavigationParameter &parameter) {
-        ComposeHome(composer, text, viewModel, parameter);
-      });
+      {.id = "home", .displayName = "Home", .routeName = "home"}, HomeView);
   auto detail =
       pageBuilder.AddPage<DetailPage, DetailViewModel, DetailParameter>(
           {.id = "detail", .displayName = "Detail", .routeName = "item"},
-          [&text = hosting.Value().runtime->Text()](
-              Composer &composer, DetailViewModel &viewModel,
-              const DetailParameter &parameter) {
-            ComposeDetail(composer, text, viewModel, parameter);
-          });
+          DetailView);
   if (!home || !detail) {
     return Report("Page registration failed", "invalid page catalogue");
   }
@@ -348,7 +310,7 @@ auto main(const int argc, char **argv) -> int {
           .AddConfiguration()
           .AddModule(
               "NGIN.UI.MultiPage.Presentation", std::move(presentation),
-              [hosting = hosting.Value(), pages,
+              [hosting = hosting.value(), pages,
                smoke]() mutable -> CoreResult<Memory::Shared<IModule>> {
                 try {
                   return Memory::MakeSharedAs<IModule,
@@ -363,13 +325,9 @@ auto main(const int argc, char **argv) -> int {
               })
           .Build();
   if (!app) {
-    return Report("Application build failed", app.Error().message.c_str());
+    return Report("Application build failed", app.error().message.c_str());
   }
-  auto started = app.Value()->Start();
-  if (!started) {
-    return Report("Application start failed", started.Error().message.c_str());
-  }
-  auto run = app.Value()->Run();
+  auto run = app.value()->Run();
   return run ? 0
-             : Report("Application run failed", run.Error().message.c_str());
+             : Report("Application run failed", run.error().message.c_str());
 }

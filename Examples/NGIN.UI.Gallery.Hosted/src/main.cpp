@@ -37,16 +37,16 @@ public:
         UIApplicationServiceName);
     if (!runtime) {
       return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-          runtime.Error());
+          runtime.error());
     }
     auto dispatcher = context.Services().ResolveRequired<IUIDispatcher>(
         UIDispatcherServiceName);
     if (!dispatcher) {
       return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-          dispatcher.Error());
+          dispatcher.error());
     }
-    m_runtime = runtime.Value();
-    m_dispatcher = dispatcher.Value();
+    m_runtime = runtime.value();
+    m_dispatcher = dispatcher.value();
 
     if (m_initialPage) {
       m_model.SelectPage(*m_initialPage);
@@ -58,7 +58,7 @@ public:
           NGIN::Core::MakeKernelError(
               NGIN::Core::KernelErrorCode::InternalError,
               "NGIN.UI.Gallery.Hosted", "CreateMainWindow",
-              window.Error().message.CStr()));
+              window.error().message.CStr()));
     }
     if (m_smoke) {
       return m_dispatcher->Post([this] { AdvanceSmoke(); });
@@ -139,7 +139,7 @@ auto main(const int argc, char **argv) -> int {
               },
       });
   if (!hosting) {
-    return ReportUIError("UI hosting configuration failed", hosting.Error());
+    return ReportUIError("UI hosting configuration failed", hosting.error());
   }
 
   ModuleOptions presentation{};
@@ -169,9 +169,9 @@ auto main(const int argc, char **argv) -> int {
 
   auto built = builder->Build();
   if (!built) {
-    return ReportCoreError("Hosted application build failed", built.Error());
+    return ReportCoreError("Hosted application build failed", built.error());
   }
-  auto run = built.Value()->Run();
+  auto run = built.value()->Run();
   return run ? 0
-             : ReportCoreError("Hosted application run failed", run.Error());
+             : ReportCoreError("Hosted application run failed", run.error());
 }

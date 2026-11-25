@@ -4,9 +4,10 @@
   <Uses>
     <Project Path="NGIN.UI.Gallery.Shared.nginproj" />
     <Capability Name="NGIN.UI.Backend" Version="1" />
+    <Package Name="NGIN.Reflection" Version="0.1" />
     <Package Name="NGIN.UI" Version="0.4" />
   </Uses>
-  <Build>
+  <Build Conventions="false">
     <Source Include="src/main.cpp" />
   </Build>
   <Stage>

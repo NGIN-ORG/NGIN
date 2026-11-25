@@ -99,7 +99,6 @@ private:
   UI::Color m_value;
 };
 
-void ComposeCustomControlExamples(UI::Composer &composer,
-                                  UI::NativeTextSystem &text,
-                                  const UI::Theme &theme);
+[[nodiscard]] auto CustomControlExamples(const UI::Theme &theme)
+    -> UI::Views::View;
 } // namespace NGIN::UIGallery

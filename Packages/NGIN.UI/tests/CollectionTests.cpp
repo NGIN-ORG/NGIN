@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <NGIN/UI/Collections.hpp>
+#include "HeadlessTextFixture.hpp"
+#include <NGIN/UI/CollectionPrimitives.hpp>
+#include <NGIN/UI/ComponentPrimitives.hpp>
+#include <NGIN/UI/CollectionViews.hpp>
 #include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Semantics.hpp>
@@ -814,6 +817,66 @@ TEST_CASE("virtualized list keeps 100000 items proportional to the viewport") {
   CHECK(semanticRealized.Find(stableSemanticId) != nullptr);
   CHECK_FALSE(HasSemanticState(semanticRealized.Find(stableSemanticId)->states,
                                SemanticStateFlags::Virtualized));
+}
+
+TEST_CASE("mounted virtual lists reconcile only realized source keys after a "
+          "scroll") {
+  Testing::HeadlessText text;
+  GeneratedVirtualizedSource source{100'000};
+  FixedVirtualizedListController controller{{.itemExtent = 20.0F,
+                                             .overscanItems = 1,
+                                             .initialViewportExtent = 100.0F}};
+  NGIN::UIntSize invalidations = 0;
+  auto mount = Views::Mount(Views::VirtualizedList<NGIN::UIntSize>(
+                                controller, source,
+                                [](NGIN::UIntSize value, NGIN::UIntSize) {
+                                  return Views::Label(std::to_string(value));
+                                }),
+                            text.Environment(),
+                            [&](InvalidationKind) { ++invalidations; });
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  auto compose = [&] {
+    Composer composer;
+    mount(composer);
+    return reconciler.Reconcile(composer.Declarations());
+  };
+  static_cast<void>(compose());
+  REQUIRE(FindByKey(tree, "item-0"));
+  CHECK(tree.LiveCount() < 20);
+  REQUIRE(controller.UpdateViewport(1'000'000.0F, 100.0F));
+  CHECK(invalidations > 0);
+  static_cast<void>(compose());
+  CHECK_FALSE(FindByKey(tree, "item-0"));
+  REQUIRE(FindByKey(tree, "item-50000"));
+  CHECK(tree.LiveCount() < 20);
+}
+
+TEST_CASE("a popup view releases its local state after dismissal") {
+  Testing::HeadlessText text;
+  PopupController popup;
+  Binding<int> value;
+  auto content = Views::Component([&](Views::ComponentScope &scope) {
+    value = scope.Local("value", 0);
+    return Views::Label(std::to_string(value.Get()));
+  });
+  auto mount = Views::Mount(
+      Views::MenuButton(popup, "actions", Views::Label("Actions"), content),
+      text.Environment(), {});
+  auto compose = [&] {
+    Composer composer;
+    mount(composer);
+  };
+  compose();
+  popup.Open();
+  compose();
+  REQUIRE(value.Set(1));
+  popup.Close();
+  compose();
+  CHECK_FALSE(value.Set(2));
+  popup.Open();
+  compose();
+  CHECK(value.Get() == 0);
 }
 
 TEST_CASE("virtualization anchors stable keys across inserts and type ahead") {

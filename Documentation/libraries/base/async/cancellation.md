@@ -60,6 +60,10 @@ if (!scheduled) {
 }
 ```
 
+With a valid executor and an active source, zero or negative finite delays cancel
+immediately. NaN and either infinity return `ScheduleError::Rejected`. A positive
+finite delay beyond the monotonic clock's range uses its last tick.
+
 A timeout is a cancellation policy. Decide at the owning boundary whether the
 user sees “timed out” as a distinct domain error or ordinary cancellation.
 

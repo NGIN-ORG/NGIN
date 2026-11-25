@@ -418,8 +418,8 @@ test('lifecycle presentation keeps build and run output compact', () => {
   assert.match(output, /> ngin run NGIN\.UI\.Gallery\.Hosted --configuration Debug/u);
   assert.match(output, /CONFIGURE\n  ✓ NGIN\.UI\.Gallery\.Shared\s+up to date/u);
   assert.match(output, /BUILD\n  NGIN\.UI\.Gallery\.Shared\n    \[1\/3\] Compiling Gallery\.cpp/u);
-  assert.match(output, /\[3\/3\] Linking\n  ✓ Completed\s+1\.4s/u);
-  assert.match(output, /NGIN\.UI\.Gallery\.Hosted\n  ✓ Completed\s+up to date/u);
+  assert.match(output, /\[3\/3\] Linking NGIN\.UI\.Gallery\.Shared\.lib\n  ✓ Built in 1\.4s/u);
+  assert.match(output, /NGIN\.UI\.Gallery\.Hosted\n  ✓ Up to date/u);
   assert.match(output, /⚠ 1 warning/u);
   assert.match(output, /STAGE\n  NGIN\.UI\.Gallery\.Hosted\n  ✓ 18 files\s+0\.1s/u);
   assert.match(output, /RUN\n  Starting NGIN\.UI\.Gallery\.Hosted\.exe/u);
@@ -428,6 +428,59 @@ test('lifecycle presentation keeps build and run output compact', () => {
   assert.doesNotMatch(output, /SmartPointers\.hpp|Kernel\.cpp|\[Info\]/u);
   assert.match(output, /Process exited with code 0/u);
   assert.match(output, /Completed in 6\.3s/u);
+});
+
+test('build output appears before exit with a CLI that emits no editor events', () => {
+  let output = '';
+  const presenter = new LifecycleOutputPresenter({
+    command: 'build', args: ['build'], label: 'Gallery', append: value => { output += value; }, now: () => 0
+  });
+  assert.match(output, /ngin build Gallery/u);
+  presenter.accept('stdout', '[1/2] Building ');
+  presenter.accept('stdout', 'Gallery.cpp\r\n');
+  assert.match(output, /Building Gallery\.cpp/u);
+  presenter.accept('stderr', 'link failed');
+  presenter.complete(1);
+  assert.match(output, /link failed\n\n✗ Gallery failed.*exit code 1/u);
+  assert.equal(output.match(/Building Gallery\.cpp/gu)?.length, 1);
+});
+
+test('terminal receives live steps while scrollback retains target summaries and cancellation', () => {
+  let scrollback = '';
+  const steps: string[] = [];
+  const presenter = new LifecycleOutputPresenter({
+    command: 'build', args: ['build'], label: 'App', append: value => { scrollback += value; },
+    activity: (target, action, progress) => steps.push(`${target} ${action} ${progress?.current ?? ''}`),
+    now: () => 500
+  });
+  presenter.accept('stdout', '\x1eNGIN {"kind":"NGIN.EditorEvent","event":"build-start","target":"Lib"}\n');
+  presenter.accept('stdout', '[1/200] Building CXX object Lib/a.cpp.o\n[2/200] Building CXX object Lib/b.cpp.o\n');
+  assert.deepEqual(steps, ['Lib Building ', 'Lib Compiling a.cpp 1', 'Lib Compiling b.cpp 2']);
+  presenter.accept('stdout', '\x1eNGIN {"kind":"NGIN.EditorEvent","event":"build-end","target":"Lib"}\n');
+  presenter.cancel();
+  presenter.cancel();
+  assert.match(scrollback, /✓ Lib · Built in 0.0s/u);
+  assert.doesNotMatch(scrollback, /Compiling|failed|✓ Built App/u);
+  assert.equal(scrollback.match(/Canceled App/gu)?.length, 1);
+});
+
+test('large builds report slow compiles between percentage milestones', () => {
+  let output = '', now = 0;
+  const presenter = new LifecycleOutputPresenter({
+    command: 'build', args: ['build'], label: 'Gallery', append: value => { output += value; }, now: () => now
+  });
+  presenter.accept('stdout', '\x1eNGIN {"kind":"NGIN.EditorEvent","event":"build-start"}\n');
+  const compile = (step: number) =>
+    presenter.accept('stdout', `[${step}/200] Building CXX object src/part${step}.cpp.o\n`);
+  compile(1);
+  compile(2);
+  assert.match(output, /Compiling part1\.cpp/u);
+  assert.doesNotMatch(output, /part2/u);
+  now = 5100;
+  compile(3);
+  assert.match(output, /Compiling part3\.cpp/u);
+  presenter.complete(0);
+  assert.match(output, /✓ Built Gallery in 5.1s/u);
 });
 
 test('lifecycle display uses command syntax instead of a configuration tagline', () => {

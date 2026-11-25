@@ -19,6 +19,9 @@ current path through the project system or an NGIN library.
 | 10 | [Hello.Plugin](Hello.Plugin) | Loadable Plugin library artifact without runtime activation |
 | 11 | [Hello.IO](Hello.IO) | Async application setup, file I/O, loopback TCP, and cancellation |
 
+Start UI development with [NGIN.UI.Settings](NGIN.UI.Settings). It mounts the same
+component tree in a desktop window and an engine-owned frame.
+
 [NGIN.UI.MultiPage](NGIN.UI.MultiPage) demonstrates a smaller hosted,
 service-driven UI application. [Hello.GameOfLife](Hello.GameOfLife) combines
 NGIN.UI and NGIN.ECS in a larger interactive example.

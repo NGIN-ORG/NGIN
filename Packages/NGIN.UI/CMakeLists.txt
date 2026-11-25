@@ -31,8 +31,8 @@ set(
     "Path to the bundled OFL-licensed symbols fallback font"
 )
 
-if(NOT TARGET NGIN::Base)
-    find_package(NGINBase CONFIG QUIET)
+if(NOT TARGET NGIN::Base::Execution)
+    find_package(NGINBase CONFIG QUIET COMPONENTS Execution)
     if(NOT NGINBase_FOUND)
         set(_ngin_ui_base_wrapper "${CMAKE_CURRENT_LIST_DIR}/../NGIN.Base")
         set(_ngin_ui_base_source "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Base")
@@ -54,6 +54,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/Animation.cpp
     src/NGIN/UI/Application.cpp
     src/NGIN/UI/Command.cpp
+    src/NGIN/UI/Components.cpp
     src/NGIN/UI/Composer.cpp
     src/NGIN/UI/Controls.cpp
     src/NGIN/UI/CustomElement.cpp
@@ -67,10 +68,13 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/NativeText.cpp
     src/NGIN/UI/RuntimeTree.cpp
     src/NGIN/UI/Semantics.cpp
+    src/NGIN/UI/SplitPane.cpp
     src/NGIN/UI/State.cpp
+    src/NGIN/UI/Surface.cpp
     src/NGIN/UI/TextEditing.cpp
     src/NGIN/UI/UIRenderer.cpp
     src/NGIN/UI/Virtualization.cpp
+    src/NGIN/UI/ViewControls.cpp
     src/NGIN/UI/ViewModel.cpp
     src/NGIN/UI/Testing/RecordingRenderBackend.cpp
     src/NGIN/UI/Testing/SoftwareRenderBackend.cpp
@@ -91,6 +95,8 @@ target_include_directories(NGIN.UI
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(NGIN.UI PUBLIC NGIN::Base::Execution)
 

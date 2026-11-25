@@ -97,19 +97,14 @@ not be the only indication that a control is disabled or invalid.
 
 ## Border and Separator Composition
 
-`Composer::Border()` creates a normal retained container whose children use
+`Views::Border` creates a normal retained container whose children use
 overlay arrangement. Padding reserves space inside its visual chrome:
 
 ```cpp
-ui.Border(
-    [&] {
-      // Child content.
-    },
-    panel,
-    "settings-card");
+auto card = NGIN::UI::Views::Border({settingsView}, panel).Key("settings-card");
 ```
 
-`Composer::Separator()` creates a decorative horizontal or vertical leaf.
+`Views::Separator` creates a decorative horizontal or vertical leaf.
 Supply `MakeSeparatorVisual(theme)` and override its preferred cross-axis size
 when a rule thicker than one device-independent unit is needed.
 

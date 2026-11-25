@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     if (!app) {
         return 1;
     }
-    return app.Value()->Run().HasValue() ? 0 : 2;
+    return app.value()->Run().has_value() ? 0 : 2;
 }
 ```
 

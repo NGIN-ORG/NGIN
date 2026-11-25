@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -112,26 +113,11 @@ auto main() -> int {
     const auto *initialSidebarNode = window->Tree().Get(initialSidebar);
     const auto *pageNode = window->Tree().Get(page);
     const auto *selectedOverviewNode = window->Tree().Get(selectedOverview);
-    if (!Check(initialSidebarNode != nullptr &&
-                   initialSidebarNode->properties.layout.padding.left >= 20.0F,
-               "gallery navigation has a generous inner gutter") ||
-        !Check(pageNode != nullptr &&
-                   pageNode->properties.layout.padding.right >= 40.0F &&
-                   pageNode->properties.layout.padding.bottom >= 48.0F,
-               "gallery content keeps breathing room around each page") ||
-        !Check(
-            FindByTypeAndKey(window->Tree(), ElementType::Column, "brand-block")
-                    .IsValid() &&
-                FindByTypeAndKey(window->Tree(), ElementType::Column,
-                                 "page-heading")
-                    .IsValid() &&
-                FindByTypeAndKey(window->Tree(), ElementType::Column,
-                                 "gallery-page-content")
-                    .IsValid() &&
-                FindByTypeAndKey(window->Tree(), ElementType::Text,
-                                 "page-section")
-                    .IsValid(),
-            "gallery exposes clear brand, section, and page hierarchy") ||
+    if (!Check(initialSidebarNode && pageNode &&
+                   initialSidebarNode->arrangedBounds.x +
+                           initialSidebarNode->arrangedBounds.width <=
+                       pageNode->arrangedBounds.x,
+               "on desktop the browser and sample occupy separate columns") ||
         !Check(selectedOverviewNode != nullptr &&
                    HasSemanticState(
                        selectedOverviewNode->properties.semantics.states,
@@ -173,6 +159,45 @@ auto main() -> int {
       return 1;
     }
 
+    const auto activate = [&](std::string_view key) {
+      const auto handle =
+          FindByTypeAndKey(window->Tree(), ElementType::Button, key);
+      if (!handle ||
+          (window->FocusedElement() != handle && !window->Focus(handle))) {
+        std::cerr << "Gallery test could not focus button " << key << '\n';
+        return false;
+      }
+      platformObserver->InjectEvent(
+          KeyChanged{.window = window->PlatformHandle(),
+                     .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+                     .state = KeyState::Pressed});
+      platformObserver->InjectEvent(
+          KeyChanged{.window = window->PlatformHandle(),
+                     .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+                     .state = KeyState::Released});
+      auto frame = application->PumpOnce();
+      if (!frame) {
+        std::cerr << "Gallery test could not activate " << key << ": "
+                  << frame.error().message.CStr() << '\n';
+      }
+      return frame.has_value();
+    };
+
+    using NGIN::UIGallery::Page;
+    for (const auto &[key, destination] :
+         {std::pair{"sample-motion", Page::Motion},
+          std::pair{"sample-layout", Page::Layout},
+          std::pair{"sample-inputs", Page::Inputs},
+          std::pair{"sample-collections", Page::Collections}}) {
+      model.SelectPage(Page::Overview);
+      if (!application->PumpOnce() ||
+          !Check(activate(key) && model.CurrentPage() == destination,
+                 "a keyboard user can open each sample directly from its "
+                 "illustration")) {
+        return 1;
+      }
+    }
+
     for (NGIN::UIntSize index = 0; index < NGIN::UIGallery::PageCount;
          ++index) {
       const auto page = NGIN::UIGallery::PageAt(index);
@@ -185,12 +210,9 @@ auto main() -> int {
                  "page selection is deterministic") ||
           !Check(!NGIN::UIGallery::PageName(page).empty(),
                  "every page has a name") ||
-          !Check(!NGIN::UIGallery::PageExample(page).empty(),
-                 "every page has a public API example") ||
-          !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
-                                  "copy-example")
-                     .IsValid(),
-                 "every page exposes a copy-example action") ||
+          !Check(!FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                   "copy-example"),
+                 "samples open without a copy-code footer") ||
           !Check(!window->Semantics().Nodes().empty(),
                  "every page emits semantics")) {
         return 1;
@@ -277,10 +299,14 @@ auto main() -> int {
                   "inputs page exposes radio semantics") ||
            !Check(HasRole(window->Semantics(), SemanticRole::Switch),
                   "inputs page exposes switch semantics") ||
+           !Check(activate("inputs-level"),
+                  "the volume sample opens from the keyboard") ||
            !Check(HasRole(window->Semantics(), SemanticRole::Slider),
                   "inputs page exposes slider semantics") ||
            !Check(HasRole(window->Semantics(), SemanticRole::ProgressBar),
                   "inputs page exposes progress semantics") ||
+           !Check(activate("inputs-form"),
+                  "the form sample opens from the keyboard") ||
            !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
                                    "validation-check")
                       .IsValid(),
@@ -299,6 +325,22 @@ auto main() -> int {
                   "MVVM workflow exposes cancellation"))) {
         return 1;
       }
+      if (page == NGIN::UIGallery::Page::Inputs) {
+        const auto original = model.PasswordBinding().Get();
+        if (!model.PasswordBinding().Set(NGIN::Text::String{"short"}) ||
+            !activate("validation-check"))
+          return 1;
+        const auto *message = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::Text, "validation-password-message"));
+        if (!Check(
+                message && message->properties.text.value.View() ==
+                               "Use at least 8 characters",
+                "checking the form shows feedback beside the password field") ||
+            !Check(!model.FormSaveBinding().CanExecute(),
+                   "a field error disables saving") ||
+            !model.PasswordBinding().Set(original))
+          return 1;
+      }
       if (page == NGIN::UIGallery::Page::Collections) {
         const auto virtualList = FindByTypeAndKey(
             window->Tree(), ElementType::ListView, "virtual-list-100000");
@@ -313,14 +355,6 @@ auto main() -> int {
                    "collections page exposes list semantics") ||
             !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
                    "collections page exposes list-item semantics") ||
-            !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
-                   "collections page exposes combo-box semantics") ||
-            !Check(HasRole(window->Semantics(), SemanticRole::TabList),
-                   "collections page exposes tab-list semantics") ||
-            !Check(HasRole(window->Semantics(), SemanticRole::Tab),
-                   "collections page exposes tab semantics") ||
-            !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
-                   "collections page exposes active tab-panel semantics") ||
             !Check(virtualList.IsValid(),
                    "collections page contains the 100,000-item list") ||
             !Check(virtualDiagnostics !=
@@ -378,26 +412,45 @@ auto main() -> int {
                    "Gallery reports incremental range loads")) {
           return 1;
         }
+        const auto itemCount = model.CollectionItems().size();
+        if (!Check(activate("collections-selection") && activate("add-item") &&
+                       model.CollectionItems().size() == itemCount + 1,
+                   "the selection sample adds an item to the displayed list") ||
+            !Check(!FindByTypeAndKey(window->Tree(), ElementType::ListView,
+                                     "virtual-list-100000")
+                        .IsValid(),
+                   "the virtual list unmounts when switching samples") ||
+            !Check(activate("collections-menus"), "open menus and tabs") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
+                   "collections page exposes combo-box semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::TabList),
+                   "collections page exposes tab-list semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::Tab),
+                   "collections page exposes tab semantics") ||
+            !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
+                   "collections page exposes active tab-panel semantics")) {
+          return 1;
+        }
       }
       if (page == NGIN::UIGallery::Page::Motion) {
-        const auto sample = FindByTypeAndKey(
-            window->Tree(), ElementType::Border, "moving-sample");
-        const auto progress = FindByTypeAndKey(
-            window->Tree(), ElementType::CustomElement, "motion-progress");
-        const auto *sampleNode = window->Tree().Get(sample);
-        const auto *progressNode = window->Tree().Get(progress);
-        if (!Check(
-                sampleNode != nullptr &&
-                    sampleNode->properties.motion.opacity &&
-                    sampleNode->properties.motion.translation &&
-                    sampleNode->properties.motion.scale &&
-                    sampleNode->properties.motion.background,
-                "motion page uses public fade move scale and color targets") ||
-            !Check(progressNode != nullptr &&
-                       progressNode->properties.motion.value.has_value(),
-                   "motion page uses the public animated progress control") ||
-            !Check(window->HasActiveAnimations(),
-                   "indeterminate progress requests motion frames")) {
+        const auto *stage = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::CustomElement, "motion-stage"));
+        const auto *play = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::Button, "play-curve"));
+        if (!Check(stage && play && stage->properties.motion.value,
+                   "timing curve and playback action mount together") ||
+            !Check(
+                stage->arrangedBounds.y >= 0 &&
+                    stage->arrangedBounds.y + stage->arrangedBounds.height <=
+                        play->arrangedBounds.y + 1 &&
+                    play->arrangedBounds.y + play->arrangedBounds.height <=
+                        window->PixelExtent().height &&
+                    std::abs(play->arrangedBounds.y - stage->arrangedBounds.y -
+                             stage->arrangedBounds.height) <= 24,
+                "the preview and play button fit together without scrolling") ||
+            !Check(!FindByTypeAndKey(window->Tree(), ElementType::CustomElement,
+                                     "motion-progress"),
+                   "other motion studies stay unmounted until selected")) {
           return 1;
         }
       }
@@ -406,24 +459,31 @@ auto main() -> int {
                  "text-area page exposes editable text semantics")) {
         return 1;
       }
-      if (page == NGIN::UIGallery::Page::Layout &&
-          (!Check(FindByTypeAndKey(window->Tree(), ElementType::Grid,
-                                   "settings-grid")
-                      .IsValid(),
-                  "layout page uses the public grid primitive") ||
-           !Check(FindByTypeAndKey(window->Tree(), ElementType::WrapPanel,
-                                   "responsive-toolbar")
-                      .IsValid(),
-                  "layout page uses the public wrap-panel primitive") ||
-           !Check(FindByTypeAndKey(window->Tree(), ElementType::Canvas,
-                                   "diagram-canvas")
-                      .IsValid(),
-                  "layout page uses the public canvas primitive") ||
-           !Check(window->LastLayoutStats().grids.size() >= 3,
-                  "layout diagnostics expose resolved grid tracks") ||
-           !Check(!window->LastLayoutStats().wrapPanels.empty(),
-                  "layout diagnostics expose wrapped lines"))) {
-        return 1;
+      if (page == Page::Layout) {
+        const auto node = [&](ElementType type, std::string_view key) {
+          return window->Tree().Get(
+              FindByTypeAndKey(window->Tree(), type, key));
+        };
+        if (!activate("tracks-two"))
+          return 1;
+        const auto *grid = node(ElementType::Grid, "track-artboard");
+        if (!Check(grid && grid->grid.resolvedColumns.size() == 2 &&
+                       grid->grid.resolvedRows.size() == 3,
+                   "changing the track count reflows all six tiles") ||
+            !activate("layout-wrap") || !activate("flow-narrow"))
+          return 1;
+        const auto *flow = node(ElementType::WrapPanel, "flow-artboard");
+        if (!Check(flow && flow->wrapPanel.lines.size() > 1,
+                   "labels wrap inside a narrow preview frame") ||
+            !activate("layout-canvas") || !activate("offset-right"))
+          return 1;
+        const auto *canvas = node(ElementType::Canvas, "canvas-artboard");
+        const auto *marker = node(ElementType::Border, "coordinate-marker");
+        if (!Check(canvas && marker &&
+                       std::abs(marker->arrangedBounds.x -
+                                canvas->arrangedBounds.x - 224) < 1,
+                   "canvas markers are placed in logical pixels"))
+          return 1;
       }
       if (page == NGIN::UIGallery::Page::Typography) {
         const auto fontDiagnostics = model.FontDiagnostics();
@@ -438,10 +498,14 @@ auto main() -> int {
                    "typography samples exercise fallback fonts") ||
             !Check(usedFallback,
                    "typography diagnostics identify a used fallback face") ||
-            !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
-                                    "emoji-policy")
-                       .IsValid(),
-                   "typography states the color-emoji policy")) {
+            !Check(activate("type-display"),
+                   "the type scale is keyboard accessible")) {
+          return 1;
+        }
+        const auto *proof = window->Tree().Get(
+            FindByTypeAndKey(window->Tree(), ElementType::Text, "type-proof"));
+        if (!Check(proof && proof->properties.text.fontSize == 44,
+                   "selecting display size updates the proof")) {
           return 1;
         }
       }
@@ -457,15 +521,63 @@ auto main() -> int {
                   "image cache activity is observable"))) {
         return 1;
       }
+      if (page == Page::Images) {
+        if (!activate("image-cover"))
+          return 1;
+        const auto *image = window->Tree().Get(FindByTypeAndKey(
+            window->Tree(), ElementType::Image, "image-proof"));
+        if (!Check(image && image->properties.image.fit == ImageFit::Cover,
+                   "the fit selection updates the displayed artwork"))
+          return 1;
+      }
+      if (page == NGIN::UIGallery::Page::PropertyEditor) {
+        const auto pressKey = [&](const char *identifier, LogicalKey key) {
+          const auto handle =
+              window->Tree().FindBySemanticIdentifier(identifier);
+          if (!handle.IsValid() || !window->Focus(handle)) {
+            return false;
+          }
+          for (auto state : {KeyState::Pressed, KeyState::Released}) {
+            platformObserver->InjectEvent(KeyChanged{
+                .window = window->PlatformHandle(),
+                .logicalKey = static_cast<NGIN::UInt32>(key),
+                .state = state,
+            });
+          }
+          return application->PumpOnce().has_value();
+        };
+        const auto outputIs = [&](std::string_view expected) {
+          const auto output =
+              window->Tree().FindBySemanticIdentifier("property-Output level");
+          const auto *node = window->Tree().Get(output);
+          return node && node->type == ElementType::Text &&
+                 node->properties.text.value.View() == expected &&
+                 !node->properties.interaction.focusable;
+        };
+        // Output level is a getter-only property computed by the underlying
+        // settings object.
+        if (!Check(outputIs("50"),
+                   "reflected output level starts at the object's default") ||
+            !Check(pressKey("property-Volume", LogicalKey::Right) &&
+                       outputIs("51"),
+                   "editing the reflected volume changes the object's output "
+                   "level") ||
+            !Check(pressKey("property-Mute", LogicalKey::Space) &&
+                       outputIs("0"),
+                   "the reflected mute checkbox changes the object's output "
+                   "level")) {
+          return 1;
+        }
+      }
       if (page == NGIN::UIGallery::Page::Diagnostics) {
         const auto navigation = model.PageNavigationDiagnostics();
-        if (!Check(navigation.region == "Gallery.Content",
+        if (!Check(activate("diagnostics-navigation"),
+                   "open navigation diagnostics") ||
+            !Check(navigation.region == "Gallery.Content",
                    "Gallery uses the public named navigation region") ||
             !Check(navigation.stack.size() == 1 &&
                        navigation.stack.back().pageId == "diagnostics",
                    "Gallery diagnostics reports the current registered page") ||
-            !Check(model.PageActivationCount() >= NGIN::UIGallery::PageCount,
-                   "Gallery reports page activations") ||
             !Check(model.PageReleaseCount() + 1 == model.PageActivationCount(),
                    "Gallery releases every replaced page") ||
             !Check(FindByTypeAndKey(window->Tree(), ElementType::Border,
@@ -477,11 +589,27 @@ auto main() -> int {
       }
     }
 
+    if (!Check(model.PageActivationCount() >= NGIN::UIGallery::PageCount,
+               "Gallery reports page activations")) {
+      return 1;
+    }
+
     auto navigationSearch = model.NavigationSearchBinding();
     const auto accessibilityPageKey = std::to_string(
         static_cast<NGIN::UIntSize>(NGIN::UIGallery::Page::Accessibility));
-    if (!navigationSearch.Set(NGIN::Text::String{"narrator"}) ||
-        !application->PumpOnce() ||
+    const auto searchField = FindByTypeAndKey(
+        window->Tree(), ElementType::TextField, "navigation-search");
+    if (!Check(searchField.IsValid() && window->Focus(searchField),
+               "the sidebar search field accepts keyboard focus")) {
+      return 1;
+    }
+    platformObserver->InjectEvent(
+        TextInput{.window = window->PlatformHandle(),
+                  .text = NGIN::Text::String{"narrator"}});
+    if (!application->PumpOnce() ||
+        !Check(window->FocusedElement() == searchField,
+               "typing a filter keeps keyboard focus in the sidebar search "
+               "field") ||
         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
                                 accessibilityPageKey)
                    .IsValid(),
@@ -499,19 +627,13 @@ auto main() -> int {
                "navigation search explains an empty result")) {
       return 1;
     }
-    if (!navigationSearch.Set(NGIN::Text::String{}) ||
-        !application->PumpOnce()) {
+    if (!Check(activate("clear-search") && navigationSearch.Get().Empty() &&
+                   FindByTypeAndKey(window->Tree(), ElementType::Button, "0"),
+               "clearing an empty search restores the library")) {
       return 1;
     }
 
     model.SelectPage(NGIN::UIGallery::Page::Motion);
-    model.CopyExample(model.CurrentPage());
-    if (!Check(platformObserver->ClipboardText().View() ==
-                   NGIN::UIGallery::PageExample(NGIN::UIGallery::Page::Motion),
-               "copy example writes the shown public API to the clipboard")) {
-      return 1;
-    }
-
     if (!Check(rendererObserver->RenderPackets().size() >=
                    NGIN::UIGallery::PageCount,
                "every gallery page rendered")) {
@@ -524,20 +646,31 @@ auto main() -> int {
     if (!application->PumpOnce()) {
       return 1;
     }
-    const auto viewport = FindByTypeAndKey(
-        window->Tree(), ElementType::ScrollView, "catalogue-viewport");
+    const auto viewport =
+        window->Tree().FindBySemanticIdentifier("catalogue-viewport");
     const auto *viewportNode = window->Tree().Get(viewport);
-    const auto wrappedAtNarrowSize =
-        std::any_of(window->LastLayoutStats().wrapPanels.begin(),
-                    window->LastLayoutStats().wrapPanels.end(),
-                    [](const auto &panel) { return panel.lines.size() > 1; });
-    if (!Check(viewportNode != nullptr &&
-                   viewportNode->arrangedBounds.width >= 280.0F,
-               "gallery keeps a usable content area at its narrow size") ||
-        !Check(wrappedAtNarrowSize,
-               "toolbar wraps actions when the gallery becomes narrow")) {
+    if (!Check(model.IsCompact() && viewportNode &&
+                   viewportNode->arrangedBounds.width >= 640,
+               "compact layout gives the sample the width of the window"))
       return 1;
-    }
+
+    if (!Check(activate("browse-samples") && model.BrowserOpen(),
+               "keyboard opens the compact browser"))
+      return 1;
+    platformObserver->InjectEvent(
+        KeyChanged{.window = window->PlatformHandle(),
+                   .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Escape),
+                   .state = KeyState::Pressed});
+    if (!Check(application->PumpOnce() && !model.BrowserOpen() &&
+                   model.CurrentPage() == Page::Layout,
+               "Escape returns to the current sample") ||
+        !Check(activate("browse-samples") &&
+                   activate(std::to_string(
+                       static_cast<NGIN::UIntSize>(Page::Collections))) &&
+                   !model.BrowserOpen() &&
+                   model.CurrentPage() == Page::Collections,
+               "choosing a sample closes the compact browser"))
+      return 1;
     platformObserver->InjectEvent(
         WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
     if (!application->PumpOnce()) {
@@ -546,14 +679,11 @@ auto main() -> int {
 
     const auto wasLight = model.IsLightTheme();
     model.ToggleTheme();
-    model.Activate();
     if (!application->PumpOnce()) {
       return 1;
     }
     if (!Check(model.IsLightTheme() != wasLight,
-               "theme switching is stateful") ||
-        !Check(model.ActivationCount() == 1,
-               "control activation state is retained")) {
+               "theme switching is stateful")) {
       return 1;
     }
 
@@ -624,56 +754,85 @@ auto main() -> int {
     }
 
     model.SelectPage(NGIN::UIGallery::Page::Motion);
-    if (!application->PumpOnce()) {
+    if (!application->PumpOnce())
       return 1;
+    // Both ends of this interaction should be visible on the first frame of
+    // a short window. The graph scales to available width during playback.
+    for (const auto size : {PixelSize{680, 520}, PixelSize{480, 420}}) {
+      platformObserver->InjectEvent(
+          WindowResized{window->PlatformHandle(), size});
+      if (!application->PumpOnce())
+        return 1;
+      const auto *compactStage = window->Tree().Get(FindByTypeAndKey(
+          window->Tree(), ElementType::CustomElement, "motion-stage"));
+      const auto *compactPlay = window->Tree().Get(
+          FindByTypeAndKey(window->Tree(), ElementType::Button, "play-curve"));
+      if (!Check(compactStage && compactPlay &&
+                     compactStage->arrangedBounds.y >= 52 &&
+                     compactStage->arrangedBounds.x >= 0 &&
+                     compactStage->arrangedBounds.x +
+                             compactStage->arrangedBounds.width <=
+                         size.width &&
+                     compactPlay->arrangedBounds.y +
+                             compactPlay->arrangedBounds.height <=
+                         size.height,
+                 "the compact window shows both the timing plot and its "
+                 "playback button"))
+        return 1;
     }
-    model.ToggleMotionTarget();
-    if (!application->PumpOnce() ||
-        !Check(window->HasActiveAnimations(),
-               "motion target changes start an animation")) {
+    if (!Check(activate("play-curve") && window->HasActiveAnimations(),
+               "playing a curve starts the visible preview"))
       return 1;
-    }
+    platformObserver->InjectEvent(
+        WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
     platformObserver->AdvanceTime(std::chrono::milliseconds{120});
-    if (!application->PumpOnce()) {
-      return 1;
-    }
-    model.ToggleMotionTarget();
-    if (!application->PumpOnce() ||
+    if (!application->PumpOnce() || !activate("play-curve") ||
         !Check(window->HasActiveAnimations(),
-               "motion can reverse before it finishes")) {
+               "playback can reverse while running"))
       return 1;
-    }
-    model.StartMotionRepeat();
-    if (!application->PumpOnce() ||
-        !Check(model.MotionRepeatRunning(),
-               "bounded repeating motion starts from the Gallery") ||
-        !Check(model.MotionRepeatHandle() != nullptr,
-               "repeating motion exposes a cancellation handle")) {
+
+    if (!activate("curve-keyframes") || !activate("curve-custom") ||
+        !Check(HasRole(window->Semantics(), SemanticRole::Slider),
+               "choosing the custom curve exposes editable handles") ||
+        !activate("study-loop") || !activate("start-repeat") ||
+        !Check(model.MotionRepeatRunning() && model.MotionRepeatHandle(),
+               "the loop has a live cancellation handle"))
       return 1;
-    }
-    model.CancelMotionRepeat();
-    if (!application->PumpOnce() || !Check(!model.MotionRepeatRunning(),
-                                           "repeating motion cancels safely")) {
+    if (!activate("stop-repeat") ||
+        !Check(!model.MotionRepeatRunning(),
+               "the loop can be stopped locally") ||
+        !activate("start-repeat") || !activate("study-choreography") ||
+        !Check(!model.MotionRepeatRunning(),
+               "switching studies retires the old loop"))
       return 1;
-    }
-    model.ToggleMotionPreviewReduced();
-    if (!application->PumpOnce() ||
-        !Check(model.MotionPreviewReduced(),
-               "Gallery can preview the reduced-motion behavior") ||
-        !Check(!window->HasActiveAnimations(),
-               "reduced motion settles every active target")) {
+
+    const auto initialMotionStatus = model.AsyncMotionStatus();
+    if (!activate("slow") || !application->PumpOnce())
       return 1;
-    }
-    model.ToggleMotionPreviewReduced();
-    if (!application->PumpOnce() ||
-        !Check(!model.MotionPreviewReduced(),
-               "Gallery restores normal motion after the preview")) {
+    const auto *motionStatus = window->Tree().Get(
+        FindByTypeAndKey(window->Tree(), ElementType::Text, "async-status"));
+    if (!Check(motionStatus &&
+                   model.AsyncMotionStatus() != initialMotionStatus &&
+                   motionStatus->properties.text.value ==
+                       model.AsyncMotionStatus(),
+               "async playback publishes its status beside the tracks"))
       return 1;
-    }
+    if (!activate("cancel") || !activate("study-feedback"))
+      return 1;
+    const auto *progress = window->Tree().Get(FindByTypeAndKey(
+        window->Tree(), ElementType::CustomElement, "motion-progress"));
+    if (!Check(progress && progress->properties.motion.value.has_value(),
+               "the feedback study contains an animated loading control") ||
+        !activate("reduced-motion") ||
+        !Check(model.MotionPreviewReduced() && !window->HasActiveAnimations(),
+               "reduced motion settles the active study") ||
+        !activate("reduced-motion") ||
+        !Check(!model.MotionPreviewReduced(), "full motion can be restored"))
+      return 1;
+
     model.MotionPopup().Open();
-    if (!application->PumpOnce()) {
+    if (!application->PumpOnce())
       return 1;
-    }
     const auto motionPopup =
         FindByTypeAndKey(window->Tree(), ElementType::Popup, "popup");
     const auto *motionPopupNode = window->Tree().Get(motionPopup);
@@ -713,6 +872,9 @@ auto main() -> int {
     if (!application->PumpOnce()) {
       return 1;
     }
+
+    if (!Check(activate("inputs-text"), "open the text editing sample"))
+      return 1;
 
     const auto editor =
         FindByTypeAndKey(window->Tree(), ElementType::TextField, "editable");

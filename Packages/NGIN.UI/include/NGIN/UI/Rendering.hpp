@@ -72,6 +72,9 @@ struct RenderBatch final {
   BlendMode blendMode{BlendMode::PremultipliedAlpha};
 };
 
+/// @brief Operation applied to the color attachment before UI drawing.
+enum class RenderLoadAction : UInt8 { Clear, Preserve };
+
 /// @brief Complete backend-neutral payload for rendering one window frame.
 struct RenderPacket final {
   std::span<const RenderVertex> vertices{};
@@ -81,9 +84,11 @@ struct RenderPacket final {
   PixelSize targetSize{};
   F32 scaleFactor{1.0F};
   Color clearColor{0.08F, 0.09F, 0.11F, 1.0F};
+  RenderLoadAction loadAction{RenderLoadAction::Clear};
 };
 
-/// @brief Renderer contract for surfaces, textures, uploads, and frame submission.
+/// @brief Renderer contract for surfaces, textures, uploads, and frame
+/// submission.
 class IRenderBackend {
 public:
   virtual ~IRenderBackend() = default;

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(NGIN.UI.InstallConsumer LANGUAGES CXX)
 
-find_package(NGINUI 0.3 CONFIG REQUIRED)
+find_package(NGINUI 0.4 CONFIG REQUIRED)
 
 add_executable(NGINUIInstallConsumer main.cpp)
 target_compile_features(NGINUIInstallConsumer PRIVATE cxx_std_23)

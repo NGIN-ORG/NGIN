@@ -54,6 +54,8 @@ have the same item-present precondition.
 
 `Next(context)` returns `Task<GeneratorNext<T>, E>`. Producer domain error,
 cancellation, and fault propagate through that task exactly like other awaits.
+If the producer throws, the fault code is `UnhandledException`. When exception
+capture is enabled, `fault.capturedException` holds the original exception.
 The context token can cancel a pending advance.
 
 ## Single consumer

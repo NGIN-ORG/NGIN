@@ -22,6 +22,9 @@ struct FrameTimingDiagnostics final {
 struct WindowDiagnostics final {
   UInt64 frameCount{0};
   UInt64 compositionCount{0};
+  UInt64 layoutCount{0};
+  UInt64 paintCount{0};
+  UIntSize reusedPaintSubtrees{0};
   ReconcileStats reconciliation{};
   LayoutPassStats layout{};
   UIntSize semanticNodeCount{0};

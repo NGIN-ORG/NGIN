@@ -65,10 +65,40 @@ capability and sorted provider names.
   scenarios.
 - Deferred events are queue-owned: `Main`, `IO`, `Worker`, `Background`, and
   optional `Render`.
-- Tasks run on lane-specific schedulers and expose barriers per lane or across
-  all lanes.
+- Tasks run on lane-specific schedulers.
 - Configuration is layered from defaults, host inputs, environment, local
   override, command line, and runtime mutation.
+
+## Tasks and shutdown
+
+`ModuleContext::Tasks()` submits work owned by the module. Its barriers and
+`WaitIdle` observe that module's callbacks. The runtime returned by
+`IKernel::GetTasks()` and supplied to bootstrap observes work across the host.
+The same lanes and task IDs are shared across both interfaces.
+
+A task stays active while queued, running, or waiting for its scheduled time.
+The lane barrier waits until its lane is idle, and the global barrier waits
+until all its lanes are idle. Both wait through callback capture destruction.
+`WaitIdle` returns false on timeout, and a negative timeout waits indefinitely.
+A callback cannot block on a barrier for its own lane or on a wait across all
+lanes of its runtime. Submission reports invalid arguments and scheduler
+rejections to the caller. Callbacks must handle their own errors. An exception
+that escapes a callback terminates the process.
+
+When shutdown begins, the kernel closes admission for the host runtime and all
+module task views. It calls `OnStop` for started modules in reverse startup
+order, then waits for all accepted work to finish. Once idle, the kernel clears
+module subscriptions, calls `OnShutdown`, and ends module service scopes in
+reverse startup order. Startup failure uses the same drain for work accepted
+before the failure. Use `OnStop` to signal callbacks to finish and
+`OnShutdown` to release module resources those callbacks use.
+
+The drain waits up to two seconds per shutdown attempt. If it times out,
+`Shutdown()` returns `TaskDrainTimeout` and the kernel stays in `Stopping`
+with its module scopes active. Another call to `Shutdown()` can finish the
+drain and cleanup without repeating `OnStop`. Releasing the kernel also
+waits for accepted callbacks before destroying their resources. The module
+task view is borrowed from the kernel.
 
 ## Observability
 

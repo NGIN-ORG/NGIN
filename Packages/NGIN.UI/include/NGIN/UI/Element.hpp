@@ -3,6 +3,7 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/CustomElement.hpp>
+#include <NGIN/UI/CustomLayout.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Image.hpp>
 #include <NGIN/UI/LayoutPrimitives.hpp>
@@ -161,6 +162,7 @@ struct TextFieldProperties final {
 
 /// @brief Text layout, wrapping, alignment, and typography properties.
 struct TextElementProperties final {
+  std::shared_ptr<void> servicesOwner{};
   NGIN::Text::String value{};
   FontRequest font{};
   F32 fontSize{14.0F};
@@ -199,6 +201,7 @@ struct CustomElementProperties final {
 struct NodeProperties final {
   ElementVisibility visibility{ElementVisibility::Visible};
   LayoutProperties layout{};
+  std::shared_ptr<ILayoutPolicy> layoutPolicy{};
   GridProperties grid{};
   GridPlacement gridPlacement{};
   WrapPanelProperties wrapPanel{};
@@ -228,6 +231,15 @@ struct ElementDeclaration final {
   NGIN::Text::String key{};
   NodeProperties properties{};
   std::vector<ElementDeclaration> children{};
+
+  /// @brief Shared immutable subtree produced by a clean mounted component.
+  std::shared_ptr<const ElementDeclaration> cached{};
+  /// @brief Identifies a retained view instance across its declaration rebuilds.
+  UInt64 componentInstance{};
+
+  [[nodiscard]] auto Resolved() const noexcept -> const ElementDeclaration & {
+    return cached ? *cached : *this;
+  }
 
   ElementDeclaration() = default;
 

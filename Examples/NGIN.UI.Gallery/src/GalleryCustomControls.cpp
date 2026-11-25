@@ -32,10 +32,9 @@ constexpr auto CustomControlInvalidation =
   return properties;
 }
 
-void ComposeCenteredLabel(Composer &composer, NativeTextSystem &text,
-                          const Theme &theme, const char *label,
-                          const Size size, const Color color,
-                          const std::string_view key) {
+auto CenteredLabel(const Theme &theme, const char *label, const Size size,
+                   const Color color, const std::string_view key)
+    -> Views::View {
   NodeProperties properties{};
   properties.layout.preferredSize = size;
   properties.layout.horizontalAlignment = HorizontalAlignment::Center;
@@ -43,16 +42,14 @@ void ComposeCenteredLabel(Composer &composer, NativeTextSystem &text,
   properties.interaction.hitTestVisible = false;
   properties.text.fontSize = theme.typography.caption;
   properties.text.color = color;
-  properties.text.geometry = &text;
   properties.text.alignment = TextAlignment::Center;
   properties.semantics.hidden = true;
-  composer.Text(String{label}, text, text, properties, key);
+  return Views::Label(String{label}, properties).Key(key);
 }
 
-void ComposeTextBlock(Composer &composer, NativeTextSystem &text, String value,
-                      const F32 size, const Color color,
-                      const std::string_view key,
-                      const SemanticRole role = SemanticRole::Text) {
+auto TextBlock(String value, const F32 size, const Color color,
+               const std::string_view key,
+               const SemanticRole role = SemanticRole::Text) -> Views::View {
   NodeProperties properties{};
   properties.layout.horizontalAlignment = HorizontalAlignment::Start;
   properties.layout.verticalAlignment = VerticalAlignment::Start;
@@ -60,17 +57,14 @@ void ComposeTextBlock(Composer &composer, NativeTextSystem &text, String value,
   properties.text.fontSize = size;
   properties.text.lineHeight = size + 6.0F;
   properties.text.color = color;
-  properties.text.geometry = &text;
   properties.text.wrapping = TextWrapping::Wrap;
   properties.semantics.role = role;
-  composer.Text(std::move(value), text, text, properties, key);
+  return Views::Label(std::move(value), properties).Key(key);
 }
 
-template <typename ComposeDemo>
-void ComposeDemoSurface(Composer &composer, NativeTextSystem &text,
-                        const Theme &theme, const char *title,
-                        const char *description, const F32 width,
-                        const std::string_view key, ComposeDemo &&composeDemo) {
+auto DemoSurface(const Theme &theme, const char *title, const char *description,
+                 F32 width, std::string_view key, Views::View demo)
+    -> Views::View {
   NodeProperties surface{};
   surface.layout.preferredSize = Size{width, 220.0F};
   surface.layout.maximumSize.width = width;
@@ -82,18 +76,13 @@ void ComposeDemoSurface(Composer &composer, NativeTextSystem &text,
   surface.visual.base.background = theme.colors.sunkenSurface;
   surface.semantics.role = SemanticRole::Group;
   surface.semantics.label = String{title};
-  composer.Element(
-      ElementType::Column, surface,
-      [&] {
-        ComposeTextBlock(composer, text, String{title}, 16.0F,
-                         theme.colors.foreground, "title",
-                         SemanticRole::Heading);
-        ComposeTextBlock(composer, text, String{description},
-                         theme.typography.caption, theme.colors.mutedForeground,
-                         "description");
-        std::forward<ComposeDemo>(composeDemo)();
-      },
-      key);
+  return Views::Column({TextBlock(String{title}, 16.0F, theme.colors.foreground,
+                                  "title", SemanticRole::Heading),
+                        TextBlock(String{description}, theme.typography.caption,
+                                  theme.colors.mutedForeground, "description"),
+                        std::move(demo)},
+                       surface)
+      .Key(key);
 }
 
 [[nodiscard]] auto AdvanceProgress(CustomElementContext &context,
@@ -475,68 +464,56 @@ auto MotionDialElement::Semantics(CustomElementContext &context)
   };
 }
 
-void ComposeCustomControlExamples(Composer &composer, NativeTextSystem &text,
-                                  const Theme &theme) {
+auto CustomControlExamples(const Theme &theme) -> Views::View {
+  NodeProperties badgeOverlay{};
+  badgeOverlay.layout.preferredSize = Size{124.0F, 36.0F};
+  badgeOverlay.layout.horizontalAlignment = HorizontalAlignment::Start;
+  badgeOverlay.layout.verticalAlignment = VerticalAlignment::Center;
+  auto badge =
+      Views::Overlay({Views::Custom(std::make_shared<BadgeElement>(
+                             String{"Ready status"}, theme.colors.raisedSurface,
+                             Color{0.24F, 0.82F, 0.58F, 1.0F}),
+                         ExampleProperties())
+               .Key("badge-paint"),
+           CenteredLabel(theme, "READY", {124.0F, 36.0F},
+                         theme.colors.foreground, "badge-label")},
+          badgeOverlay)
+          .Key("badge");
+
+  auto progressProperties = ExampleProperties();
+  progressProperties.layout.horizontalAlignment = HorizontalAlignment::Center;
+  progressProperties.interaction.focusable = true;
+  auto progress =
+      Views::Custom(std::make_shared<ProgressRingElement>(
+                        0.68F, theme.colors.border, theme.colors.focus),
+                    progressProperties)
+          .Key("progress-ring");
+
+  auto chartProperties = ExampleProperties();
+  chartProperties.interaction.focusable = true;
+  auto chart = Views::Custom(std::make_shared<BarChartElement>(
+                                 std::vector<F32>{0.28F, 0.72F, 0.46F, 0.92F,
+                                                  0.61F, 0.84F},
+                                 theme.colors.raisedSurface,
+                                 theme.colors.accent, theme.colors.focus),
+                             chartProperties)
+                   .Key("bar-chart");
+
   NodeProperties demos{};
-  demos.layout.preferredSize.width = 712.0F;
-  demos.layout.maximumSize.width = 712.0F;
-  demos.wrapPanel.itemGap = 12.0F;
-  demos.wrapPanel.lineGap = 12.0F;
+  demos.layout.preferredSize.width = demos.layout.maximumSize.width = 712.0F;
+  demos.wrapPanel.itemGap = demos.wrapPanel.lineGap = 12.0F;
   demos.wrapPanel.lineAlignment = WrapLineAlignment::Start;
-  composer.WrapPanel(
-      [&] {
-        ComposeDemoSurface(
-            composer, text, theme, "Status badge",
-            "Custom paint and semantics in one compact status.", 204.0F,
-            "badge-demo", [&] {
-              NodeProperties badgeOverlay{};
-              badgeOverlay.layout.preferredSize = Size{124.0F, 36.0F};
-              badgeOverlay.layout.horizontalAlignment =
-                  HorizontalAlignment::Start;
-              badgeOverlay.layout.verticalAlignment = VerticalAlignment::Center;
-              composer.Element(
-                  ElementType::Overlay, badgeOverlay,
-                  [&] {
-                    composer.Custom(std::make_shared<BadgeElement>(
-                                        String{"Ready status"},
-                                        theme.colors.raisedSurface,
-                                        Color{0.24F, 0.82F, 0.58F, 1.0F}),
-                                    ExampleProperties(), "badge-paint");
-                    ComposeCenteredLabel(
-                        composer, text, theme, "READY", Size{124.0F, 36.0F},
-                        theme.colors.foreground, "badge-label");
-                  },
-                  "badge");
-            });
-
-        ComposeDemoSurface(
-            composer, text, theme, "Progress control",
-            "Click it or press Space to advance the value.", 204.0F,
-            "progress-demo", [&] {
-              auto progressProperties = ExampleProperties();
-              progressProperties.layout.horizontalAlignment =
-                  HorizontalAlignment::Center;
-              progressProperties.interaction.focusable = true;
-              composer.Custom(
-                  std::make_shared<ProgressRingElement>(
-                      0.68F, theme.colors.border, theme.colors.focus),
-                  progressProperties, "progress-ring");
-            });
-
-        ComposeDemoSurface(
-            composer, text, theme, "Interactive chart",
-            "Select a bar or use the arrow keys to explore values.", 276.0F,
-            "chart-demo", [&] {
-              auto chartProperties = ExampleProperties();
-              chartProperties.interaction.focusable = true;
-              composer.Custom(std::make_shared<BarChartElement>(
-                                  std::vector<F32>{0.28F, 0.72F, 0.46F, 0.92F,
-                                                   0.61F, 0.84F},
-                                  theme.colors.raisedSurface,
-                                  theme.colors.accent, theme.colors.focus),
-                              chartProperties, "bar-chart");
-            });
-      },
-      demos, "custom-examples");
+  return Views::WrapPanel({DemoSurface(theme, "Status badge",
+                          "Custom paint and semantics in one compact status.",
+                          204.0F, "badge-demo", std::move(badge)),
+              DemoSurface(theme, "Progress control",
+                          "Click it or press Space to advance the value.",
+                          204.0F, "progress-demo", std::move(progress)),
+              DemoSurface(
+                  theme, "Interactive chart",
+                  "Select a bar or use the arrow keys to explore values.",
+                  276.0F, "chart-demo", std::move(chart))},
+             demos)
+      .Key("custom-examples");
 }
 } // namespace NGIN::UIGallery

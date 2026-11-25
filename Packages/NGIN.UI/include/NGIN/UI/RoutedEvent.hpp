@@ -35,6 +35,12 @@ struct RoutedPointerEvent final {
   bool handled{false};
   bool captureRequested{false};
   bool captureReleaseRequested{false};
+  /// @brief Pointer position in the current handler's parent content box.
+  Point parentPosition{};
+  /// @brief Logical extent of the current handler's parent content box.
+  Size parentExtent{};
+  /// @brief Whether currentTarget owns capture for this pointer.
+  bool captured{false};
 
   void Handle() noexcept { handled = true; }
   void CapturePointer() noexcept { captureRequested = true; }

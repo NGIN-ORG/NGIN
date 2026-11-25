@@ -192,6 +192,16 @@ auto Composer::Declarations() const noexcept
   return m_roots;
 }
 
+void Composer::AppendCached(std::shared_ptr<const ElementDeclaration> declaration) {
+  if (declaration) {
+    CurrentChildren().emplace_back().cached = std::move(declaration);
+  }
+}
+
+auto Composer::TakeDeclarations() && -> std::vector<ElementDeclaration> {
+  return std::move(m_roots);
+}
+
 auto Composer::IsBalanced() const noexcept -> bool { return m_stack.empty(); }
 
 void Composer::End(const UIntSize depth) noexcept {

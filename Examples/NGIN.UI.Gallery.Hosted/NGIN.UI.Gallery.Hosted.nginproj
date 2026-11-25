@@ -6,6 +6,7 @@
     <Package Name="NGIN.Core" Version="0.1" />
     <Package Name="NGIN.UI.Hosting" Version="0.4" />
     <Capability Name="NGIN.UI.Backend" Version="1" />
+    <Package Name="NGIN.Reflection" Version="0.1" />
     <Package Name="NGIN.UI" Version="0.4" />
   </Uses>
   <Build>

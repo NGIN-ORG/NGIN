@@ -1,12 +1,11 @@
 # NGIN.UI with NGIN.Core
 
-The hosted path uses the same `Composer` view and controls as a standalone
-application. `NGIN.UI.Hosting` owns the UI application, installs a Core host
+The hosted Gallery mounts the same component tree as the standalone Gallery. `NGIN.UI.Hosting` owns the UI application, installs a Core host
 run loop, publishes UI services, and provides a thread-safe posting boundary.
 
 The complete buildable reference is
 [`NGIN.UI.Gallery.Hosted`](../../Examples/NGIN.UI.Gallery.Hosted/). It shares
-[`ComposeMainView()`](../../Examples/NGIN.UI.Gallery/src/Gallery.cpp) with the
+[`MainView()`](../../Examples/NGIN.UI.Gallery/src/Gallery.cpp) with the
 standalone gallery.
 
 ## Product manifest
@@ -35,6 +34,7 @@ through NGIN.Core; those are deliberately not build-manifest concepts.
 Resolve the hosted runtime in `OnStart()` and create content on the UI thread:
 
 ```cpp
+#include <NGIN/UI/Components.hpp>
 #include <NGIN/UI/Hosting/Hosting.hpp>
 
 class PresentationModule final : public NGIN::Core::IModule {
@@ -47,17 +47,17 @@ public:
         UIApplicationServiceName);
     if (!runtime) {
       return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-          runtime.Error());
+          runtime.error());
     }
     auto dispatcher = context.Services().ResolveRequired<IUIDispatcher>(
         UIDispatcherServiceName);
     if (!dispatcher) {
       return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
-          dispatcher.Error());
+          dispatcher.error());
     }
 
-    m_runtime = runtime.Value();
-    m_dispatcher = dispatcher.Value();
+    m_runtime = runtime.value();
+    m_dispatcher = dispatcher.value();
     auto window = m_runtime->UI().CreateWindow(NGIN::UI::WindowCreateInfo{
         .id = NGIN::Text::String{"main"},
         .title = NGIN::Text::String{"Hosted NGIN.UI"},
@@ -67,17 +67,14 @@ public:
           NGIN::Core::MakeKernelError(
               NGIN::Core::KernelErrorCode::InternalError,
               "Hello.UI.Hosted", "CreateWindow",
-              window.Error().message.CStr()));
+              window.error().message.CStr()));
     }
 
-    auto *text = &m_runtime->Text();
-    window.Value()->SetContent([text](NGIN::UI::Composer &composer) {
-      NGIN::UI::NodeProperties label{};
-      label.text.fontSize = 24.0F;
-      label.text.geometry = text;
-      composer.Text(NGIN::Text::String{"Hello from NGIN.Core"}, *text, *text,
-                    label, "heading");
-    });
+    NGIN::UI::NodeProperties heading{};
+    heading.text.fontSize = 24.0F;
+    window.value()->SetContent(
+        NGIN::UI::Views::Label("Hello from NGIN.Core", heading).Key("heading"),
+        NGIN::UI::Views::ViewEnvironment{m_runtime->Text()});
     return {};
   }
 
@@ -127,7 +124,7 @@ auto posted = dispatcher->Post([model, window, result = std::move(result)]() {
 drained between platform iterations. A callback that posts another callback
 defers it to the next drain instead of recursing.
 
-Do not call `Composer`, `Window`, `Application`, render backends, text services,
+Do not call `Surface`, `Window`, `Application`, render backends, text services,
 or `ImageTextureCache` from a worker. Use
 `IUIDispatcher::IsCurrentThread()` for assertions at integration boundaries.
 
@@ -146,3 +143,7 @@ The same view can be tested without Core using the standalone or headless
 gallery. That is the recommended split: keep view composition independent and
 put service resolution, worker scheduling, and shutdown coordination in the
 presentation module.
+
+Hosted ViewModel tasks use the UI application's background supervisor. During
+shutdown the UI module drains its service scopes, joins application background
+work on the UI event loop, and then waits for the renderer.

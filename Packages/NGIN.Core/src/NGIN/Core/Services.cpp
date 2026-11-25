@@ -96,13 +96,13 @@ namespace NGIN::Core
 
         if (auto registrationValid = provider->RegistrationValidation(); !registrationValid)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(registrationValid.Error());
+            return NGIN::Utilities::Unexpected<KernelError>(registrationValid.error());
         }
 
         std::lock_guard<std::mutex> lock(m_mutex);
         if (auto valid = ValidateOptions(provider->Options()); !valid)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
+            return NGIN::Utilities::Unexpected<KernelError>(valid.error());
         }
 
         if (m_entries.contains(provider->Key()))

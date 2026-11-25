@@ -31,9 +31,9 @@ and coordinates the event loop. `Window` owns one composition, layout,
 rendering, and input pipeline. `DialogWindow` adds owner/modal behavior.
 
 Central `Window` operations configure title/size/content, show/hide/close,
-invalidate or schedule work, and attach event handling. The content callback
-receives a `Composer` for each composition pass. Do not retain that composer;
-it represents one ephemeral declaration pass.
+invalidate or schedule work, and attach event handling. Mount a view once with `window.SetContent(view, environment)`.
+An engine can mount the same view on a `Surface` and submit its frame from
+its own render loop.
 
 An `Application`, its backends, and a window's authored state must outlive
 work scheduled through that window. UI-owned mutation is expected on the UI
@@ -41,18 +41,18 @@ thread unless an API explicitly documents thread-safe posting.
 
 ## Composition and reconciliation
 
-`Composer` builds a declarative tree. `ElementScope` closes nesting by scope.
-`ElementDeclaration` contains a stable key, `ElementType`, properties, and
-children. The runtime reconciles declarations against the previous keyed tree.
+Functions returning `Views::View` compose controls and child views.
+`Views::Component` observes the model state read by its factory. The runtime
+reconciles updated declarations against the previous keyed tree.
 
 Keys identify sibling state across composition. Use stable domain identity,
 not an array position that changes after insert/remove. Duplicate sibling keys
 are an authoring error. A changed type under the same key can require node
 replacement and loss of control-local state.
 
-`RuntimeTree` and its node/handle APIs are runtime infrastructure. Prefer the
-composer and control helpers in application code; use runtime access for custom
-controls, diagnostics, and backends.
+`RuntimeTree` and its node/handle APIs are runtime infrastructure. Use
+`Views::Custom` to mount a painted control, `Views::Layout` for custom sizing
+and placement, and `Surface::Tree` to inspect retained nodes for diagnostics.
 
 ## Elements and layout
 

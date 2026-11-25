@@ -3,7 +3,6 @@
 #include <NGIN/Async/TaskContext.hpp>
 #include <NGIN/Async/TaskSupervisor.hpp>
 #include <NGIN/UI/Accessibility.hpp>
-#include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
@@ -15,6 +14,7 @@
 #include <NGIN/UI/Rendering.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
 #include <NGIN/UI/Semantics.hpp>
+#include <NGIN/UI/Surface.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
@@ -33,7 +33,6 @@ class DialogWindow;
 class Window {
 public:
   using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
-  using Content = NGIN::Utilities::Callable<void(Composer &)>;
   using ScheduledAction = NGIN::Utilities::Callable<void()>;
   using ScheduledActionId = UInt64;
 
@@ -81,7 +80,9 @@ public:
       -> UIResult<void>;
   void SetInspectorOverlay(InspectorOverlayOptions options);
   void SetEventHandler(EventHandler handler);
-  void SetContent(Content content);
+  [[nodiscard]] auto ContentSurface() noexcept -> Surface &;
+  /// @brief Mounts a view on this window using the supplied text and theme services.
+  void SetContent(Views::View view, Views::ViewEnvironment environment);
   void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;
   void SetMotionEnabled(bool enabled) noexcept;
   [[nodiscard]] auto Schedule(std::chrono::milliseconds delay,

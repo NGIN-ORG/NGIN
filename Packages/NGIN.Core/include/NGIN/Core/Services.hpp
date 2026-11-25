@@ -275,9 +275,9 @@ namespace NGIN::Core
                     {
                         lock.unlock();
                         m_activationChanged.notify_all();
-                        return NGIN::Utilities::Unexpected<KernelError>(created.Error());
+                        return NGIN::Utilities::Unexpected<KernelError>(created.error());
                     }
-                    m_instance = created.Value();
+                    m_instance = created.value();
                     auto result = m_instance;
                     lock.unlock();
                     m_activationChanged.notify_all();
@@ -311,9 +311,9 @@ namespace NGIN::Core
                     {
                         lock.unlock();
                         m_activationChanged.notify_all();
-                        return NGIN::Utilities::Unexpected<KernelError>(created.Error());
+                        return NGIN::Utilities::Unexpected<KernelError>(created.error());
                     }
-                    auto result = m_scopedCache.emplace(activeScope.value, created.Value()).first->second;
+                    auto result = m_scopedCache.emplace(activeScope.value, created.value()).first->second;
                     lock.unlock();
                     m_activationChanged.notify_all();
                     return result;
@@ -355,9 +355,9 @@ namespace NGIN::Core
                 auto resolved = Resolve(context);
                 if (!resolved)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(resolved.error());
                 }
-                return NGIN::Reflection::MakeInstanceValue(resolved.Value());
+                return NGIN::Reflection::MakeInstanceValue(resolved.value());
             }
 #endif
 
@@ -395,16 +395,16 @@ namespace NGIN::Core
                 if (!created)
                 {
                     ++m_failureCount;
-                    return NGIN::Utilities::Unexpected<KernelError>(created.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(created.error());
                 }
-                if (!created.Value())
+                if (!created.value())
                 {
                     ++m_failureCount;
                     return NGIN::Utilities::Unexpected<KernelError>(
                         MakeKernelError(KernelErrorCode::InvalidState, "Services", Key().ContractName(), "service factory returned null"));
                 }
                 ++m_activationCount;
-                return created.Value();
+                return created.value();
             }
 
             mutable std::mutex m_mutex {};
@@ -633,7 +633,7 @@ namespace NGIN::Core
             auto valid = ValidateResolve(*provider, effectiveScope);
             if (!valid)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
+                return NGIN::Utilities::Unexpected<KernelError>(valid.error());
             }
 
             auto* typed = dynamic_cast<detail::TypedServiceProvider<ServiceType>*>(provider.get());
@@ -646,7 +646,7 @@ namespace NGIN::Core
             auto resolutionValid = detail::ServiceResolutionGuard::Validate(*provider);
             if (!resolutionValid)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.Error());
+                return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.error());
             }
             detail::ServiceResolutionGuard resolutionGuard(*provider);
 
@@ -657,14 +657,14 @@ namespace NGIN::Core
             auto resolved = typed->Resolve(context);
             if (!resolved)
             {
-                auto error = resolved.Error();
+                auto error = resolved.error();
                 if (error.dependencyPath.empty())
                 {
                     error.dependencyPath = detail::ServiceResolutionGuard::CurrentPath();
                 }
                 return NGIN::Utilities::Unexpected<KernelError>(std::move(error));
             }
-            return std::optional<NGIN::Memory::Shared<ServiceType>> {resolved.Value()};
+            return std::optional<NGIN::Memory::Shared<ServiceType>> {resolved.value()};
         }
 
         template<typename T>
@@ -684,9 +684,9 @@ namespace NGIN::Core
             auto optionalValue = ResolveOptional<T>(name, resolveScope);
             if (!optionalValue)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(optionalValue.Error());
+                return NGIN::Utilities::Unexpected<KernelError>(optionalValue.error());
             }
-            if (!optionalValue.Value().has_value())
+            if (!optionalValue.value().has_value())
             {
                 const auto key = TypeServiceKey<std::remove_cvref_t<T>>(std::string(name));
                 auto dependencyPath = detail::ServiceResolutionGuard::CurrentPath();
@@ -703,7 +703,7 @@ namespace NGIN::Core
                         "service not found: " + key.ContractName(),
                         std::move(dependencyPath)));
             }
-            return *optionalValue.Value();
+            return *optionalValue.value();
         }
 
         [[nodiscard]] virtual auto FindProvider(const ServiceKey& key) noexcept -> std::shared_ptr<detail::ServiceProviderBase> = 0;
@@ -842,7 +842,7 @@ namespace NGIN::Core
                         auto rebuilt = Rebuild();
                         if (!rebuilt)
                         {
-                            return NGIN::Utilities::Unexpected<KernelError>(rebuilt.Error());
+                            return NGIN::Utilities::Unexpected<KernelError>(rebuilt.error());
                         }
                     }
                     constructor = m_constructor;
@@ -884,12 +884,12 @@ namespace NGIN::Core
                     auto valid = context.services.ValidateResolve(*provider, effectiveScope);
                     if (!valid)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
+                        return NGIN::Utilities::Unexpected<KernelError>(valid.error());
                     }
                     auto resolutionValid = ServiceResolutionGuard::Validate(*provider);
                     if (!resolutionValid)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.Error());
+                        return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.error());
                     }
                     ServiceResolutionGuard guard(*provider);
                     ServiceResolutionContext dependencyContext {
@@ -899,14 +899,14 @@ namespace NGIN::Core
                     auto argument = provider->ResolveReflectionArgument(dependencyContext);
                     if (!argument)
                     {
-                        auto error = argument.Error();
+                        auto error = argument.error();
                         if (error.dependencyPath.empty())
                         {
                             error.dependencyPath = ServiceResolutionGuard::CurrentPath();
                         }
                         return NGIN::Utilities::Unexpected<KernelError>(std::move(error));
                     }
-                    arguments.push_back(std::move(argument.Value()));
+                    arguments.push_back(std::move(argument.value()));
                 }
 
                 if (generation != NGIN::Reflection::GetRegistrySnapshot().generation)
@@ -1137,9 +1137,9 @@ namespace NGIN::Core
                 auto dependency = context.services.ResolveRequired<std::remove_cvref_t<DependencyType>>(context.scope);
                 if (!dependency)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(dependency.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(dependency.error());
                 }
-                std::get<TIndex>(values) = dependency.Value();
+                std::get<TIndex>(values) = dependency.value();
                 return ResolveDeclaredDependencies<TIndex + 1, TDependencies...>(context, values);
             }
         }
@@ -1158,7 +1158,7 @@ namespace NGIN::Core
                 auto resolved = ResolveDeclaredDependencies<0, TDependencies...>(context, dependencies);
                 if (!resolved)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+                    return NGIN::Utilities::Unexpected<KernelError>(resolved.error());
                 }
 
                 if constexpr (std::is_same_v<TService, TImplementation>)

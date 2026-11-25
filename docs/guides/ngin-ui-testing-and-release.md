@@ -15,7 +15,7 @@ Configure the core test suite once:
 cmake -S Packages/NGIN.UI -B build/ngin-ui `
   -DNGIN_UI_BUILD_TESTS=ON `
   -DNGIN_UI_BUILD_BENCHMARKS=ON
-cmake --build build/ngin-ui --target NGINUITests NGINUIBenchmarks
+cmake --build build/ngin-ui --target NGINUITests NGINUIAsyncTests NGINUIOwnershipTests NGINUIBenchmarks
 ctest --test-dir build/ngin-ui --output-on-failure
 ```
 
@@ -37,12 +37,10 @@ as visual behavior changes, not as an automatic test-update step.
 Build and run the headless product:
 
 ```powershell
-build/dev/Tools/NGIN.CLI/ngin.exe build `
+build/dev/Tools/NGIN.CLI/ngin.exe run `
   --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj `
   --configuration Debug `
   --output build/manual/NGIN.UI.Gallery.Tests
-
-build/manual/NGIN.UI.Gallery.Tests/bin/NGIN.UI.Gallery.Tests.exe
 ```
 
 The smoke product instantiates every catalogue page and covers resize, pointer
@@ -86,6 +84,24 @@ scales, and renders real FreeType coverage through the software backend. The
 pixel checks cover grayscale antialiasing, centered lines, wrapping,
 descenders, and clip edges at 100%, 125%, 150%, and 200%.
 
+## Retained-surface workloads
+
+`NGINUIBenchmarks` records 200 samples per interactive workload and emits
+nearest-rank p95 and p99 CPU durations, p95 ordinary C++ allocation counts,
+and peak allocations. Setup happens before sampling.
+
+- The idle workload calls `Surface::Update` repeatedly on an unchanged
+  surface. It requires zero allocations and zero additional UI frames.
+- The split-pane workload moves a captured divider beside a static inspector.
+  It measures event dispatch, layout, text shaping, and draw-packet creation,
+  requiring zero recompositions during the drag and reuse of clean measurements.
+- The scrolling workload sends wheel events to a 100,000-row source, then
+  processes the layout and any requested realization pass. A 720-unit viewport
+  with 24-unit rows and three overscan rows at each end allows at most 37 rows.
+
+These headless measurements exclude GPU submission and display latency.
+Compare durations on the same hardware, compiler, and build configuration.
+
 ## MVVM lifetime budgets
 
 The version 0.3 MVVM contracts have backend-neutral lifetime budgets:
@@ -99,8 +115,7 @@ The version 0.3 MVVM contracts have backend-neutral lifetime budgets:
   each affected `ComputedState` at most once when the outer batch closes;
 - the Gallery permits one active load per mounted async screen and one active
   save; both return to zero when canceled or completed;
-- unobserved command failures, retained `Composer` instances, and native
-  backend dependencies in the install consumer have a budget of zero.
+- unobserved command failures and native backend dependencies in the install consumer have a budget of zero.
 
 Use delta checks: snapshot before mounting UI and require the active count to
 return to that baseline after teardown. Created, canceled, and peak counters
@@ -154,8 +169,8 @@ coverage check, and install consumer on Windows, Linux, and macOS.
 | Hosted native `--smoke` | CI | CI under Xvfb | CI |
 | Headless checks | CI | CI | CI |
 
-All three products compile the same `Gallery.cpp` and use the same
-`GalleryViewModel`; only startup and backend ownership differ.
+All three products link `NGIN.UI.Gallery.Shared`, which owns the component
+pages and `GalleryViewModel`. Each host supplies startup and backends.
 
 Applications opt into the `NGIN.UI` `RuntimeAssets` feature and SDL backend
 `RuntimeNotices` feature. The resolved stage then contains the bundled font,

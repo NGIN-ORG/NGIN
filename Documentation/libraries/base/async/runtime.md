@@ -72,6 +72,12 @@ Creating unrelated contexts deep in a call tree breaks cancellation lineage
 and makes execution ownership difficult to reason about. Create child contexts
 only in an owner/combinator whose policy requires them.
 
+An ordinary child await resumes on the caller’s executor on every outcome. For
+example, `co_await StartsOn(worker, Decode())` lets a UI task continue on the UI
+executor. To continue the current task on the worker, use `co_await SwitchTo(worker)`
+or `co_await ContinuesOn(worker, Decode())`. A subsequent caller awaiting this
+task keeps its own executor.
+
 ## External drivers
 
 Network and filesystem drivers have their own progress/lifetime contracts. A

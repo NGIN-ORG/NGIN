@@ -7,6 +7,7 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 #include <NGIN/UI/Style.hpp>
 
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -113,6 +114,8 @@ public:
   void BeginOpacity(F32 opacity);
   auto EndOpacity() noexcept -> UIResult<void>;
 
+  /// @brief Append a balanced display list recorded for a complete subtree.
+  void Append(std::span<const DisplayCommand> commands);
   [[nodiscard]] auto Finish() && noexcept -> UIResult<DisplayList>;
   [[nodiscard]] auto Commands() const noexcept -> const DisplayList &;
 
