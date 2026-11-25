@@ -76,7 +76,7 @@ jobs:
       - name: Read Pages configuration
         if: github.ref_type == 'tag'
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Build documentation site
         working-directory: Documentation
